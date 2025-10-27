@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, auto
 from collections import Counter
 import random
 import os
@@ -13,6 +13,13 @@ class Message(Enum):
     SYSTEM = 1
     UPDATE = 2
     ACTION = 3
+    # For firm agent
+    UPDATE_PRICE = auto()
+    ACTION_PRICE = auto()
+    UPDATE_SUPPLY = auto()
+    ACTION_SUPPLY = auto()
+    UPDATE_PRODUCTION = auto()
+    ACTION_PRODUCTION = auto()
 
 # Shared state for persona messages
 GEN_ROLE_MESSAGES = {}
