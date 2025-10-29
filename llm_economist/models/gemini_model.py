@@ -90,8 +90,7 @@ class GeminiModel(BaseLLMModel):
         combined_prompt = f"{system_prompt}\n\n{user_prompt}"
         # Add JSON format instruction if requested
         if json_format:
-            combined_prompt += "\n\nPlease respond in valid JSON format."        
-        
+            combined_prompt += "\nRespond ONLY with valid JSON, like this: {key: value, key2: value2, etc.}. Be sure to include all the keys and values."
 
         while retry_count < max_retries:
             try:

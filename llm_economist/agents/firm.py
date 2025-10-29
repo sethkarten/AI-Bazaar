@@ -85,7 +85,7 @@ Key metrics to consider:
 - Prices: Current market prices affect demand
 - Profit: Revenue from sales minus costs of supplies
 
-Always respond in valid JSON format with the requested keys."""
+CRITICAL: Always respond with a single, valid JSON object. Do not use markdown code blocks or include explanatory text. Output only the JSON object that can be parsed directly."""
 
     def set_price(self, timestep: int = None) -> Dict[str, float]:
         """LLM decides prices for each good"""
@@ -166,7 +166,7 @@ Always respond in valid JSON format with the requested keys."""
         output = []
         for item in items:
             if isinstance(item, str):
-                item = item.replace('$','').replace(',','')
+                item = item.replace('$','').replace(',','').replace('\n','')
             price = float(item)
             output.append(price)
         return tuple(output)
@@ -176,7 +176,7 @@ Always respond in valid JSON format with the requested keys."""
         output = []
         for item in items:
             if isinstance(item, str):
-                item = item.replace('$','').replace(',','').replace(' units', '')
+                item = item.replace('$','').replace(',','').replace(' units', '').replace('\n','')
             quantity = float(item)
             # Clip to non-negative values
             quantity = max(0.0, quantity)
@@ -188,7 +188,7 @@ Always respond in valid JSON format with the requested keys."""
         output = []
         for item in items:
             if isinstance(item, str):
-                item = item.replace('%','').replace(',','')
+                item = item.replace('%','').replace(',','').replace('\n','')
             pct = float(item)
             # Clip to 0-100%
             pct = np.clip(pct, 0.0, 100.0)
@@ -198,6 +198,7 @@ Always respond in valid JSON format with the requested keys."""
     # Message handling for building prompts
     def add_message(self, timestep: int, m_type: Message, **kwargs) -> None:
         """Add messages to build prompts for the LLM"""
+        self.add_message_history_timestep(timestep)
         if m_type == Message.UPDATE_PRICE:
             # Prepare pricing decision prompt
             self.message_history[timestep]['historical'] += f'Cash: ${self.cash:.2f}\n'
@@ -211,7 +212,7 @@ Always respond in valid JSON format with the requested keys."""
                 price_format = '{' + ', '.join([f'"price_{good}":"X"' for good in self.goods]) + '}'
             
             self.message_history[timestep]['user_prompt'] += f'Decide the price for each good: {goods_list}. '
-            self.message_history[timestep]['user_prompt'] += f'Use the JSON format: {price_format}\n'
+            self.message_history[timestep]['user_prompt'] += f'Exactly use the JSON format: {price_format}\n'
         
         elif m_type == Message.ACTION_PRICE:
             prices = kwargs.get('prices', {})
@@ -247,8 +248,9 @@ Always respond in valid JSON format with the requested keys."""
             else:
                 prod_format = '{' + ', '.join([f'"produce_{good}":"X%"' for good in self.goods]) + '}'
             
-            self.message_history[timestep]['user_prompt'] += f'Decide what percentage of supply to allocate to each good: {goods_list}. '
-            self.message_history[timestep]['user_prompt'] += f'Percentages should sum to 100%. Use the JSON format: {prod_format}\n'
+            self.message_history[timestep]['user_prompt'] += f'Decide what percentage of supply to allocate to all of these goods: {goods_list}.'
+            self.message_history[timestep]['user_prompt'] += f'By replacing the \"X%\"s in this JSON string: {prod_format}\n'
+            self.message_history[timestep]['user_prompt'] += f'Do not respond with any other text or fields.'
         
         elif m_type == Message.ACTION_PRODUCTION:
             production = kwargs.get('production', {})

@@ -130,6 +130,14 @@ class LLMAgent:
         else:
             raise ValueError()
 
+    def extract_keys_from_dict(self, d, keys):
+        result = {}
+        for key, value in d.items():
+            if key in keys:
+                result[key] = value
+            elif isinstance(value, dict):
+                result.update(self.extract_keys_from_dict(value, keys))
+        return result
     
     def call_llm(self, msg: str, timestep: int, keys: list[str], parse_func, depth: int=0, retry: bool=False, cot: bool=False, temperature: float=0.7) -> list[float]:
         response_found = False
@@ -142,10 +150,15 @@ class LLMAgent:
             self.logger.info(f"LLM OUTPUT RECURSE {depth}\t{llm_output.strip()}")
             # parse for json braces {}
             data = json.loads(llm_output)
+            
+            
+            data = self.extract_keys_from_dict(data, keys)
+            
             parsed_keys = []
             for key in keys:
                 parsed_keys.append(data[key])
             output = parse_func(parsed_keys)
+            
         except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
             self.logger.warning(f"JSON parsing failed (attempt {depth}): {str(e)}")
             self.logger.warning(f"LLM output was: {repr(llm_output)}")
@@ -157,12 +170,16 @@ class LLMAgent:
                     self.logger.info(f"Attempting to use cleaned output: {repr(cleaned_output)}")
                     try:
                         data = json.loads(cleaned_output)
+                        
+                        data = self.extract_keys_from_dict(data, keys)
+                        
                         parsed_keys = []
                         for key in keys:
                             parsed_keys.append(data[key])
                         output = parse_func(parsed_keys)
                         return output
                     except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+                        self.logger.warning(f"Falling through to retry: {str(e)}")
                         pass  # Fall through to retry
                 
                 return self.call_llm(msg, timestep, keys, parse_func, depth=depth+1, retry=True)
@@ -173,28 +190,91 @@ class LLMAgent:
     def _clean_json_output(self, output: str, keys: list[str]) -> str:
         """Try to clean up malformed JSON output from LLM."""
         import re
+        import json
+        
+        # Remove markdown code blocks if present
+        output = re.sub(r'```(?:json)?\s*', '', output)
+        output = re.sub(r'```\s*', '', output)
         
         # Remove any text before the first {
         output = re.sub(r'^[^{]*', '', output)
         
-        # Remove any text after the last }
-        output = re.sub(r'}[^}]*$', '}', output)
+        output = output.replace('\\n', ' ')
         
-        # Try to fix common issues
-        # Fix unterminated strings by adding closing quotes
-        if output.count('"') % 2 == 1:  # Odd number of quotes
-            output += '"'
+        # Handle unterminated strings more intelligently
+        # If we have an odd number of quotes, we have an incomplete string
+        quote_count = output.count('"')
+        if quote_count % 2 == 1:
+            # Find incomplete key-value pairs and remove them
+            # Pattern 1: "key": "incomplete_value (no closing quote)
+            # Pattern 2: "incomplete_key (incomplete key name)
+            
+            # First, try to find and remove incomplete key-value pairs
+            # Look for: "key": "incomplete (with colon but no closing quote on value)
+            incomplete_value_pattern = r',\s*"[^"]+"\s*:\s*"[^"]*$'
+            output = re.sub(incomplete_value_pattern, '', output)
+            
+            # Remove incomplete key at the end (e.g., "price_)
+            output = re.sub(r',\s*"[^":]*$', '', output)
+            
+            # If still odd quotes, find the last complete key-value pair
+            quote_count = output.count('"')
+            if quote_count % 2 == 1:
+                # Find all complete key-value pairs: "key": "value" followed by , or }
+                complete_pair_pattern = r'"\w+"\s*:\s*(?:"[^"]*"|[^,}]+)(?=\s*[,}])'
+                matches = list(re.finditer(complete_pair_pattern, output))
+                
+                if matches:
+                    # Keep only up to the last complete pair's end position
+                    # Find where the value ends (after quote or number)
+                    last_match_end = matches[-1].end()
+                    # Look ahead to see if there's a comma or closing brace
+                    next_char_pos = last_match_end
+                    while next_char_pos < len(output) and output[next_char_pos] in ' \t\n':
+                        next_char_pos += 1
+                    if next_char_pos < len(output) and output[next_char_pos] in ',}':
+                        next_char = output[next_char_pos]
+                        output = output[:next_char_pos]
+                        if next_char == ',':
+                            output += '}'
+                        elif not output.endswith('}'):
+                            output += '}'
+                    else:
+                        # The last match might be incomplete, try previous one
+                        if len(matches) > 1:
+                            prev_match = matches[-2]
+                            output = output[:prev_match.end()]
+                            # Add comma if next would be another field, or closing brace
+                            output = re.sub(r',\s*$', '', output)
+                            output += '}'
+                        else:
+                            # Only one match, but might be incomplete - just close the string
+                            output += '"'
+                            if not output.endswith('}'):
+                                output = re.sub(r',\s*$', '', output)
+                                output += '}'
+                else:
+                    # No complete pairs found, try to salvage by closing the string
+                    output += '"'
         
         # Fix missing closing braces
         open_braces = output.count('{')
         close_braces = output.count('}')
         if open_braces > close_braces:
+            # Remove trailing comma before adding closing brace
+            output = re.sub(r',\s*$', '', output)
             output += '}' * (open_braces - close_braces)
+        
+        # Remove trailing commas before closing braces
+        output = re.sub(r',(\s*[}])', r'\1', output)
         
         # Try to extract just the JSON part if there's extra text
         json_match = re.search(r'\{.*\}', output, re.DOTALL)
         if json_match:
             output = json_match.group(0)
+        
+        # Final cleanup: remove any text after the last }
+        output = re.sub(r'}[^}]*$', '}', output)
         
         return output
     
