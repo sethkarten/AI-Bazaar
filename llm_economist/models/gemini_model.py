@@ -84,7 +84,7 @@ class GeminiModel(BaseLLMModel):
             temperature = self.temperature
             
         retry_count = 0
-        max_retries = 3
+        max_retries = 10
         
         # Combine system and user prompts
         combined_prompt = f"{system_prompt}\n\n{user_prompt}"

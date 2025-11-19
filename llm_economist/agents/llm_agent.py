@@ -27,6 +27,7 @@ class LLMAgent:
         
         self.logger = logging.getLogger('main')
         self.name = name
+        self.args = args  # Store args for access to logging flags
         
         # Initialize the appropriate model based on llm_type
         self.llm = self._create_llm_model(llm_type, port, args)
@@ -140,6 +141,18 @@ class LLMAgent:
         return result
     
     def call_llm(self, msg: str, timestep: int, keys: list[str], parse_func, depth: int=0, retry: bool=False, cot: bool=False, temperature: float=0.7) -> list[float]:
+        # Log when prompting an agent
+        if depth == 0:
+            self.logger.info(f"[PROMPT] Prompting agent: {self.name}")
+        
+        # Optionally log full prompts for firm agents (log before sending to LLM)
+        if hasattr(self.args, 'log_firm_prompts') and self.args.log_firm_prompts and self.name.startswith('firm_') and depth == 0:
+            # Log the initial message that will be sent
+            user_msg_to_log = msg if cot else (msg + '\n{"')
+            self.logger.info(f"[FIRM PROMPT] {self.name} at timestep {timestep}:\n"
+                           f"System Prompt:\n{self.system_prompt}\n\n"
+                           f"User Message:\n{user_msg_to_log}")
+        
         response_found = False
         if cot:
             llm_output, response_found = self.llm.send_msg(self.system_prompt, msg, temperature=temperature, json_format=True)

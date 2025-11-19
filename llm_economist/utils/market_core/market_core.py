@@ -88,36 +88,19 @@ class Market:
         self.quotes.append(quote)
         
     def clear(self, ledger: Ledger):
-        """Match orders with quotes and execute trades
-        
-        Returns:
-            tuple: (filled_orders, sales_info) where sales_info is a list of dicts
-                   with keys: firm_id, good, quantity_sold
-        """
+        """Match orders with quotes and execute trades"""
         filled_orders = []
-        sales_info = []
         
         while self.orders:
             order = self.orders.popleft()
-            result = self._fill_order(order, ledger)
-            if result:
-                filled, quantity_sold = result
-                if filled:
-                    filled_orders.append(order) # Note: Storing duplicate information here between the order and sales_info
-                    sales_info.append({
-                        'firm_id': order.firm_id,
-                        'good': order.good,
-                        'quantity_sold': quantity_sold
-                    })
+            filled = self._fill_order(order, ledger)
+            if filled:
+                filled_orders.append(order)
                 
-        return filled_orders, sales_info
+        return filled_orders
     
-    def _fill_order(self, order: Order, ledger: Ledger):
-        """Try to fill a single order
-        
-        Returns:
-            tuple: (filled: bool, quantity_sold: float) or None if order couldn't be filled
-        """
+    def _fill_order(self, order: Order, ledger: Ledger) -> bool:
+        """Try to fill a single order"""
         # Find best matching quote
         best_quote = None
         for quote in self.quotes:
@@ -129,7 +112,7 @@ class Market:
                     break
                     
         if best_quote is None:
-            return None
+            return False
             
         # Determine quantity to trade
         quantity = min(order.quantity, best_quote.quantity_available)
@@ -139,16 +122,16 @@ class Market:
         if ledger.agent_money.get(order.consumer_id, 0) < total_cost:
             quantity = ledger.agent_money.get(order.consumer_id, 0) / best_quote.price
             total_cost = best_quote.price * quantity
-        
+            
         # Execute the trade
         try:
             ledger.transfer_money(order.consumer_id, order.firm_id, total_cost)
             ledger.transfer_good(order.firm_id, order.consumer_id, order.good, quantity)
         except ValueError as e:
-            return None
+            return False
         
         # Update the quote's available quantity
         best_quote.quantity_available -= quantity
         
-        return (True, quantity)
+        return True
     

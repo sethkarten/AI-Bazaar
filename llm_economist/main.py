@@ -14,9 +14,10 @@ import wandb
 import random
 import numpy as np
 import time
+from typing import Dict
 from .market_core.market_core import Ledger, Market
 from .agents.firm import FirmAgent, FixedFirmAgent
-from .agents.consumer import FixedConsumerAgent
+from .agents.consumer import CESConsumerAgent, FixedConsumerAgent
 from .agents.llm_agent import TestAgent
 
 
@@ -52,7 +53,13 @@ def run_marketplace_simulation(args):
     
     # Initialize firms
     firms = []
-    goods = ['food', 'clothing', 'luxury']
+    
+    goods_list = ['food', 'clothing', 'electronics', 'furniture']
+    goods = []
+    for i in range(args.num_goods):
+        if i > len(goods_list): 
+            break
+        goods.append(goods_list[i])
     
     for i in range(args.num_firms):
         name = f"firm_{i}"
@@ -85,19 +92,43 @@ def run_marketplace_simulation(args):
     
     # Initialize consumers
     consumers = []
+    
+    from llm_economist.utils import PERSONAS
+    personas = [random.sample(PERSONAS, 1)[0] for i in range(args.num_consumers)]
+    
     for i in range(args.num_consumers):
         name = f"consumer_{i}"
+        #! TODO: Make income more realistic
         income = np.random.uniform(50, 200)  # Random income between 50-200
-        
-        consumer = FixedConsumerAgent(
-            name=name,
-            income_stream=income,
-            ledger=ledger,
-            market=market,
-            goods=goods
-        )
+        consumer = None
+        if args.consumer_type == 'CES':
+            consumer = CESConsumerAgent(
+                name=name,
+                income_stream=income,
+                ledger=ledger,
+                market=market,
+                persona=personas[i],
+                ces_params=None,
+                risk_aversion=None,
+                goods=goods,
+                llm=args.llm,
+                port=8000,
+                args=args
+            )
+        else:
+            consumer = FixedConsumerAgent(
+                name=name,
+                income_stream=income,
+                ledger=ledger,
+                market=market,
+                goods=goods,
+                quantity_per_good=args.fixed_consumer_quantity_per_good
+            )
         consumers.append(consumer)
-        logger.info(f"Created {name} with income {income:.2f}")
+        logger.info(f"Created {name} with income {income:.2f} and persona {personas[i]}")
+        
+    # Set tax rate
+    tax_rate = 0.12 # 12% tax rate
     
     # Initialize wandb logging
     if args.wandb:
@@ -116,8 +147,12 @@ def run_marketplace_simulation(args):
         
         wandb_logger = {}
         
+        start_ledger = ledger.copy()
+        
         # Supply phase: Firms purchase supplies
         for firm in firms:
+            if not getattr(firm, "in_business", True):
+                continue
             supply_unit_price = 1.0  #! TODO: Make this dynamic
             if args.firm_type == 'LLM':
                 firm.purchase_supplies(supply_unit_price, timestep)
@@ -129,14 +164,22 @@ def run_marketplace_simulation(args):
         
         # Production phase: Firms produce goods
         for firm in firms:
+            if not getattr(firm, "in_business", True):
+                continue
             firm.produce_goods(timestep)
         
         # Pricing phase: Firms set prices
+        firm_prices: Dict[str, Dict[str, float]] = {}
         for firm in firms:
+            if not getattr(firm, "in_business", True):
+                continue
             if args.firm_type == 'LLM':
                 prices = firm.set_price(timestep)
             else:
                 prices = firm.set_price(price=10.0, timestep=timestep)
+            
+            # Store prices for logging
+            firm_prices[firm.name] = prices
             
             # Post quotes to market
             firm.post_quotes(prices)
@@ -147,33 +190,105 @@ def run_marketplace_simulation(args):
             consumer.receive_income(timestep)
         
         # Consumption phase: Consumers make orders
+        consumer_orders = {}
         for consumer in consumers:
-            consumer.make_orders(timestep)
+            if args.consumer_type == 'CES':
+                orders = consumer.make_orders(timestep, args.consumer_scenario)
+            else:
+                orders = consumer.make_orders(timestep)
+            consumer_orders[consumer.name] = orders
+        
+        # Submit orders to market
+        for consumer in consumers:
+            orders = consumer_orders.get(consumer.name, [])
+            if orders:
+                consumer.submit_orders(orders)
+        
+        pre_clearing_ledger = ledger.copy()
         
         # Market clearing: Execute trades
-        filled_orders = market.clear(ledger)
+        filled_orders, sales_info = market.clear(ledger)
         logger.info(f"Filled {len(filled_orders)} orders")
         
-        # Clear market for next timestep
+        # Update running totals of quantity sold by firm
+        for sale in sales_info:
+            firm_name = sale['firm_id']
+            good = sale['good']
+            quantity_sold = sale['quantity_sold']
+            # Find the firm and update its running total
+            for firm in firms: # Note: Not great efficiency here
+                if firm.name == firm_name:
+                    if good in firm.total_quantity_sold_by_good:
+                        firm.total_quantity_sold_by_good[good] += quantity_sold
+                        firm.total_quantity_sold_by_good_this_timestep[timestep][good] += quantity_sold
+                    break
+        
+        # Clean market for next timestep
         #! TODO: This should probably be done in market.clear()
         market.quotes.clear()
         while market.orders:
             market.orders.popleft()
+            
+        # Overhead phase: Firms pay overhead costs
+        for firm in firms:
+            if not getattr(firm, "in_business", True):
+                continue
+            firm.pay_overhead_costs(timestep)
+        
+        # Taxation phase: Firms and consumers pay taxes
+        firms_taxes_paid: Dict[str, float] = {}
+        consumers_taxes_paid: Dict[str, float] = {}
+        for firm in firms:
+            if not getattr(firm, "in_business", True):
+                firms_taxes_paid[firm.name] = 0.0
+                continue
+            firms_taxes_paid[firm.name] = firm.pay_taxes(timestep, tax_rate)
+        for consumer in consumers:
+            consumers_taxes_paid[consumer.name] = consumer.pay_taxes(timestep, tax_rate)
         
         # Log statistics
         for i, firm in enumerate(firms):
             wandb_logger[f"firm_{i}_cash"] = firm.cash
             for good in goods:
                 wandb_logger[f"firm_{i}_{good}_inventory"] = firm.inventory.get(good, 0)
+                # Log prices by firm and good
+                if firm.name in firm_prices:
+                    price = firm_prices[firm.name].get(good, 0.0)
+                    wandb_logger[f"firm_{i}_{good}_price"] = price
+                # Log quantity sold (running total and this timestep)
+                wandb_logger[f"firm_{i}_{good}_total_sold"] = firm.total_quantity_sold_by_good.get(good, 0.0)
+                wandb_logger[f"firm_{i}_{good}_sold_this_timestep"] = firm.total_quantity_sold_by_good_this_timestep.get(timestep, {}).get(good, 0.0)
         
         #! TODO: does inventory.get(good, 0) exist?
         for i, consumer in enumerate(consumers):
             wandb_logger[f"consumer_{i}_cash"] = consumer.cash
+            wandb_logger[f"consumer_{i}_utility"] = consumer.utility
+            wandb_logger[f"consumer_{i}_cost_of_living"] = consumer.compute_cost_of_living() if timestep > 0 else 0.0
+            wandb_logger[f"consumer_{i}_tax_paid"] = consumers_taxes_paid[consumer.name]
             for good in goods:
                 wandb_logger[f"consumer_{i}_{good}_inventory"] = consumer.inventory.get(good, 0)
+                # Log quantity demanded by consumer for each good
+                orders = consumer_orders.get(consumer.name, [])
+                quantity_demanded = sum(order.quantity for order in orders if order.good == good)
+                wandb_logger[f"consumer_{i}_{good}_demand"] = quantity_demanded
         
         if args.wandb:
             wandb.log(wandb_logger)
+            
+        # Reflection phase: Firms reflect on their actions
+        for firm in firms:
+            if not getattr(firm, "in_business", True):
+                continue
+            firm.reflect(timestep, start_ledger, pre_clearing_ledger, ledger)
+        
+        if not any(getattr(firm, "in_business", True) for firm in firms):
+            elapsed = time.time() - start_time
+            logger.info(
+                "All firms are out of business after timestep %s. Ending simulation early.",
+                timestep,
+            )
+            print(f"All firms are out of business after timestep {timestep}. Ending simulation early in {elapsed:.2f}s")
+            break
         
         # Print progress
         elapsed = time.time() - start_time
@@ -199,6 +314,8 @@ def create_argument_parser():
     # Simulation parameters
     parser.add_argument('--max-timesteps', type=int, default=100, help='Maximum number of timesteps')
     parser.add_argument('--firm-initial-cash', type=float, default=1000.0, help='Initial cash for firms')
+    parser.add_argument('--consumer-type', default='CES', choices=['CES', 'FIXED'], help='Type of consumer agents')
+    parser.add_argument('--consumer-scenario', default='RACE_TO_BOTTOM', choices=['RACE_TO_BOTTOM', 'EARLY_BIRD', 'PRICE_DISCRIMINATION', 'RATIONAL_BAZAAR', 'BOUNDED_BAZAAR'], help='Consumer scenario')
     
     # LLM configuration (for LLM firm agents)
     parser.add_argument('--llm', default='llama3:8b', type=str, help='Language model to use')
@@ -214,6 +331,9 @@ def create_argument_parser():
     parser.add_argument('--log-dir', type=str, default='logs', help='Directory for log files')
     parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    parser.add_argument('--log-firm-prompts', action='store_true', help='Log full user prompts sent to firm agents')
+    parser.add_argument('--num-goods', type=int, default=1, help='Number of goods in the simulation')
+    parser.add_argument('--fixed-consumer-quantity-per-good', type=float, default=10.0, help='Quantity of goods to purchase per good for fixed consumer agents')
     
     return parser
 
