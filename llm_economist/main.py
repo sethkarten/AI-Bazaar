@@ -140,163 +140,166 @@ def run_marketplace_simulation(args):
     
     # Run simulation loop
     start_time = time.time()
-    
-    for timestep in range(args.max_timesteps):
-        logger.info(f"TIMESTEP {timestep}")
-        print(f"TIMESTEP {timestep}")
-        
-        wandb_logger = {}
-        
-        start_ledger = ledger.copy()
-        
-        # Supply phase: Firms purchase supplies
-        for firm in firms:
-            if not getattr(firm, "in_business", True):
-                continue
-            supply_unit_price = 1.0  #! TODO: Make this dynamic
-            if args.firm_type == 'LLM':
-                firm.purchase_supplies(supply_unit_price, timestep)
-            else:
-                # Fixed behavior: purchase a fixed amount
-                #! TODO: Make fixed purchase_supplies directly follow CES utility (is this possible?)
-                quantity = firm.cash * 0.5 / supply_unit_price
-                firm.purchase_supplies(quantity, supply_unit_price, timestep)
-        
-        # Production phase: Firms produce goods
-        for firm in firms:
-            if not getattr(firm, "in_business", True):
-                continue
-            firm.produce_goods(timestep)
-        
-        # Pricing phase: Firms set prices
-        firm_prices: Dict[str, Dict[str, float]] = {}
-        for firm in firms:
-            if not getattr(firm, "in_business", True):
-                continue
-            if args.firm_type == 'LLM':
-                prices = firm.set_price(timestep)
-            else:
-                prices = firm.set_price(price=10.0, timestep=timestep)
+    # try block lets us recover stats in wandb if an error occurs
+    try:
+        for timestep in range(args.max_timesteps):
+            logger.info(f"TIMESTEP {timestep}")
+            print(f"TIMESTEP {timestep}")
             
-            # Store prices for logging
-            firm_prices[firm.name] = prices
+            wandb_logger = {}
             
-            # Post quotes to market
-            firm.post_quotes(prices)
-            logger.info(f"{firm.name} set prices: {prices}")
-        
-        # Income phase: Consumers receive income
-        for consumer in consumers:
-            consumer.receive_income(timestep)
-        
-        # Consumption phase: Consumers make orders
-        consumer_orders = {}
-        for consumer in consumers:
-            if args.consumer_type == 'CES':
-                orders = consumer.make_orders(timestep, args.consumer_scenario)
-            else:
-                orders = consumer.make_orders(timestep)
-            consumer_orders[consumer.name] = orders
-        
-        # Submit orders to market
-        for consumer in consumers:
-            orders = consumer_orders.get(consumer.name, [])
-            if orders:
-                consumer.submit_orders(orders)
-        
-        pre_clearing_ledger = ledger.copy()
-        
-        # Market clearing: Execute trades
-        filled_orders, sales_info = market.clear(ledger)
-        logger.info(f"Filled {len(filled_orders)} orders")
-        
-        # Update running totals of quantity sold by firm
-        for sale in sales_info:
-            firm_name = sale['firm_id']
-            good = sale['good']
-            quantity_sold = sale['quantity_sold']
-            # Find the firm and update its running total
-            for firm in firms: # Note: Not great efficiency here
-                if firm.name == firm_name:
-                    if good in firm.total_quantity_sold_by_good:
-                        firm.total_quantity_sold_by_good[good] += quantity_sold
-                        firm.total_quantity_sold_by_good_this_timestep[timestep][good] += quantity_sold
-                    break
-        
-        # Clean market for next timestep
-        #! TODO: This should probably be done in market.clear()
-        market.quotes.clear()
-        while market.orders:
-            market.orders.popleft()
+            start_ledger = ledger.copy()
             
-        # Overhead phase: Firms pay overhead costs
-        for firm in firms:
-            if not getattr(firm, "in_business", True):
-                continue
-            firm.pay_overhead_costs(timestep)
-        
-        # Taxation phase: Firms and consumers pay taxes
-        firms_taxes_paid: Dict[str, float] = {}
-        consumers_taxes_paid: Dict[str, float] = {}
-        for firm in firms:
-            if not getattr(firm, "in_business", True):
-                firms_taxes_paid[firm.name] = 0.0
-                continue
-            firms_taxes_paid[firm.name] = firm.pay_taxes(timestep, tax_rate)
-        for consumer in consumers:
-            consumers_taxes_paid[consumer.name] = consumer.pay_taxes(timestep, tax_rate)
-        
-        # Log statistics
-        for i, firm in enumerate(firms):
-            wandb_logger[f"firm_{i}_cash"] = firm.cash
-            for good in goods:
-                wandb_logger[f"firm_{i}_{good}_inventory"] = firm.inventory.get(good, 0)
-                # Log prices by firm and good
-                if firm.name in firm_prices:
-                    price = firm_prices[firm.name].get(good, 0.0)
-                    wandb_logger[f"firm_{i}_{good}_price"] = price
-                # Log quantity sold (running total and this timestep)
-                wandb_logger[f"firm_{i}_{good}_total_sold"] = firm.total_quantity_sold_by_good.get(good, 0.0)
-                wandb_logger[f"firm_{i}_{good}_sold_this_timestep"] = firm.total_quantity_sold_by_good_this_timestep.get(timestep, {}).get(good, 0.0)
-        
-        #! TODO: does inventory.get(good, 0) exist?
-        for i, consumer in enumerate(consumers):
-            wandb_logger[f"consumer_{i}_cash"] = consumer.cash
-            wandb_logger[f"consumer_{i}_utility"] = consumer.utility
-            wandb_logger[f"consumer_{i}_cost_of_living"] = consumer.compute_cost_of_living() if timestep > 0 else 0.0
-            wandb_logger[f"consumer_{i}_tax_paid"] = consumers_taxes_paid[consumer.name]
-            for good in goods:
-                wandb_logger[f"consumer_{i}_{good}_inventory"] = consumer.inventory.get(good, 0)
-                # Log quantity demanded by consumer for each good
+            # Supply phase: Firms purchase supplies
+            for firm in firms:
+                if not getattr(firm, "in_business", True):
+                    continue
+                supply_unit_price = 1.0  #! TODO: Make this dynamic
+                if args.firm_type == 'LLM':
+                    firm.purchase_supplies(supply_unit_price, timestep)
+                else:
+                    # Fixed behavior: purchase a fixed amount
+                    #! TODO: Make fixed purchase_supplies directly follow CES utility (is this possible?)
+                    quantity = firm.cash * 0.5 / supply_unit_price
+                    firm.purchase_supplies(quantity, supply_unit_price, timestep)
+            
+            # Production phase: Firms produce goods
+            for firm in firms:
+                if not getattr(firm, "in_business", True):
+                    continue
+                firm.produce_goods(timestep)
+            
+            # Pricing phase: Firms set prices
+            firm_prices: Dict[str, Dict[str, float]] = {}
+            for firm in firms:
+                if not getattr(firm, "in_business", True):
+                    continue
+                if args.firm_type == 'LLM':
+                    prices = firm.set_price(timestep)
+                else:
+                    prices = firm.set_price(price=10.0, timestep=timestep)
+                
+                # Store prices for logging
+                firm_prices[firm.name] = prices
+                
+                # Post quotes to market
+                firm.post_quotes(prices)
+                logger.info(f"{firm.name} set prices: {prices}")
+            
+            # Income phase: Consumers receive income
+            for consumer in consumers:
+                consumer.receive_income(timestep)
+            
+            # Consumption phase: Consumers make orders
+            consumer_orders = {}
+            for consumer in consumers:
+                if args.consumer_type == 'CES':
+                    orders = consumer.make_orders(timestep, args.consumer_scenario)
+                else:
+                    orders = consumer.make_orders(timestep)
+                consumer_orders[consumer.name] = orders
+            
+            # Submit orders to market
+            for consumer in consumers:
                 orders = consumer_orders.get(consumer.name, [])
-                quantity_demanded = sum(order.quantity for order in orders if order.good == good)
-                wandb_logger[f"consumer_{i}_{good}_demand"] = quantity_demanded
-        
-        if args.wandb:
-            wandb.log(wandb_logger)
+                if orders:
+                    consumer.submit_orders(orders)
             
-        # Reflection phase: Firms reflect on their actions
-        for firm in firms:
-            if not getattr(firm, "in_business", True):
-                continue
-            firm.reflect(timestep, start_ledger, pre_clearing_ledger, ledger)
-        
-        if not any(getattr(firm, "in_business", True) for firm in firms):
+            pre_clearing_ledger = ledger.copy()
+            
+            # Market clearing: Execute trades
+            filled_orders, sales_info = market.clear(ledger)
+            logger.info(f"Filled {len(filled_orders)} orders")
+            
+            # Update running totals of quantity sold by firm
+            for sale in sales_info:
+                firm_name = sale['firm_id']
+                good = sale['good']
+                quantity_sold = sale['quantity_sold']
+                # Find the firm and update its running total
+                for firm in firms: # Note: Not great efficiency here
+                    if firm.name == firm_name:
+                        if good in firm.total_quantity_sold_by_good:
+                            firm.total_quantity_sold_by_good[good] += quantity_sold
+                            firm.total_quantity_sold_by_good_this_timestep[timestep][good] += quantity_sold
+                        break
+            
+            # Clean market for next timestep
+            #! TODO: This should probably be done in market.clear()
+            market.quotes.clear()
+            while market.orders:
+                market.orders.popleft()
+                
+            # Overhead phase: Firms pay overhead costs
+            for firm in firms:
+                if not getattr(firm, "in_business", True):
+                    continue
+                firm.pay_overhead_costs(timestep)
+            
+            # Taxation phase: Firms and consumers pay taxes
+            firms_taxes_paid: Dict[str, float] = {}
+            consumers_taxes_paid: Dict[str, float] = {}
+            for firm in firms:
+                if not getattr(firm, "in_business", True):
+                    firms_taxes_paid[firm.name] = 0.0
+                    continue
+                firms_taxes_paid[firm.name] = firm.pay_taxes(timestep, tax_rate)
+            for consumer in consumers:
+                consumers_taxes_paid[consumer.name] = consumer.pay_taxes(timestep, tax_rate)
+            
+            # Log statistics
+            for i, firm in enumerate(firms):
+                wandb_logger[f"firm_{i}_cash"] = firm.cash
+                for good in goods:
+                    wandb_logger[f"firm_{i}_{good}_inventory"] = firm.inventory.get(good, 0)
+                    # Log prices by firm and good
+                    if firm.name in firm_prices:
+                        price = firm_prices[firm.name].get(good, 0.0)
+                        wandb_logger[f"firm_{i}_{good}_price"] = price
+                    # Log quantity sold (running total and this timestep)
+                    wandb_logger[f"firm_{i}_{good}_total_sold"] = firm.total_quantity_sold_by_good.get(good, 0.0)
+                    wandb_logger[f"firm_{i}_{good}_sold_this_timestep"] = firm.total_quantity_sold_by_good_this_timestep.get(timestep, {}).get(good, 0.0)
+            
+            #! TODO: does inventory.get(good, 0) exist?
+            for i, consumer in enumerate(consumers):
+                wandb_logger[f"consumer_{i}_cash"] = consumer.cash
+                wandb_logger[f"consumer_{i}_utility"] = consumer.utility
+                wandb_logger[f"consumer_{i}_cost_of_living"] = consumer.cost_of_living
+                wandb_logger[f"consumer_{i}_tax_paid"] = consumers_taxes_paid[consumer.name]
+                for good in goods:
+                    wandb_logger[f"consumer_{i}_{good}_inventory"] = consumer.inventory.get(good, 0)
+                    # Log quantity demanded by consumer for each good
+                    orders = consumer_orders.get(consumer.name, [])
+                    quantity_demanded = sum(order.quantity for order in orders if order.good == good)
+                    wandb_logger[f"consumer_{i}_{good}_demand"] = quantity_demanded
+            
+            if args.wandb:
+                wandb.log(wandb_logger)
+                
+            # Reflection phase: Firms reflect on their actions
+            for firm in firms:
+                if not getattr(firm, "in_business", True):
+                    continue
+                firm.reflect(timestep, start_ledger, pre_clearing_ledger, ledger)
+            
+            if not any(getattr(firm, "in_business", True) for firm in firms):
+                elapsed = time.time() - start_time
+                logger.info(
+                    "All firms are out of business after timestep %s. Ending simulation early.",
+                    timestep,
+                )
+                print(f"All firms are out of business after timestep {timestep}. Ending simulation early in {elapsed:.2f}s")
+                break
+            
+            # Print progress
             elapsed = time.time() - start_time
-            logger.info(
-                "All firms are out of business after timestep %s. Ending simulation early.",
-                timestep,
-            )
-            print(f"All firms are out of business after timestep {timestep}. Ending simulation early in {elapsed:.2f}s")
-            break
-        
-        # Print progress
-        elapsed = time.time() - start_time
-        print(f"Completed {timestep + 1}/{args.max_timesteps} timesteps in {elapsed:.2f}s")
-        logger.info(f"Timestep {timestep + 1}/{args.max_timesteps} completed")
-    
-    if args.wandb:
-        wandb.finish()
+            print(f"Completed {timestep + 1}/{args.max_timesteps} timesteps in {elapsed:.2f}s")
+            logger.info(f"Timestep {timestep + 1}/{args.max_timesteps} completed")
+    except Exception as e:
+        logger.error(f"Error in simulation: {e}") 
+    finally:
+        if args.wandb:
+            wandb.finish()
     
     logger.info("Marketplace simulation completed successfully!")
     print("Simulation completed!")
@@ -323,6 +326,7 @@ def create_argument_parser():
     parser.add_argument('--prompt-algo', default='io', choices=['io', 'cot'], help='Prompting algorithm')
     parser.add_argument('--history-len', type=int, default=10, help='Length of history')
     parser.add_argument('--timeout', type=int, default=30, help='Timeout for LLM calls')
+    parser.add_argument('--max-tokens',type=int, default=1000, help='Maximum number of tokens to generate')
     parser.add_argument('--service', default='vllm', choices=['vllm', 'ollama'], help='LLM service backend')
     parser.add_argument('--bracket-setting', default='three', choices=['flat', 'three', 'US_FED'], help='Tax bracket setting (legacy, not used in marketplace)')
     
@@ -334,6 +338,7 @@ def create_argument_parser():
     parser.add_argument('--log-firm-prompts', action='store_true', help='Log full user prompts sent to firm agents')
     parser.add_argument('--num-goods', type=int, default=1, help='Number of goods in the simulation')
     parser.add_argument('--fixed-consumer-quantity-per-good', type=float, default=10.0, help='Quantity of goods to purchase per good for fixed consumer agents')
+    parser.add_argument('--use-parsing-agent', action='store_true', help='Use a parsing agent LLM to clean malformed JSON responses')
     
     return parser
 

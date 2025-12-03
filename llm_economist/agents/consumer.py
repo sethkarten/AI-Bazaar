@@ -76,6 +76,8 @@ class CESConsumerAgent(LLMAgent):
         self.income = income_stream
         self.ces_params = ces_params
         self.risk_aversion = risk_aversion
+        self.previous_cost_of_living = None
+        self.cost_of_living = 0.0
         self.persona = persona
         self.ledger = ledger
         self.market = market
@@ -100,7 +102,7 @@ class CESConsumerAgent(LLMAgent):
         # Generate CES parameters using personas if not provided
         if self.persona is not None and self.llm is not None:
             self.ces_params = self.generate_ces_params(self.goods)
-            self.risk_aversion = self.generate_risk_aversion()
+            # self.risk_aversion = self.generate_risk_aversion()
         elif self.ces_params is not None:
             if len(self.ces_params) != len(self.goods):
                 raise ValueError(f"CES parameters must be provided for all goods. Got {len(self.ces_params)} parameters for {len(self.goods)} goods.")
@@ -131,35 +133,61 @@ class CESConsumerAgent(LLMAgent):
     
     def compute_cost_of_living(self) -> float:
         """Compute cost of living & store average prices for each good"""
+        # save previous values
+        self.previous_cost_of_living = self.cost_of_living if self.cost_of_living > 0.0 else self.previous_cost_of_living
+        for good in self.goods:
+            self.prices_prev[good] = self.prices_dict[good] if self.prices_dict[good] > 0.0 else self.prices_prev[good]
+        
         cost_of_living = 0.0
         total = 0.0
         quotes = self.market.quotes
+        #! Debugging
+        for quote in quotes:
+            self.logger.info(f"Quote: {quote.good}: {quote.price}")
+            
         for good in self.goods:
             # Get average price for this good from quotes
-            good_quotes = [q for q in quotes if q.good == good]
+            # Use str() and strip() to handle type mismatches and whitespace
+            good_str = str(good).strip()
+            good_quotes = [q for q in quotes if str(q.good).strip() == good_str]
+            self.logger.info(f"Good quotes: {good_quotes}")
+            self.logger.info(f"# Good quotes: {len(good_quotes)}")
             if good_quotes:
                 self.prices_dict[good] = sum(q.price for q in good_quotes) / len(good_quotes)
             else:
                 self.prices_dict[good] = 0.0  # No quotes available for this good
+                self.logger.warning(f"No quotes available for {good}")
             # compute cost of living for good
-            total += self.ces_params[good] * (self.prices_dict[good] ** (1 - self.sigma))
+            if self.prices_dict[good] > 0.0:
+                total += self.ces_params[good] * (self.prices_dict[good] ** (1 - self.sigma))
+            else:
+                total += self.ces_params[good] * (self.prices_prev[good] ** (1 - self.sigma))
         
         if total == 0.0:
             return 0.0
         cost_of_living = total ** (1 / (1 - self.sigma))
-        return cost_of_living
+        
+        self.cost_of_living = cost_of_living
+        
+        return self.cost_of_living
     
     def compute_demand(self) -> Dict[str, float]:
         """Compute demand for each good"""
         P = self.compute_cost_of_living()
+        if P <= 0.0:
+            P = self.previous_cost_of_living
         demand = {}
         for good in self.goods:
             # get alpha for good
             alpha = self.ces_params[good]
             # get price for good
-            price = self.prices_dict[good]
+            
+            price = self.prices_dict[good] if self.prices_dict[good] > 0.0 else self.prices_prev[good]
             # compute demand for good
-            demand[good] = (self.income / P) * alpha * (price / P) ** (-self.sigma)
+            if P is None or P <= 0.0:
+                demand[good] = 0.0
+            else:
+                demand[good] = (self.income / P) * alpha * (price / P) ** (-self.sigma)
         return demand     
     
     @property
@@ -200,7 +228,8 @@ class CESConsumerAgent(LLMAgent):
         if scenario == 'RACE_TO_BOTTOM':
             # willingness to pay = lowest quote 
             for good in self.goods:
-                lowest_quote = min((q for q in quotes if q.good == good), key=lambda q: q.price)
+                good_str = str(good).strip()
+                lowest_quote = min((q for q in quotes if str(q.good).strip() == good_str), key=lambda q: q.price)
                 orders.append(self.create_order(lowest_quote.firm_id, good, demand[good], lowest_quote.price))
             
         elif scenario == 'EARLY_BIRD':
@@ -397,8 +426,9 @@ class FixedConsumerAgent():
         quotes = self.market.quotes
         orders = []
         for good in self.inventory:
+            good_str = str(good).strip()
             for quote in quotes:
-                if quote.good == good:
+                if str(quote.good).strip() == good_str:
                     orders.append(self.create_order(quote.firm_id, good, self.quantity_per_good, quote.price))
                     break
         return orders

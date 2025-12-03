@@ -1,5 +1,6 @@
 import logging
 from time import sleep
+from typing import Optional
 from ..utils.common import Message
 import json
 from ..models.openai_model import OpenAIModel
@@ -45,18 +46,18 @@ class LLMAgent:
         if llm_type == 'None':
             return None
         elif 'gpt' in llm_type.lower():
-            return OpenAIModel(model_name=llm_type)
+            return OpenAIModel(model_name=llm_type, max_tokens=args.max_tokens)
         elif 'claude' in llm_type.lower() or 'anthropic' in llm_type.lower():
-            return OpenRouterModel(model_name=llm_type)
+            return OpenRouterModel(model_name=llm_type, max_tokens=args.max_tokens)
         elif 'gemini' in llm_type.lower():
-            return GeminiModel(model_name=llm_type)
+            return GeminiModel(model_name=llm_type, max_tokens=args.max_tokens)
         elif '/' in llm_type:  # Assume it's a model path for OpenRouter
-            return OpenRouterModel(model_name=llm_type)
+            return OpenRouterModel(model_name=llm_type, max_tokens=args.max_tokens)
         elif 'llama' in llm_type.lower() or 'gemma' in llm_type.lower():
             if args.service == 'ollama':
-                return OllamaModel(model_name=llm_type, base_url=f"http://localhost:{port}")
+                return OllamaModel(model_name=llm_type, base_url=f"http://localhost:{port}", max_tokens=args.max_tokens)
             else:
-                return VLLMModel(model_name=llm_type, base_url=f"http://localhost:{port}")
+                return VLLMModel(model_name=llm_type, base_url=f"http://localhost:{port}", max_tokens=args.max_tokens)
         else:
             raise ValueError(f"Invalid LLM type: {llm_type}")
 
@@ -118,29 +119,158 @@ class LLMAgent:
     def act_llm(self, timestep: int, keys: list[str], parse_func, depth: int=0, retry: bool=False) -> list[float]:
         # concat user prompts from prev timesteps to get historical information for current timestep
         msg = self.get_historical_message(timestep, retry)
+        
+        # Extract expected format from message_history if available
+        expected_format = None
+        if timestep in self.message_history:
+            expected_format = self.message_history[timestep].get('expected_format', None)
+        
         if self.prompt_algo == 'io':
-            return self.prompt_io(msg, timestep, keys, parse_func)
+            return self.prompt_io(msg, timestep, keys, parse_func, expected_format=expected_format)
         elif self.prompt_algo == 'cot':
-            return self.prompt_cot(msg, timestep, keys, parse_func)
+            return self.prompt_cot(msg, timestep, keys, parse_func, expected_format=expected_format)
         elif self.prompt_algo == 'sc':
-            return self.prompt_sc(msg, timestep, keys, parse_func)
+            return self.prompt_sc(msg, timestep, keys, parse_func, expected_format=expected_format)
         elif self.prompt_algo == 'tot':
-            return self.prompt_sc(msg, timestep, keys, parse_func)
+            return self.prompt_sc(msg, timestep, keys, parse_func, expected_format=expected_format)
         elif self.prompt_algo == 'mcts':
-            return self.prompt_mcts(msg, timestep, keys, parse_func)
+            return self.prompt_mcts(msg, timestep, keys, parse_func, expected_format=expected_format)
         else:
             raise ValueError()
 
     def extract_keys_from_dict(self, d, keys):
         result = {}
+        
+        # Key mapping for alternative key names that LLMs might use
+        key_mapping = {
+            'purchase_supply': 'supply_quantity',
+            'purchase_supplies': 'supply_quantity',
+            'buy_supply': 'supply_quantity',
+            'buy_food_supply': 'supply_quantity',
+        }
+        
+        # Handle nested structures for supply purchases
+        supply_purchase_keys = ['supply_purchases', 'purchase_supplies', 'buy_supplies']
+        for supply_key in supply_purchase_keys:
+            if supply_key in d and isinstance(d[supply_key], dict):
+                # Convert supply_purchases: {"supply": 30.0} to supply_quantity: 30.0
+                # Extract the value from the nested dict (usually keyed by "supply")
+                if 'supply_quantity' in keys and d[supply_key]:
+                    # Prefer "supply" key if it exists, otherwise take the first value
+                    if 'supply' in d[supply_key]:
+                        result['supply_quantity'] = d[supply_key]['supply']
+                    else:
+                        # Take the first value from the nested dict
+                        result['supply_quantity'] = next(iter(d[supply_key].values()))
+                break  # Only process the first matching key
+        
+        # Handle nested structures for production_allocations/production and set_prices/pricing
+        # Support multiple key names the LLM might use
+        production_keys = ['production_allocations', 'production', 'produce', 'production_proportions', 
+                           'production_percentages', 'production_distribution', 'production_allocation', 
+                           'production_percentage', 'production_distribution']
+        pricing_keys = ['set_prices', 'pricing', 'prices']
+        
+        for prod_key in production_keys:
+            if prod_key in d and isinstance(d[prod_key], dict):
+                # Convert production_allocations/production: {"food": "100%"} to produce_food: "100%"
+                for good, pct in d[prod_key].items():
+                    key = f'produce_{good}'
+                    if key in keys:
+                        result[key] = pct
+                break  # Only process the first matching key
+        
+        for price_key in pricing_keys:
+            if price_key in d and isinstance(d[price_key], dict):
+                # Convert set_prices/pricing: {"food": 2.00} to price_food: 2.00
+                for good, price in d[price_key].items():
+                    key = f'price_{good}'
+                    if key in keys:
+                        result[key] = price
+                break  # Only process the first matching key
+        
+        # Standard extraction
         for key, value in d.items():
+            # Skip nested structures we've already handled
+            if key in ['production_allocations', 'production', 'produce', 'set_prices', 'pricing', 'prices', 
+                       'supply_purchases', 'purchase_supplies', 'buy_supplies']:
+                continue
+                
+            # Check if key matches directly
             if key in keys:
                 result[key] = value
+            # Check if mapped key matches
+            elif key in key_mapping and key_mapping[key] in keys:
+                result[key_mapping[key]] = value
+            # Recursively search in nested dicts
             elif isinstance(value, dict):
-                result.update(self.extract_keys_from_dict(value, keys))
+                nested_result = self.extract_keys_from_dict(value, keys)
+                result.update(nested_result)
+        
         return result
     
-    def call_llm(self, msg: str, timestep: int, keys: list[str], parse_func, depth: int=0, retry: bool=False, cot: bool=False, temperature: float=0.7) -> list[float]:
+    def _call_parsing_agent(self, malformed_json: str, expected_format: str, keys: list[str]) -> Optional[str]:
+        """Use a parsing agent LLM to clean and reformat malformed JSON.
+        
+        Args:
+            malformed_json: The malformed JSON string from the original LLM
+            expected_format: The expected JSON format from the user prompt
+            keys: List of expected keys
+            
+        Returns:
+            Cleaned JSON string in the expected format
+        """
+        if not hasattr(self.args, 'use_parsing_agent') or not self.args.use_parsing_agent:
+            return None
+        
+        if self.llm is None:
+            return None
+        
+        try:
+            # Create a prompt for the parsing agent
+            system_prompt = """You are a JSON parsing and reformatting assistant. Your task is to take malformed or incorrectly formatted JSON and convert it to the exact format specified.
+
+You must:
+1. Parse the malformed JSON (even if it's incomplete or has errors)
+2. Extract the relevant values
+3. Reformat it to match the EXACT expected format provided
+4. Return ONLY valid JSON in the expected format, with no additional text or markdown
+
+If the malformed JSON contains nested structures (like arrays of objects), convert them to the flat format expected.
+If keys have different names, map them to the expected key names.
+If values are in different formats (e.g., percentages vs numbers), convert them appropriately."""
+            
+            user_prompt = f"""Malformed JSON response:
+{malformed_json}
+
+Expected JSON format:
+{expected_format}
+
+Expected keys: {', '.join(keys)}
+
+Please reformat the malformed JSON to match the expected format exactly. Return ONLY the cleaned JSON object, with no markdown, no code blocks, and no explanatory text."""
+            
+            self.logger.info(f"[PARSING AGENT] Sending malformed JSON to parsing agent for {self.name}")
+            cleaned_output, _ = self.llm.send_msg(system_prompt, user_prompt, temperature=0.1, json_format=True)
+            self.logger.info(f"[PARSING AGENT] Replied with cleaned JSON: {cleaned_output}")
+            
+            # Clean up the response (remove markdown if present)
+            cleaned_output = cleaned_output.strip()
+            if cleaned_output.startswith('```'):
+                # Remove markdown code blocks
+                import re
+                cleaned_output = re.sub(r'```(?:json)?\s*', '', cleaned_output)
+                cleaned_output = re.sub(r'```\s*', '', cleaned_output)
+                cleaned_output = cleaned_output.strip()
+            
+            self.logger.info(f"[PARSING AGENT] Received cleaned JSON: {cleaned_output[:200]}...")
+            return cleaned_output
+            
+        except Exception as e:
+            self.logger.warning(f"[PARSING AGENT] Failed to parse JSON with parsing agent: {e}")
+            return None
+    
+    def call_llm(self, msg: str, timestep: int, keys: list[str], parse_func, depth: int=0, retry: bool=False, cot: bool=False, temperature: float=0.7, expected_format: Optional[str] = None) -> list[float]:
         # Log when prompting an agent
         if depth == 0:
             self.logger.info(f"[PROMPT] Prompting agent: {self.name}")
@@ -164,8 +294,13 @@ class LLMAgent:
             # parse for json braces {}
             data = json.loads(llm_output)
             
-            
+            # Extract keys with mapping support
             data = self.extract_keys_from_dict(data, keys)
+            
+            # Check if all required keys are present
+            missing_keys = [key for key in keys if key not in data]
+            if missing_keys:
+                raise KeyError(f"Missing keys: {missing_keys}. Available keys: {list(data.keys())}")
             
             parsed_keys = []
             for key in keys:
@@ -177,25 +312,56 @@ class LLMAgent:
             self.logger.warning(f"LLM output was: {repr(llm_output)}")
             
             if depth <= self.timeout:
-                # Try to clean up the output before retrying
-                cleaned_output = self._clean_json_output(llm_output, keys)
-                if cleaned_output != llm_output:
-                    self.logger.info(f"Attempting to use cleaned output: {repr(cleaned_output)}")
-                    try:
-                        data = json.loads(cleaned_output)
-                        
-                        data = self.extract_keys_from_dict(data, keys)
-                        
-                        parsed_keys = []
-                        for key in keys:
-                            parsed_keys.append(data[key])
-                        output = parse_func(parsed_keys)
-                        return output
-                    except (json.JSONDecodeError, KeyError, ValueError, TypeError):
-                        self.logger.warning(f"Falling through to retry: {str(e)}")
-                        pass  # Fall through to retry
+                # Try parsing agent first (if enabled)
+                if self.args.use_parsing_agent and expected_format is not None:
+                    self.logger.info(f"[PARSING AGENT] Calling parsing agent with expected format: {expected_format}")
+                    parsing_agent_output = self._call_parsing_agent(llm_output, expected_format, keys)
+                    if parsing_agent_output:
+                        try:
+                            data = json.loads(parsing_agent_output)
+                            
+                            # Extract keys with mapping support
+                            data = self.extract_keys_from_dict(data, keys)
+                            
+                            # Check if all required keys are present
+                            missing_keys = [key for key in keys if key not in data]
+                            if missing_keys:
+                                raise KeyError(f"Missing keys: {missing_keys}. Available keys: {list(data.keys())}")
+                            
+                            parsed_keys = []
+                            for key in keys:
+                                parsed_keys.append(data[key])
+                            output = parse_func(parsed_keys)
+                            self.logger.info(f"[PARSING AGENT] Successfully parsed JSON using parsing agent")
+                            return output
+                        except (json.JSONDecodeError, KeyError, ValueError, TypeError) as parse_error:
+                            self.logger.warning(f"[PARSING AGENT] Parsing agent output also failed: {parse_error}")
+                else:
+                    # Try to clean up the output before retrying
+                    cleaned_output = self._clean_json_output(llm_output, keys)
+                    if cleaned_output != llm_output:
+                        self.logger.info(f"Attempting to use cleaned output: {repr(cleaned_output)}")
+                        try:
+                            data = json.loads(cleaned_output)
+                            
+                            # Extract keys with mapping support
+                            data = self.extract_keys_from_dict(data, keys)
+                            
+                            # Check if all required keys are present
+                            missing_keys = [key for key in keys if key not in data]
+                            if missing_keys:
+                                raise KeyError(f"Missing keys: {missing_keys}. Available keys: {list(data.keys())}")
+                            
+                            parsed_keys = []
+                            for key in keys:
+                                parsed_keys.append(data[key])
+                            output = parse_func(parsed_keys)
+                            return output
+                        except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+                            self.logger.warning(f"Falling through to retry: {str(e)}")
+                            pass  # Fall through to retry
                 
-                return self.call_llm(msg, timestep, keys, parse_func, depth=depth+1, retry=True)
+                return self.call_llm(msg, timestep, keys, parse_func, depth=depth+1, retry=True, expected_format=expected_format)
             else:
                 raise ValueError(f"Max recursion depth={depth} reached. Error parsing JSON: " + str(e))
         return output
@@ -211,6 +377,11 @@ class LLMAgent:
         
         # Remove any text before the first {
         output = re.sub(r'^[^{]*', '', output)
+        
+        # If output doesn't start with { but starts with a quote, add opening brace
+        # This handles cases like: "purchase_supply": 200.00,...}
+        if output and not output.startswith('{') and output.strip().startswith('"'):
+            output = '{' + output
         
         output = output.replace('\\n', ' ')
         
@@ -292,14 +463,14 @@ class LLMAgent:
         return output
     
     # prompting
-    def prompt_io(self, msg: str, timestep: int, keys: list[str], parse_func) -> list[float]:
-        return self.call_llm(msg, timestep, keys, parse_func)
+    def prompt_io(self, msg: str, timestep: int, keys: list[str], parse_func, expected_format: Optional[str] = None) -> list[float]:
+        return self.call_llm(msg, timestep, keys, parse_func, expected_format=expected_format)
     
     # Self-Consistency prompting
-    def prompt_sc(self, msg: str, timestep: int, keys: list[str], parse_func) -> list[float]:
+    def prompt_sc(self, msg: str, timestep: int, keys: list[str], parse_func, expected_format: Optional[str] = None) -> list[float]:
         llm_outputs = []
         for i in range(self.K):
-            llm_output = self.prompt_cot(msg, timestep, keys, parse_func)
+            llm_output = self.prompt_cot(msg, timestep, keys, parse_func, expected_format=expected_format)
             llm_outputs.append(llm_output)
         def most_common(lst):
             lst_str = [str(x) for x in lst]
@@ -311,10 +482,10 @@ class LLMAgent:
         return output
     
     # Chain of thought prompting
-    def prompt_cot(self, msg: str, timestep: int, keys: list[str], parse_func) -> list[float]:
+    def prompt_cot(self, msg: str, timestep: int, keys: list[str], parse_func, expected_format: Optional[str] = None) -> list[float]:
         cot_prompt = " Let's think step by step. Your thought should no more than 4 sentences."
         # always add json thought "thought":"<step-by-step-thinking>" response in user_prompt in agent
-        return self.call_llm(msg + cot_prompt, timestep, keys, parse_func, cot=True)
+        return self.call_llm(msg + cot_prompt, timestep, keys, parse_func, cot=True, expected_format=expected_format)
     
     def add_message(self, timestep: int, m_type: Message, **args) -> None:
         raise NotImplementedError

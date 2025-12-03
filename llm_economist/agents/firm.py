@@ -521,6 +521,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             
             self.message_history[timestep]['user_prompt'] += f'Decide the price for each good: {goods_list}. '
             self.message_history[timestep]['user_prompt'] += f'Exactly use the JSON format: {price_format}\n'
+            self.message_history[timestep]['expected_format'] = price_format
         
         elif m_type == Message.ACTION_PRICE:
             prices = kwargs.get('prices', {})
@@ -535,11 +536,14 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             self.message_history[timestep]['historical'] += f'Supply unit price: ${unit_price:.2f}\n'
             
             if self.prompt_algo == 'cot' or self.prompt_algo == 'sc':
+                supply_format = '{"thought":"<thinking>", "supply_quantity":"X"}'
                 self.message_history[timestep]['user_prompt'] += 'Decide how much supply to purchase. '
-                self.message_history[timestep]['user_prompt'] += 'Use the JSON format: {"thought":"<thinking>", "supply_quantity":"X"}\n'
+                self.message_history[timestep]['user_prompt'] += f'Use the JSON format: {supply_format}\n'
             else:
+                supply_format = '{"supply_quantity":"X"}'
                 self.message_history[timestep]['user_prompt'] += 'Decide how much supply to purchase. '
-                self.message_history[timestep]['user_prompt'] += 'Use the JSON format: {"supply_quantity":"X"}\n'
+                self.message_history[timestep]['user_prompt'] += f'Use the JSON format: {supply_format}\n'
+            self.message_history[timestep]['expected_format'] = supply_format
         
         elif m_type == Message.ACTION_SUPPLY:
             quantity = kwargs.get('quantity', 0)
@@ -561,6 +565,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             self.message_history[timestep]['user_prompt'] += f'Decide what percentage of supply to allocate to all of these goods: {goods_list}.'
             self.message_history[timestep]['user_prompt'] += f'By replacing the \"X%\"s in this JSON string: {prod_format}\n'
             self.message_history[timestep]['user_prompt'] += f'Do not respond with any other text or fields.'
+            self.message_history[timestep]['expected_format'] = prod_format
         
         elif m_type == Message.ACTION_PRODUCTION:
             production = kwargs.get('production', {})
