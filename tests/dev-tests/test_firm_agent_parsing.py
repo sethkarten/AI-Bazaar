@@ -31,9 +31,9 @@ import os
 import logging
 import json
 from argparse import Namespace
-from llm_economist.agents.firm import FirmAgent
-from llm_economist.market_core.market_core import Ledger, Market
-from llm_economist.utils.common import Message
+from ai_bazaar.agents.firm import FirmAgent
+from ai_bazaar.market_core.market_core import Ledger, Market
+from ai_bazaar.utils.common import Message
 
 # Set up logging
 logging.basicConfig(

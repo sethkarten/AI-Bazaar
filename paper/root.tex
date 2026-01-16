@@ -1,0 +1,130 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{xcolor}         % colors
+\usepackage{natbib}
+
+\title{The Agent Bazaar: Scaling Agentic Markets with Reinforcement Learning}
+
+\author{%
+  Cameron Crow\\
+  Princeton University\\
+  \texttt{ccrow@princeton.edu} \\
+  \and
+  Seth Karten \\
+  Princeton University \\
+  \texttt{sethkarten@princeton.edu} \\
+  \and
+  Chi Jin \\
+  Princeton University \\
+  \texttt{chijin@princeton.edu} \\
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+  The integration of AI systems into economic activity requires a robust understanding of agentic behavior in market settings. We present Agent Bazaar, a simulation framework for studying high-speed agentic markets. We extend the LLM Economist framework to include decentralized goods trading between heterogeneous firms and consumers. We evaluate agentic decision-making by comparing in-context optimization with policy gradient methods (REINFORCE++). Results indicate that in-context agents adopt competitive pricing but revert to sub-optimal strategies in monopolistic settings. Finetuned open-source models (Gemma 3-4B) match the economic performance of frontier models when trained on market dynamics.
+\end{abstract}
+
+\section{Introduction}
+\label{intro}
+
+The integration of agentic artificial intelligence into economic systems presents both opportunities for efficiency and risks of instability. As Large Language Models (LLMs) transition from passive assistants to active participants in digital marketplaces, understanding their strategic behavior becomes critical for system design and regulation. Prior work on the LLM Economist \citep{karten2025llm} demonstrated the potential for LLMs to simulate hierarchical tax policy optimization. However, the dynamics of decentralized, high-frequency trading in fully agentic markets remain largely unexplored.
+
+In this paper, we introduce Agent Bazaar, a framework for studying competitive market dynamics among LLM-based agents. Unlike hierarchical settings where a single planner governs worker behavior, Agent Bazaar models decentralized interactions between autonomous firms and consumers. Firms must manage production, pricing, and cash flow in a competitive landscape, while consumers optimize their utility according to individual preference personas. This environment allows us to study emergent phenomena such as price wars, first-mover advantages, and the effects of bounded rationality on market efficiency.
+
+We evaluate agentic decision-making by comparing standard in-context optimization with REINFORCE++, a policy gradient method adapted for text-based actions. Our experiments utilize open-source models, specifically the Gemma 3-4B architecture, to ensure transparency and reproducibility without reliance on proprietary frontier APIs. We find that while in-context agents can adapt to competitive pressures, they often fall into destructive pricing strategies that reduce aggregate welfare in monopolistic or limited-information environments. Finetuning via REINFORCE++ enables these agents to develop more robust strategies that match or exceed the performance of larger, general-purpose models.
+
+Our main contributions are:
+\begin{itemize}
+    \item We present Agent Bazaar, a multi-agent framework for simulating decentralized agentic markets with firms and consumers.
+    \item We implement and analyze four distinct market scenarios: Race to the Bottom, Early Bird, Price Discrimination, and Bounded Bazaar.
+    \item We demonstrate that REINFORCE++ finetuning of open-source models improves economic performance relative to in-context optimization.
+    \item We provide a comprehensive evaluation of welfare metrics, including consumer surplus and producer profit, across diverse agent populations.
+\end{itemize}
+
+The remainder of this paper is organized as follows. Section \ref{method} describes the Agent Bazaar framework and our RL implementation. Section \ref{exp} presents experimental results across market scenarios. Section \ref{conclusion} discusses the implications for future agentic economies.
+
+\section{Related Work}
+\label{related}
+
+Our work builds on several lines of research in agent-based modeling, multi-agent reinforcement learning, and LLM-based simulacra.
+
+\paragraph{LLM-based Economic Simulations}
+Recent work has leveraged LLMs to create realistic economic agents. \citet{karten2025llm} introduced the LLM Economist, which uses LLMs for tax policy design in a hierarchical setting. Other studies have explored LLMs in social dilemmas and bargaining games. Agent Bazaar extends this by focusing on decentralized marketplace interactions with firm and consumer roles.
+
+\paragraph{Multi-Agent Reinforcement Learning (MARL)}
+MARL has been applied to economic modeling for decades. Traditional approaches often use MLP-based agents trained with PPO or DQN. Our work differs by using LLMs as the policy architecture, allowing for persona-driven behavior and natural language reasoning. We employ REINFORCE++ to optimize these text-based policies.
+
+\paragraph{Market Dynamics and Mechanism Design}
+The study of price wars and first-mover advantages is a staple of classical economics. Computational models of these dynamics often rely on fixed heuristics. Agent Bazaar provides a test bed for these theories in environments where agents possess limited information and exhibit bounded rationality, similar to human market participants.
+
+\section{Methodology}
+\label{method}
+
+We implement Agent Bazaar as a multi-agent reinforcement learning environment with hierarchical and decentralized decision-making. The framework consists of three primary agent types: Firm Agents, Consumer Agents, and a Tax Planner.
+
+\subsection{Environment Dynamics}
+The simulation proceeds in discrete timesteps. Each step involves a sequence of phases: Labor, Supply, Production, Pricing, Consumption, Market Clearing, and Governance. The state of the world is maintained in a centralized \textit{Ledger}, which tracks the cash and multi-good inventory of every participant.
+
+\subsection{Firm Agents}
+Firms are profit-maximizing entities. At each timestep, a firm $j$ chooses a supply quantity $S_{j,t}$ to purchase and decides the price vector $\mathbf{P}_{j,t}$ for its produced goods. Production is governed by a simple linear transformation of raw supplies into finished goods. The firm's objective is to maximize its cumulative profit:
+\begin{equation}
+    \Pi_j = \sum_{t=0}^T (1 - \tau_f)(\mathbf{P}_{j,t}^\top \mathbf{Q}_{j,t} - c S_{j,t} - \Omega_j)
+\end{equation}
+where $\tau_f$ is the corporate tax rate, $\mathbf{Q}_{j,t}$ is the quantity sold, and $\Omega_j$ represents fixed overhead costs.
+
+\subsection{Consumer Agents}
+Consumers (Workers) maximize utility over consumption bundles and leisure. We utilize a Constant Elasticity of Substitution (CES) utility function, augmented with labor disutility. A consumer $i$ with skill $v_i$ chooses labor hours $l_{i,t}$ and a consumption bundle $\mathbf{x}_{i,t}$:
+\begin{equation}
+    U_i = \left( \sum_{k \in \mathcal{G}} \alpha_{i,k} x_{i,t,k}^{\frac{\sigma-1}{\sigma}} \right)^{\frac{\sigma}{\sigma-1}} - c l_{i,t}^\delta
+\end{equation}
+where $\mathcal{G}$ is the set of goods (e.g., Food, Housing, Utilities), $\alpha_{i,k}$ are preference weights, and $\sigma$ is the elasticity of substitution. Income is derived from labor $z_{i,t} = l_{i,t} v_i \frac{w_t}{10}$ and a base endowment.
+
+\subsection{Governance and Social Welfare}
+A centralized Tax Planner sets marginal tax brackets to optimize a Social Welfare Function (SWF). Collected taxes are redistributed back to consumers as a flat rebate $R_t$, serving as a social safety net. We define SWF as the sum of weighted utilities:
+\begin{equation}
+    \text{SWF} = \sum_{i} \frac{U_i}{\max(z_{i}, 1)}
+\end{equation}
+
+\subsection{REINFORCE++ Optimization}
+While standard agents operate via in-context optimization, we train specialized models using REINFORCE++. The policy $\pi_\theta(a|s)$ is finetuned to maximize the expected reward $R$, where $R$ is the individual utility for workers and social welfare for the planner. We compute the policy gradient as:
+\begin{equation}
+    \nabla_\theta J(\theta) \approx \frac{1}{N} \sum_{i=1}^N \nabla_\theta \log \pi_\theta(a_i|s_i) (R_i - b)
+\end{equation}
+where $b$ is a running baseline of observed rewards.
+
+\section{Experiments}
+\label{exp}
+
+We evaluate Agent Bazaar across four strategic scenarios designed to test the limits of agentic rationality.
+
+\paragraph{Race to the Bottom}
+Firms compete solely on price. Consumers have high price elasticity and always purchase from the lowest bidder. This scenario tests the ability of agents to reach competitive equilibria versus falling into destructive price wars.
+
+\paragraph{Price Discrimination}
+Firms attempt to segment the market based on consumer personas. This scenario evaluates the strategic reasoning of firms when interacting with heterogeneous consumer budgets.
+
+\paragraph{Bounded Bazaar}
+Agents operate with limited information, only observing a subset of market quotes. This more closely mimics human market behavior and tests the robustness of the REINFORCE++ policies.
+
+\paragraph{Monopolistic Instability}
+A single firm dominates the market for a necessity good (Food). We observe the emergent governance response and the ability of the Tax Planner to mitigate welfare loss.
+
+\section{Conclusion}
+\label{conclusion}
+
+Agent Bazaar provides a test bench for exploring risks in agent-driven economic systems.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

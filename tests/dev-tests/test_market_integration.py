@@ -11,10 +11,10 @@ project_root = os.path.join(os.path.dirname(__file__), '..', '..')
 sys.path.insert(0, project_root)
 
 # Import directly from modules to avoid package-level imports
-sys.path.insert(0, os.path.join(project_root, 'llm_economist', 'market_core'))
+sys.path.insert(0, os.path.join(project_root, 'ai_bazaar', 'market_core'))
 from market_core import Ledger, Market, Order, Quote
 
-sys.path.insert(0, os.path.join(project_root, 'llm_economist', 'agents'))
+sys.path.insert(0, os.path.join(project_root, 'ai_bazaar', 'agents'))
 from firm import FixedFirmAgent
 from consumer import FixedConsumerAgent
 

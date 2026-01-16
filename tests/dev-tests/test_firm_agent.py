@@ -7,8 +7,8 @@ import sys
 import os
 import logging
 from argparse import Namespace
-from llm_economist.agents.firm import FirmAgent, FixedFirmAgent
-from llm_economist.market_core.market_core import Ledger, Market, Order, Quote
+from ai_bazaar.agents.firm import FirmAgent, FixedFirmAgent
+from ai_bazaar.market_core.market_core import Ledger, Market, Order, Quote
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -157,7 +157,7 @@ def test_firm_agent_message_building():
     
     # Test UPDATE_PRICE message
     print("\nTesting UPDATE_PRICE message...")
-    from llm_economist.utils.common import Message
+    from ai_bazaar.utils.common import Message
     firm.add_message(timestep=1, m_type=Message.UPDATE_PRICE)
     print(f"Historical: {firm.message_history[1]['historical']}")
     print(f"User prompt: {firm.message_history[1]['user_prompt']}")

@@ -49,7 +49,7 @@ conda activate LLMEconomist
 ### Quick Install
 
 ```bash
-pip install llm-economist
+pip install ai-bazaar
 ```
 
 ### Development Install
@@ -96,36 +96,36 @@ export GOOGLE_API_KEY="your_google_key"
 
 ```bash
 # Simple rational agents simulation
-python -m llm_economist.main --scenario rational --num-agents 5 --max-timesteps 500
+python -m ai_bazaar.main --scenario rational --num-agents 5 --max-timesteps 500
 
 # Bounded rationality simulation (note: currently uses 100% egotistical agents with personas)
-python -m llm_economist.main --scenario bounded --num-agents 10 --percent-ego 100
+python -m ai_bazaar.main --scenario bounded --num-agents 10 --percent-ego 100
 
 # Democratic voting simulation
-python -m llm_economist.main --scenario democratic --num-agents 15 --two-timescale 50
+python -m ai_bazaar.main --scenario democratic --num-agents 15 --two-timescale 50
 ```
 
 ### 3. Try Different LLM Models
 
 ```bash
 # OpenAI GPT-4
-python -m llm_economist.main --llm gpt-4o --scenario rational
+python -m ai_bazaar.main --llm gpt-4o --scenario rational
 
 # Local Llama via vLLM (requires local server)
-python -m llm_economist.main --llm meta-llama/Llama-3.1-8B-Instruct --service vllm --port 8000
+python -m ai_bazaar.main --llm meta-llama/Llama-3.1-8B-Instruct --service vllm --port 8000
 
 # Claude via OpenRouter
-python -m llm_economist.main --llm anthropic/claude-3.5-sonnet --use-openrouter
+python -m ai_bazaar.main --llm anthropic/claude-3.5-sonnet --use-openrouter
 
 # Google Gemini
-python -m llm_economist.main --llm gemini-1.5-flash
+python -m ai_bazaar.main --llm gemini-1.5-flash
 ```
 
 ## 🏗️ Project Structure
 
 ```
 LLMEconomist/
-├── llm_economist/              # Main package
+├── ai_bazaar/              # Main package
 │   ├── agents/                 # Agent implementations
 │   │   ├── worker.py          # Worker agent logic
 │   │   ├── planner.py         # Tax planner logic
@@ -207,7 +207,7 @@ LLMEconomist/
 vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
 
 # Use in simulation
-python -m llm_economist.main --llm meta-llama/Llama-3.1-8B-Instruct --service vllm --port 8000
+python -m ai_bazaar.main --llm meta-llama/Llama-3.1-8B-Instruct --service vllm --port 8000
 ```
 
 **Ollama (Easy local setup):**
@@ -217,7 +217,7 @@ ollama pull llama3.1:8b
 ollama serve
 
 # Use in simulation
-python -m llm_economist.main --llm llama3.1:8b --service ollama --port 11434
+python -m ai_bazaar.main --llm llama3.1:8b --service ollama --port 11434
 ```
 
 ## 📊 Experiment Scripts
@@ -242,13 +242,13 @@ python experiments/run_experiments.py --experiment scalability
 
 ```bash
 # Chain of thought prompting
-python -m llm_economist.main --prompt-algo cot --llm gpt-4o
+python -m ai_bazaar.main --prompt-algo cot --llm gpt-4o
 
 # Input-output prompting (default)
-python -m llm_economist.main --prompt-algo io --llm gpt-4o-mini
+python -m ai_bazaar.main --prompt-algo io --llm gpt-4o-mini
 
 # Large scale simulation
-python -m llm_economist.main --num-agents 100 --max-timesteps 2000
+python -m ai_bazaar.main --num-agents 100 --max-timesteps 2000
 ```
 
 ## 📈 Examples
@@ -358,7 +358,7 @@ python examples/advanced_usage.py rational  # Specific scenario
 pytest -v
 
 # Run with coverage
-pytest --cov=llm_economist --cov-report=html
+pytest --cov=ai_bazaar --cov-report=html
 ```
 
 ### Test Requirements
@@ -438,7 +438,7 @@ python experiments/run_experiments.py --experiment scalability --wandb
 Extend the framework with custom agent behaviors:
 
 ```python
-from llm_economist.agents.worker import Worker
+from ai_bazaar.agents.worker import Worker
 
 class CustomWorker(Worker):
     def compute_utility(self, income, rebate):
@@ -451,7 +451,7 @@ class CustomWorker(Worker):
 Add support for new LLM providers:
 
 ```python
-from llm_economist.models.base import BaseLLMModel
+from ai_bazaar.models.base import BaseLLMModel
 
 class CustomLLMModel(BaseLLMModel):
     def send_msg(self, system_prompt, user_prompt, temperature=None, json_format=False):
@@ -464,7 +464,7 @@ class CustomLLMModel(BaseLLMModel):
 Enable detailed experiment tracking with Weights & Biases:
 
 ```bash
-python -m llm_economist.main --wandb --scenario bounded --num-agents 20
+python -m ai_bazaar.main --wandb --scenario bounded --num-agents 20
 ```
 
 ## 🐛 Troubleshooting

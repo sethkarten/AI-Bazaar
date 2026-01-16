@@ -7,7 +7,7 @@ For actual simulation examples, see advanced_usage.py.
 
 import os
 import sys
-from llm_economist.main import run_simulation, create_argument_parser, generate_experiment_name
+from ai_bazaar.main import run_simulation, create_argument_parser, generate_experiment_name
 
 
 def test_imports():
@@ -15,12 +15,12 @@ def test_imports():
     print("Testing imports...")
     
     try:
-        from llm_economist.main import run_simulation, create_argument_parser
-        from llm_economist.agents.worker import Worker
-        from llm_economist.agents.planner import TaxPlanner
-        from llm_economist.agents.llm_agent import TestAgent
-        from llm_economist.utils.common import distribute_agents
-        from llm_economist.agents.worker import distribute_personas
+        from ai_bazaar.main import run_simulation, create_argument_parser
+        from ai_bazaar.agents.worker import Worker
+        from ai_bazaar.agents.planner import TaxPlanner
+        from ai_bazaar.agents.llm_agent import TestAgent
+        from ai_bazaar.utils.common import distribute_agents
+        from ai_bazaar.agents.worker import distribute_personas
         print("✓ All imports successful")
         return True
     except ImportError as e:

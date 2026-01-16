@@ -9,8 +9,8 @@ import sys
 import os
 import logging
 from argparse import Namespace
-from llm_economist.agents.consumer import CESConsumerAgent
-from llm_economist.market_core.market_core import Ledger, Market
+from ai_bazaar.agents.consumer import CESConsumerAgent
+from ai_bazaar.market_core.market_core import Ledger, Market
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

@@ -4,9 +4,9 @@ Integration test for FixedConsumerAgent and LLM FirmAgent interactions.
 Tests buying and selling between firms and consumers in a market.
 """
 from argparse import Namespace
-from llm_economist.agents.firm import FirmAgent
-from llm_economist.agents.consumer import FixedConsumerAgent
-from llm_economist.market_core.market_core import Ledger, Market, Order, Quote
+from ai_bazaar.agents.firm import FirmAgent
+from ai_bazaar.agents.consumer import FixedConsumerAgent
+from ai_bazaar.market_core.market_core import Ledger, Market, Order, Quote
 
 def test_firm_consumer_trading():
     """Test complete trading cycle between firm and consumer."""

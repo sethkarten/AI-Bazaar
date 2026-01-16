@@ -1,7 +1,7 @@
 # LEDGER
 import logging
 from typing import List
-from llm_economist.agents.llm_agent import LLMAgent
+from ai_bazaar.agents.llm_agent import LLMAgent
 
 class Ledger:
     def __init__(self):

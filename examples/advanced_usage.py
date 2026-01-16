@@ -7,7 +7,7 @@ All simulations run for 20 timesteps for testing purposes.
 
 import os
 import sys
-from llm_economist.main import run_simulation
+from ai_bazaar.main import run_simulation
 
 
 def test_rational_openai():

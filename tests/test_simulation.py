@@ -4,7 +4,7 @@ Tests for the main simulation functionality.
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from llm_economist.main import run_simulation, generate_experiment_name, create_argument_parser
+from ai_bazaar.main import run_simulation, generate_experiment_name, create_argument_parser
 
 
 class TestExperimentName:
@@ -108,10 +108,10 @@ class TestArgumentParser:
 class TestSimulation:
     """Test main simulation functionality."""
     
-    @patch('llm_economist.main.TestAgent')
-    @patch('llm_economist.main.Worker')
-    @patch('llm_economist.main.TaxPlanner')
-    @patch('llm_economist.main.wandb')
+    @patch('ai_bazaar.main.TestAgent')
+    @patch('ai_bazaar.main.Worker')
+    @patch('ai_bazaar.main.TaxPlanner')
+    @patch('ai_bazaar.main.wandb')
     def test_rational_simulation_setup(self, mock_wandb, mock_planner, mock_worker, mock_test_agent):
         """Test that rational simulation sets up correctly."""
         # Mock the test agent to succeed
@@ -154,7 +154,7 @@ class TestSimulation:
         args = Args()
         
         # Mock the rGB2 function to return skills
-        with patch('llm_economist.main.rGB2', return_value=[50.0, 60.0]):
+        with patch('ai_bazaar.main.rGB2', return_value=[50.0, 60.0]):
             # This should not raise an exception
             try:
                 run_simulation(args)
@@ -167,7 +167,7 @@ class TestSimulation:
         assert mock_worker.call_count == 2  # Two agents
         mock_planner.assert_called_once()
     
-    @patch('llm_economist.main.TestAgent')
+    @patch('ai_bazaar.main.TestAgent')
     def test_llm_connection_failure(self, mock_test_agent):
         """Test simulation handles LLM connection failure."""
         # Mock test agent to fail
@@ -188,9 +188,9 @@ class TestSimulation:
         
         assert exc_info.value.code == 1
     
-    @patch('llm_economist.main.TestAgent')
-    @patch('llm_economist.main.FixedWorker')
-    @patch('llm_economist.main.FixedTaxPlanner')
+    @patch('ai_bazaar.main.TestAgent')
+    @patch('ai_bazaar.main.FixedWorker')
+    @patch('ai_bazaar.main.FixedTaxPlanner')
     def test_fixed_agents_simulation(self, mock_fixed_planner, mock_fixed_worker, mock_test_agent):
         """Test simulation with fixed (non-LLM) agents."""
         mock_test_agent.return_value = Mock()
@@ -255,10 +255,10 @@ class TestSimulation:
 class TestUtilityFunctions:
     """Test utility functions."""
     
-    @patch('llm_economist.main.logging.basicConfig')
+    @patch('ai_bazaar.main.logging.basicConfig')
     def test_setup_logging(self, mock_logging):
         """Test logging setup."""
-        from llm_economist.main import setup_logging
+        from ai_bazaar.main import setup_logging
         import logging
         
         setup_logging(logging.DEBUG)
@@ -283,12 +283,12 @@ class TestUtilityFunctions:
 class TestFullWorkflow:
     """Test the complete workflow."""
     
-    @patch('llm_economist.main.TestAgent')
-    @patch('llm_economist.main.Worker')
-    @patch('llm_economist.main.TaxPlanner')
-    @patch('llm_economist.main.rGB2')
-    @patch('llm_economist.main.distribute_personas')
-    @patch('llm_economist.main.distribute_agents')
+    @patch('ai_bazaar.main.TestAgent')
+    @patch('ai_bazaar.main.Worker')
+    @patch('ai_bazaar.main.TaxPlanner')
+    @patch('ai_bazaar.main.rGB2')
+    @patch('ai_bazaar.main.distribute_personas')
+    @patch('ai_bazaar.main.distribute_agents')
     def test_bounded_scenario_workflow(self, mock_dist_agents, mock_dist_personas, 
                                      mock_rgb2, mock_planner, mock_worker, mock_test_agent):
         """Test the complete bounded scenario workflow."""

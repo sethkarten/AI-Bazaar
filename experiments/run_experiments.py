@@ -27,7 +27,7 @@ def run_command(cmd: List[str], description: str = ""):
 def rational_agents_experiment(args):
     """Run rational agents experiment."""
     base_cmd = [
-        sys.executable, "-m", "llm_economist.main",
+        sys.executable, "-m", "ai_bazaar.main",
         "--scenario", "rational",
         "--num-agents", str(args.num_agents),
         "--worker-type", "LLM",
@@ -54,7 +54,7 @@ def rational_agents_experiment(args):
 def bounded_rational_experiment(args):
     """Run bounded rational agents experiment."""
     base_cmd = [
-        sys.executable, "-m", "llm_economist.main",
+        sys.executable, "-m", "ai_bazaar.main",
         "--scenario", "bounded",
         "--num-agents", str(args.num_agents),
         "--worker-type", "LLM",
@@ -84,7 +84,7 @@ def bounded_rational_experiment(args):
 def democratic_voting_experiment(args):
     """Run democratic voting experiment."""
     base_cmd = [
-        sys.executable, "-m", "llm_economist.main",
+        sys.executable, "-m", "ai_bazaar.main",
         "--scenario", "democratic",
         "--num-agents", str(args.num_agents),
         "--worker-type", "LLM",
@@ -114,7 +114,7 @@ def llm_comparison_experiment(args):
     
     for model in models:
         base_cmd = [
-            sys.executable, "-m", "llm_economist.main",
+            sys.executable, "-m", "ai_bazaar.main",
             "--scenario", "rational",
             "--num-agents", str(args.num_agents),
             "--worker-type", "LLM",
@@ -144,7 +144,7 @@ def scalability_experiment(args):
     
     for num_agents in agent_counts:
         base_cmd = [
-            sys.executable, "-m", "llm_economist.main",
+            sys.executable, "-m", "ai_bazaar.main",
             "--scenario", "rational",
             "--num-agents", str(num_agents),
             "--worker-type", "LLM",
@@ -178,7 +178,7 @@ def tax_year_ablation_experiment(args):
         max_timesteps = timescale * 20  # 20 tax years
         
         base_cmd = [
-            sys.executable, "-m", "llm_economist.main",
+            sys.executable, "-m", "ai_bazaar.main",
             "--scenario", "rational",
             "--num-agents", str(args.num_agents),
             "--worker-type", "LLM",
