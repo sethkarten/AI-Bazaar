@@ -8,6 +8,7 @@ import signal
 from typing import List, Dict, Any
 from transformers import AutoTokenizer
 from unsloth import FastLanguageModel
+from ai_bazaar.models.unsloth_model import UnslothModel
 from ai_bazaar.env.bazaar_env import BazaarWorld
 from ai_bazaar.main import create_argument_parser
 
@@ -55,6 +56,9 @@ class REINFORCETrainer:
         self.start_time = time.time()
         self.heartbeat_file = "train_heartbeat.txt"
 
+        # Wrapped model for inference during collection
+        self.inference_model = UnslothModel(self.model, self.tokenizer)
+
     def heartbeat(self):
         with open(self.heartbeat_file, "w") as f:
             f.write(str(time.time()))
@@ -63,7 +67,8 @@ class REINFORCETrainer:
         all_trajectories = []
         for ep in range(num_episodes):
             ep_start = time.time()
-            world = BazaarWorld(self.args)
+            # Pass our active policy to the world
+            world = BazaarWorld(self.args, llm_model=self.inference_model)
             while not world.is_done():
                 world.step()
                 self.heartbeat()
