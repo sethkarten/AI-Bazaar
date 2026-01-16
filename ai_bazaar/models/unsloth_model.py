@@ -30,12 +30,12 @@ class UnslothModel(BaseLLMModel):
 
         combined_prompt = f"{system_prompt}\n{user_prompt}"
 
-        # Use Unsloth for fast inference
-        # We need to make sure we are not in training mode for the model during generation?
-        # Actually FastLanguageModel.for_inference(model) is recommended
+        # Ensure model is in inference mode
         from unsloth import FastLanguageModel
 
-        FastLanguageModel.for_inference(self.model)
+        if not getattr(self.model, "_is_inference", False):
+            FastLanguageModel.for_inference(self.model)
+            self.model._is_inference = True
 
         inputs = self.tokenizer([combined_prompt], return_tensors="pt").to("cuda")
 

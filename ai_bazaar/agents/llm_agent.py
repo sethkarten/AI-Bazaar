@@ -57,9 +57,12 @@ class LLMAgent:
             return OpenRouterModel(model_name=llm_type, max_tokens=args.max_tokens)
         elif "gemini" in llm_type.lower():
             return GeminiModel(model_name=llm_type, max_tokens=args.max_tokens)
-        elif "/" in llm_type:  # Assume it's a model path for OpenRouter
-            return OpenRouterModel(model_name=llm_type, max_tokens=args.max_tokens)
-        elif "llama" in llm_type.lower() or "gemma" in llm_type.lower():
+        elif (
+            "llama" in llm_type.lower()
+            or "gemma" in llm_type.lower()
+            or llm_type.startswith(".")
+            or llm_type.startswith("/")
+        ):
             if args.service == "ollama":
                 return OllamaModel(
                     model_name=llm_type,
@@ -72,6 +75,8 @@ class LLMAgent:
                     base_url=f"http://localhost:{port}",
                     max_tokens=args.max_tokens,
                 )
+        elif "/" in llm_type:  # Assume it's a model path for OpenRouter
+            return OpenRouterModel(model_name=llm_type, max_tokens=args.max_tokens)
         else:
             raise ValueError(f"Invalid LLM type: {llm_type}")
 

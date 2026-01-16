@@ -87,7 +87,9 @@ class REINFORCETrainer:
         return all_trajectories
 
     def train_step(self, trajectories: List[Dict[str, Any]]):
+        # Set to train mode and reset inference flag for UnslothModel
         self.model.train()
+        self.model._is_inference = False
         total_loss = 0
 
         # Simple baseline (running average of rewards)
