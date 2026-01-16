@@ -1,6 +1,16 @@
+import sys
 import os
 import time
-import sys
+
+# Add project root to PYTHONPATH
+root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, root_dir)
+print(f"DEBUG: PYTHONPATH: {sys.path}", flush=True)
+print(f"DEBUG: Root dir: {root_dir}", flush=True)
+print(f"DEBUG: Contents of root: {os.listdir(root_dir)}", flush=True)
+print(f"DEBUG: __file__: {__file__}", flush=True)
+print(f"DEBUG: cwd: {os.getcwd()}", flush=True)
+
 import signal
 import threading
 import wandb
@@ -182,10 +192,6 @@ class REINFORCETrainer:
 
             for agent in world.firms + world.consumers:
                 if hasattr(agent, "trajectory"):
-                    # For vLLM inference, agents need to specify the 'bazaar' lora
-                    # But since we only have one lora active in the server,
-                    # vLLM might use it by default if model name matches, or we need to pass it in headers.
-                    # Currently LLMAgent uses base_url.
                     all_trajectories.extend(agent.trajectory)
                     agent.trajectory = []
 
