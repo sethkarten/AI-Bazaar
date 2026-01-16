@@ -41,12 +41,25 @@ class UnslothModel(BaseLLMModel):
             self.model._is_inference = True
 
         try:
-            inputs = self.tokenizer(combined_prompt, return_tensors="pt").to("cuda")
+            # Gemma 3 might need text= explicitly or handle lists
+            if hasattr(self.tokenizer, "tokenizer"):
+                # It's a processor, try using the underlying tokenizer for text-only
+                inputs = self.tokenizer.tokenizer(
+                    combined_prompt, return_tensors="pt"
+                ).to("cuda")
+            else:
+                inputs = self.tokenizer(combined_prompt, return_tensors="pt").to("cuda")
         except Exception as e:
             self.logger.error(
                 f"Tokenizer failed: {e}. Prompt type: {type(combined_prompt)}"
             )
-            return "", False
+            # Fallback to a very simple call
+            try:
+                inputs = self.tokenizer(text=[combined_prompt], return_tensors="pt").to(
+                    "cuda"
+                )
+            except:
+                return "", False
 
         outputs = self.model.generate(
             **inputs,
