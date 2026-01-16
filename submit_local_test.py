@@ -17,7 +17,7 @@ def submit_local_test():
             "--llm",
             "./models/gemma-3-4b-it-bnb-4bit",
             "--port",
-            "8201",
+            "0",
             "--num_episodes",
             "1",
             "--num_iterations",
