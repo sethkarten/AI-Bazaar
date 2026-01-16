@@ -320,6 +320,7 @@ class BazaarWorld:
                 {
                     "name": f.name,
                     "in_business": getattr(f, "in_business", True),
+                    "profit": getattr(f, "profit", 0.0),
                     "diary": getattr(f, "diary", [])[-1:]
                     if hasattr(f, "diary")
                     else [],
