@@ -63,9 +63,10 @@ class UnslothModel(BaseLLMModel):
 
         outputs = self.model.generate(
             **inputs,
-            max_new_tokens=self.max_tokens,
+            max_new_tokens=256,  # Reduced from 1000 for speed
             temperature=temperature,
             use_cache=True,
+            # We don't use stop_strings here because it needs a Processor
         )
 
         # Decode only the new tokens
@@ -73,6 +74,10 @@ class UnslothModel(BaseLLMModel):
         decoded = self.tokenizer.batch_decode(
             outputs[:, input_len:], skip_special_tokens=True
         )[0]
+
+        # Stop at the first '}' if not already stopped
+        if "}" in decoded:
+            decoded = decoded[: decoded.find("}") + 1]
 
         if json_format:
             return self._extract_json(decoded)

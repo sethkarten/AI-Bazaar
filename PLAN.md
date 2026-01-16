@@ -28,12 +28,15 @@ This document outlines the roadmap for improving the Agent Bazaar framework and 
 - [x] **REINFORCE++ Finetuning**:
     - Integrated `unsloth` for LoRA-based training.
     - Implemented `UnslothModel` for fast in-process trajectory generation.
-    - Launched finetuning on `della-ailab` cluster (Job ID: 3879110).
+    - Resolved Gemma 3 processor subscriptable errors.
+    - Launched finetuning on `della-ailab` cluster (Job ID: 3880717).
 - [x] **Reward Modeling**:
     - Linked Individual Utility and Social Welfare to the RL reward signal.
 - [x] **Environment Robustness**:
     - Configured `uv` environment with CUDA 12.8 support on cluster.
     - Implemented heartbeat monitoring and ETA timers.
+- [x] **Paper Revision**:
+    - Added Notation Table to Methodology section.
 
 ## Phase 4: Visualization & UX
 - [x] **Interactive Dashboard**:
