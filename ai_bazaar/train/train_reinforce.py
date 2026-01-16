@@ -13,7 +13,7 @@ from unsloth import FastLanguageModel
 import torch
 import numpy as np
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from transformers import AutoTokenizer
 from ai_bazaar.models.unsloth_model import UnslothModel
 from ai_bazaar.env.bazaar_env import BazaarWorld
@@ -28,14 +28,13 @@ os.environ["WANDB_MODE"] = "offline"
 class REINFORCETrainer:
     def __init__(self, model_name: str, args):
         self.args = args
+        self.model_name = model_name
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.vllm_process = None
+        self.checkpoint_dir = f"checkpoints/{args.run_name or 'default'}"
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
 
-        # Start vLLM server if port is provided and we aren't using in-process unsloth
-        if args.port and args.port > 0:
-            self._start_vllm_server(model_name, args.port)
-
-        # Load model with Unsloth for training
+        # Load model with Unsloth for training (always stays in memory)
         print(f"Loading model {model_name} with Unsloth for training...", flush=True)
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_name,
@@ -69,11 +68,6 @@ class REINFORCETrainer:
         self.last_activity_time = time.time()
         self.heartbeat_file = "train_heartbeat.txt"
 
-        # Wrapped model for in-process inference (backup if vLLM fails or not used)
-        self.inference_model = UnslothModel(
-            self.model, self.tokenizer, heartbeat_func=self.heartbeat
-        )
-
         # Start monitoring thread
         self.stop_monitoring = False
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
@@ -81,52 +75,10 @@ class REINFORCETrainer:
 
         atexit.register(self.cleanup)
 
-    def _start_vllm_server(self, model_name: str, port: int):
-        """Launch a background vLLM server for high-throughput inference."""
-        print(f"Starting vLLM server on port {port}...", flush=True)
-        vllm_cmd = [
-            "python3",
-            "-m",
-            "vllm.entrypoints.openai.api_server",
-            "--model",
-            model_name,
-            "--port",
-            str(port),
-            "--gpu-memory-utilization",
-            "0.4",
-            "--disable-log-requests",
-        ]
-
-        # In a real environment, we'd need to make sure we're in the right venv
-        # But here we assume the current process is already in it.
-        self.vllm_process = subprocess.Popen(
-            vllm_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
-        )
-
-        # Wait for vLLM to be ready
-        max_retries = 60
-        url = f"http://localhost:{port}/v1/models"
-        print(f"Waiting for vLLM to be ready at {url}...", flush=True)
-        for i in range(max_retries):
-            try:
-                resp = requests.get(url, timeout=5)
-                if resp.status_code == 200:
-                    print("vLLM server is ready!", flush=True)
-                    return
-            except:
-                pass
-
-            if self.vllm_process.poll() is not None:
-                print("vLLM server failed to start!", flush=True)
-                sys.exit(1)
-
-            time.sleep(10)
-            if i % 6 == 0:
-                print(f"  Still waiting... ({i * 10}s)", flush=True)
-
-        print("vLLM server timed out!", flush=True)
-        self.cleanup()
-        sys.exit(1)
+    def heartbeat(self):
+        self.last_activity_time = time.time()
+        with open(self.heartbeat_file, "w") as f:
+            f.write(str(self.last_activity_time))
 
     def cleanup(self):
         """Ensure background processes are killed."""
@@ -138,11 +90,6 @@ class REINFORCETrainer:
             except:
                 self.vllm_process.kill()
         self.stop_monitoring = True
-
-    def heartbeat(self):
-        self.last_activity_time = time.time()
-        with open(self.heartbeat_file, "w") as f:
-            f.write(str(self.last_activity_time))
 
     def _monitor_loop(self):
         """Background thread to log progress updates and detect hangs."""
@@ -162,22 +109,65 @@ class REINFORCETrainer:
                     flush=True,
                 )
 
+    def _start_vllm_server(self, port: int, lora_path: Optional[str] = None):
+        """Launch a background vLLM server with the latest LoRA adapter."""
+        if self.vllm_process:
+            self.vllm_process.terminate()
+            self.vllm_process.wait()
+
+        print(f"Starting vLLM server on port {port}...", flush=True)
+        vllm_cmd = [
+            "python3",
+            "-m",
+            "vllm.entrypoints.openai.api_server",
+            "--model",
+            self.model_name,
+            "--port",
+            str(port),
+            "--gpu-memory-utilization",
+            "0.4",
+            "--disable-log-requests",
+            "--trust-remote-code",
+        ]
+
+        if lora_path and os.path.exists(lora_path):
+            # vLLM expects a name=path format for lora-modules
+            vllm_cmd.extend(["--enable-lora", "--lora-modules", f"bazaar={lora_path}"])
+            print(f"  Enabling LoRA adapter from {lora_path}", flush=True)
+
+        self.vllm_process = subprocess.Popen(
+            vllm_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
+        )
+
+        # Wait for vLLM to be ready
+        max_retries = 60
+        url = f"http://localhost:{port}/v1/models"
+        for i in range(max_retries):
+            try:
+                resp = requests.get(url, timeout=5)
+                if resp.status_code == 200:
+                    print("vLLM server is ready!", flush=True)
+                    return
+            except:
+                pass
+            if self.vllm_process.poll() is not None:
+                print("vLLM server failed to start!", flush=True)
+                sys.exit(1)
+            time.sleep(10)
+        print("vLLM server timed out!", flush=True)
+        sys.exit(1)
+
     def collect_trajectories(self, num_episodes: int, iteration: int):
+        # Start/Restart vLLM for this iteration's collection
+        lora_path = os.path.join(self.checkpoint_dir, "latest")
+        self._start_vllm_server(self.args.port, lora_path if iteration > 0 else None)
+
         all_trajectories = []
         iter_stats = []
         for ep in range(num_episodes):
             ep_start = time.time()
-
-            # If a port is provided, we assume a vLLM server is running
-            # Otherwise we use the in-process UnslothModel
-            llm_model = None
-            if not self.args.port or self.args.port == 0:
-                llm_model = self.inference_model
-
-            world = BazaarWorld(self.args, llm_model=llm_model)
-            ep_utility = []
-            ep_profit = []
-            ep_sales = 0
+            world = BazaarWorld(self.args)
+            ep_utility, ep_profit, ep_sales = [], [], 0
 
             while not world.is_done():
                 stats = world.step()
@@ -190,133 +180,93 @@ class REINFORCETrainer:
                 ep_sales += stats["sales_count"]
                 self.heartbeat()
 
-            # Collect from all agents
             for agent in world.firms + world.consumers:
                 if hasattr(agent, "trajectory"):
+                    # For vLLM inference, agents need to specify the 'bazaar' lora
+                    # But since we only have one lora active in the server,
+                    # vLLM might use it by default if model name matches, or we need to pass it in headers.
+                    # Currently LLMAgent uses base_url.
                     all_trajectories.extend(agent.trajectory)
-                    agent.trajectory = []  # Clear for next episode
-
-            ep_duration = time.time() - ep_start
-            print(
-                f"  Episode {ep + 1}/{num_episodes} collected in {ep_duration:.2f}s",
-                flush=True,
-            )
+                    agent.trajectory = []
 
             iter_stats.append(
                 {
                     "avg_utility": np.mean(ep_utility),
                     "avg_profit": np.mean(ep_profit),
                     "total_sales": ep_sales,
-                    "duration": ep_duration,
                 }
             )
+            print(f"  Episode {ep + 1}/{num_episodes} collected", flush=True)
 
-        # Log aggregates to wandb
+        # Shutdown vLLM to free memory for Unsloth training
+        self.vllm_process.terminate()
+        self.vllm_process.wait()
+        self.vllm_process = None
+
         if wandb.run:
             wandb.log(
                 {
                     "env/avg_utility": np.mean([s["avg_utility"] for s in iter_stats]),
-                    "env/avg_profit": np.mean([s["avg_profit"] for s in iter_stats]),
-                    "env/total_sales": np.mean([s["total_sales"] for s in iter_stats]),
-                    "env/collection_duration": np.mean(
-                        [s["duration"] for s in iter_stats]
-                    ),
                     "iteration": iteration,
                 }
             )
-
         return all_trajectories
 
     def train_step(self, trajectories: List[Dict[str, Any]], iteration: int):
-        # Set to train mode and reset inference flag for UnslothModel
         self.model.train()
-        self.model._is_inference = False
         total_loss = 0
 
-        # Simple baseline (running average of rewards)
         rewards = [t["reward"] for t in trajectories if t["reward"] is not None]
         baseline = np.mean(rewards) if rewards else 0
 
         step_start = time.time()
         for i, traj in enumerate(trajectories):
             self.heartbeat()
-
             s_prompt = traj.get("system_prompt") or ""
             u_prompt = traj.get("user_prompt") or ""
             response = traj.get("response") or ""
             reward = traj.get("reward")
-
             if reward is None or not response:
                 continue
 
             prompt = s_prompt + "\n" + u_prompt
-
-            # Tokenize with workaround for Gemma 3 processor
             full_text = prompt + response
             try:
                 if hasattr(self.tokenizer, "tokenizer"):
-                    encodings = self.tokenizer.tokenizer(
-                        full_text, return_tensors="pt"
-                    ).to(self.device)
-                    prompt_encodings = self.tokenizer.tokenizer(
-                        prompt, return_tensors="pt"
-                    ).to(self.device)
+                    enc = self.tokenizer.tokenizer(full_text, return_tensors="pt").to(
+                        self.device
+                    )
+                    p_enc = self.tokenizer.tokenizer(prompt, return_tensors="pt").to(
+                        self.device
+                    )
                 else:
-                    encodings = self.tokenizer(full_text, return_tensors="pt").to(
-                        self.device
-                    )
-                    prompt_encodings = self.tokenizer(prompt, return_tensors="pt").to(
-                        self.device
-                    )
-            except Exception as e:
-                print(f"    Tokenizer failed in train_step: {e}")
+                    enc = self.tokenizer(full_text, return_tensors="pt").to(self.device)
+                    p_enc = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+            except:
                 continue
 
-            prompt_len = prompt_encodings.input_ids.shape[1]
-
-            # Forward pass
-            outputs = self.model(**encodings)
+            prompt_len = p_enc.input_ids.shape[1]
+            outputs = self.model(**enc)
             logits = outputs.logits
-
-            # Get log-probs of the response tokens
             shift_logits = logits[..., prompt_len - 1 : -1, :].contiguous()
-            shift_labels = encodings.input_ids[..., prompt_len:].contiguous()
-
+            shift_labels = enc.input_ids[..., prompt_len:].contiguous()
             log_probs = torch.log_softmax(shift_logits, dim=-1)
             selected_log_probs = torch.gather(
                 log_probs, -1, shift_labels.unsqueeze(-1)
             ).squeeze(-1)
 
-            mean_log_prob = selected_log_probs.mean()
-
-            # Loss: -log_prob * Advantage
-            advantage = reward - baseline
-            loss = -mean_log_prob * advantage
-
+            loss = -selected_log_probs.mean() * (reward - baseline)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
             total_loss += loss.item()
 
-            if (i + 1) % 10 == 0:
-                print(
-                    f"    Sample {i + 1}/{len(trajectories)} processed. Avg loss: {total_loss / (i + 1):.4f}"
-                )
+        # Save LoRA for next collection
+        self.model.save_pretrained(os.path.join(self.checkpoint_dir, "latest"))
 
-        train_duration = time.time() - step_start
         avg_loss = total_loss / len(trajectories) if trajectories else 0
-        print(f"  Train step completed in {train_duration:.2f}s")
-
         if wandb.run:
-            wandb.log(
-                {
-                    "train/loss": avg_loss,
-                    "train/duration": train_duration,
-                    "train/baseline": baseline,
-                    "iteration": iteration,
-                }
-            )
-
+            wandb.log({"train/loss": avg_loss, "iteration": iteration})
         return avg_loss
 
 
@@ -328,20 +278,12 @@ def main():
     parser.add_argument("--run_name", type=str, default=None)
     args = parser.parse_args()
 
-    # Initialize WandB
-    run_name = args.run_name or f"bazaar-{args.reward_type}-{args.llm.split('/')[-1]}"
-    wandb.init(project="ai-bazaar", name=run_name, config=vars(args), mode="offline")
-
-    # Initialize trainer
-    model_name = args.llm if args.llm != "None" else "unsloth/gemma-3-4b-it-bnb-4bit"
-    print(f"Starting training on {model_name}...", flush=True)
-    trainer = REINFORCETrainer(model_name, args)
+    wandb.init(
+        project="ai-bazaar", name=args.run_name, config=vars(args), mode="offline"
+    )
+    trainer = REINFORCETrainer(args.llm, args)
 
     def signal_handler(sig, frame):
-        print("Interrupted! Saving model...", flush=True)
-        trainer.model.save_pretrained("checkpoints/interrupted")
-        if wandb.run:
-            wandb.finish()
         trainer.cleanup()
         sys.exit(0)
 
@@ -349,42 +291,11 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     for i in range(args.num_iterations):
-        iter_start = time.time()
-        trainer.heartbeat()
-        print(f"Iteration {i}: Collecting trajectories...", flush=True)
         trajs = trainer.collect_trajectories(args.num_episodes, i)
+        if trajs:
+            trainer.train_step(trajs, i)
 
-        if not trajs:
-            print(f"Iteration {i}: No trajectories collected. Skipping.", flush=True)
-            continue
-
-        print(f"Iteration {i}: Training on {len(trajs)} samples...", flush=True)
-        loss = trainer.train_step(trajs, i)
-
-        duration = time.time() - iter_start
-        total_elapsed = time.time() - trainer.start_time
-        avg_iter_time = total_elapsed / (i + 1)
-        remaining_iters = args.num_iterations - (i + 1)
-        eta = avg_iter_time * remaining_iters
-
-        print(
-            f"Iteration {i}: Loss = {loss:.4f} | Duration = {duration:.2f}s | Total Elapsed = {total_elapsed:.2f}s | ETA = {eta / 60:.2f}m",
-            flush=True,
-        )
-
-        # Save checkpoint periodically
-        if (i + 1) % 10 == 0:
-            checkpoint_path = f"checkpoints/gemma3_bazaar_iter{i}"
-            trainer.model.save_pretrained(checkpoint_path)
-            print(f"Saved checkpoint to {checkpoint_path}", flush=True)
-
-    if wandb.run:
-        wandb.finish()
     trainer.cleanup()
-
-
-if __name__ == "__main__":
-    main()
 
 
 if __name__ == "__main__":
