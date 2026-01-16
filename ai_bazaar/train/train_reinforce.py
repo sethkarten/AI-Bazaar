@@ -4,6 +4,9 @@ import sys
 import signal
 import threading
 import wandb
+import subprocess
+import atexit
+import requests
 
 # Unsloth must be imported before transformers
 from unsloth import FastLanguageModel
@@ -26,9 +29,14 @@ class REINFORCETrainer:
     def __init__(self, model_name: str, args):
         self.args = args
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.vllm_process = None
 
-        # Load model with Unsloth
-        print(f"Loading model {model_name} with Unsloth...", flush=True)
+        # Start vLLM server if port is provided and we aren't using in-process unsloth
+        if args.port and args.port > 0:
+            self._start_vllm_server(model_name, args.port)
+
+        # Load model with Unsloth for training
+        print(f"Loading model {model_name} with Unsloth for training...", flush=True)
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_name,
             max_seq_length=2048,
@@ -61,7 +69,7 @@ class REINFORCETrainer:
         self.last_activity_time = time.time()
         self.heartbeat_file = "train_heartbeat.txt"
 
-        # Wrapped model for inference during collection
+        # Wrapped model for in-process inference (backup if vLLM fails or not used)
         self.inference_model = UnslothModel(
             self.model, self.tokenizer, heartbeat_func=self.heartbeat
         )
@@ -70,6 +78,66 @@ class REINFORCETrainer:
         self.stop_monitoring = False
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.monitor_thread.start()
+
+        atexit.register(self.cleanup)
+
+    def _start_vllm_server(self, model_name: str, port: int):
+        """Launch a background vLLM server for high-throughput inference."""
+        print(f"Starting vLLM server on port {port}...", flush=True)
+        vllm_cmd = [
+            "python3",
+            "-m",
+            "vllm.entrypoints.openai.api_server",
+            "--model",
+            model_name,
+            "--port",
+            str(port),
+            "--gpu-memory-utilization",
+            "0.4",
+            "--disable-log-requests",
+        ]
+
+        # In a real environment, we'd need to make sure we're in the right venv
+        # But here we assume the current process is already in it.
+        self.vllm_process = subprocess.Popen(
+            vllm_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
+        )
+
+        # Wait for vLLM to be ready
+        max_retries = 60
+        url = f"http://localhost:{port}/v1/models"
+        print(f"Waiting for vLLM to be ready at {url}...", flush=True)
+        for i in range(max_retries):
+            try:
+                resp = requests.get(url, timeout=5)
+                if resp.status_code == 200:
+                    print("vLLM server is ready!", flush=True)
+                    return
+            except:
+                pass
+
+            if self.vllm_process.poll() is not None:
+                print("vLLM server failed to start!", flush=True)
+                sys.exit(1)
+
+            time.sleep(10)
+            if i % 6 == 0:
+                print(f"  Still waiting... ({i * 10}s)", flush=True)
+
+        print("vLLM server timed out!", flush=True)
+        self.cleanup()
+        sys.exit(1)
+
+    def cleanup(self):
+        """Ensure background processes are killed."""
+        if self.vllm_process:
+            print("Cleaning up vLLM server...", flush=True)
+            self.vllm_process.terminate()
+            try:
+                self.vllm_process.wait(timeout=5)
+            except:
+                self.vllm_process.kill()
+        self.stop_monitoring = True
 
     def heartbeat(self):
         self.last_activity_time = time.time()
@@ -93,8 +161,6 @@ class REINFORCETrainer:
                     f"[MONITOR] WARNING: No activity detected for {idle_time / 60:.2f}m. Potential hang!",
                     flush=True,
                 )
-
-            # Progress update logic could go here (e.g. read latest loss)
 
     def collect_trajectories(self, num_episodes: int, iteration: int):
         all_trajectories = []
@@ -276,6 +342,7 @@ def main():
         trainer.model.save_pretrained("checkpoints/interrupted")
         if wandb.run:
             wandb.finish()
+        trainer.cleanup()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -313,6 +380,11 @@ def main():
 
     if wandb.run:
         wandb.finish()
+    trainer.cleanup()
+
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":
