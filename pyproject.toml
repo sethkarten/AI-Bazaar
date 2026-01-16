@@ -19,6 +19,11 @@ dependencies = [
     "pillow",
     "vllm",
     "unsloth @ git+https://github.com/unslothai/unsloth.git",
+    "pyarrow<17.0.0",
+    "datasets",
+    "bitsandbytes",
+    "unsloth_zoo",
+    "huggingface_hub",
 ]
 
 [tool.uv]
