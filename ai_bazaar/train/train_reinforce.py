@@ -145,8 +145,9 @@ class REINFORCETrainer:
             vllm_cmd.extend(["--enable-lora", "--lora-modules", f"bazaar={lora_path}"])
             print(f"  Enabling LoRA adapter from {lora_path}", flush=True)
 
+        vllm_log = open(os.path.join(self.args.log_dir, f"vllm_{port}.log"), "w")
         self.vllm_process = subprocess.Popen(
-            vllm_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
+            vllm_cmd, stdout=vllm_log, stderr=subprocess.STDOUT
         )
 
         # Wait for vLLM to be ready
