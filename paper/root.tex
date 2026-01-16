@@ -139,6 +139,15 @@ While standard agents operate via in-context optimization, we train specialized 
 \end{equation}
 where $b$ is a running baseline of observed rewards.
 
+\subsection{Equilibrium Analysis}
+In the \textit{Race to the Bottom} scenario, we expect the market to converge to a Bertrand equilibrium where $P_j = c$ for all firms $j$. However, due to the bounded rationality of LLM agents and the discrete nature of pricing, we often observe oscillations or collusion. In \textit{Price Discrimination}, firms should ideally set prices $P_{j,k}$ proportional to the preference weights $\alpha_{i,k}$ of the target consumer segments. 
+
+\subsection{Opponent Modeling}
+In decentralized marketplaces, agents must account for the non-stationarity of their opponents' policies. Our agents implicitly model opponents through the \textit{Market History} provided in their prompts, which includes previous prices and sales volumes. We observe emergent strategic behaviors where firms adjust their prices in response to competitor undercutting, characteristic of multi-agent dynamics.
+
+\subsection{Hyperparameters}
+For our REINFORCE++ experiments, we use the Gemma 3-4B model as the base policy. Training is conducted with a learning rate of $5 \times 10^{-5}$ using the AdamW optimizer. We use a LoRA rank of $r=16$ and $\alpha=16$. Trajectories are collected in batches of 5 episodes per iteration, with a maximum of 100 iterations. We apply a kl-penalty coefficient of $\beta=0.1$ to maintain policy stability relative to the base model.
+
 \section{Experiments}
 \label{exp}
 
