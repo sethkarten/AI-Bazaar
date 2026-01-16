@@ -1,0 +1,326 @@
+import logging
+import os
+import json
+import numpy as np
+import random
+from typing import Dict, List, Any, Sequence
+from ..market_core.market_core import Ledger, Market
+from ..agents.firm import FirmAgent, FixedFirmAgent
+from ..agents.consumer import CESConsumerAgent, FixedConsumerAgent
+
+
+from ..agents.planner import TaxPlanner, FixedTaxPlanner
+
+
+class BazaarWorld:
+    def __init__(self, args, llm_model=None):
+        self.args = args
+        self.logger = logging.getLogger("main")
+        self.ledger = Ledger()
+        self.market = Market()
+        self.goods_list = ["food", "clothing", "electronics", "furniture"]
+        self.goods = self.goods_list[: args.num_goods]
+
+        # Necessity mapping
+        self.necessity_weights = {
+            "food": 0.6,
+            "clothing": 0.2,
+            "electronics": 0.1,
+            "furniture": 0.1,
+        }
+
+        self.firms = []
+        for i in range(args.num_firms):
+            name = f"firm_{i}"
+            if args.firm_type == "LLM":
+                firm = FirmAgent(
+                    llm=args.llm,
+                    port=args.port,
+                    name=name,
+                    goods=self.goods,
+                    initial_cash=args.firm_initial_cash,
+                    ledger=self.ledger,
+                    market=self.market,
+                    args=args,
+                )
+                if llm_model:
+                    firm.llm = llm_model
+            else:
+                firm = FixedFirmAgent(
+                    name=name,
+                    goods=self.goods,
+                    initial_cash=args.firm_initial_cash,
+                    ledger=self.ledger,
+                    market=self.market,
+                )
+            self.firms.append(firm)
+
+        self.consumers = []
+        from ai_bazaar.utils import PERSONAS
+
+        personas = [random.sample(PERSONAS, 1)[0] for _ in range(args.num_consumers)]
+
+        for i in range(args.num_consumers):
+            name = f"consumer_{i}"
+            income = np.random.uniform(50, 200)
+            if args.consumer_type == "CES":
+                # Use necessity weights for CES params if not provided by LLM
+                ces_params = {
+                    good: self.necessity_weights.get(good, 0.1) for good in self.goods
+                }
+                # Normalize
+                total_w = sum(ces_params.values())
+                ces_params = {k: v / total_w for k, v in ces_params.items()}
+
+                consumer = CESConsumerAgent(
+                    name=name,
+                    income_stream=income,
+                    ledger=self.ledger,
+                    market=self.market,
+                    persona=personas[i],
+                    goods=self.goods,
+                    llm=args.llm,
+                    port=args.port,
+                    args=args,
+                    ces_params=ces_params,  # Use default necessity weights
+                )
+                if llm_model:
+                    consumer.llm = llm_model
+            else:
+                consumer = FixedConsumerAgent(
+                    name=name,
+                    income_stream=income,
+                    ledger=self.ledger,
+                    market=self.market,
+                    goods=self.goods,
+                    quantity_per_good=args.fixed_consumer_quantity_per_good,
+                )
+            self.consumers.append(consumer)
+
+        # Initialize Tax Planner
+        if args.planner_type == "LLM":
+            self.tax_planner = TaxPlanner(
+                llm=args.llm,
+                port=args.port,
+                name="Joe",
+                num_agents=args.num_consumers + args.num_firms,
+                args=args,
+            )
+            if llm_model:
+                self.tax_planner.llm = llm_model
+        else:
+            self.tax_planner = FixedTaxPlanner(name="Joe", tax_type="US_FED", args=args)
+
+        self.timestep = 0
+        self.firm_prices_last_step = {}
+
+    def step(self):
+        """Execute one timestep of the bazaar"""
+        start_ledger = self.ledger.copy()
+
+        # 0. Labor Phase: Consumers (Workers) choose labor supply
+        for consumer in self.consumers:
+            if hasattr(consumer, "choose_labor"):
+                # Market wage could be dynamic, but let's start with 10.0
+                consumer.choose_labor(self.timestep, wage=10.0)
+
+        # 1. Supply Phase
+        for firm in self.firms:
+            if not getattr(firm, "in_business", True):
+                continue
+            supply_unit_price = 1.0
+            if self.args.firm_type == "LLM":
+                firm.purchase_supplies(supply_unit_price, self.timestep)
+            else:
+                quantity = firm.cash * 0.5 / supply_unit_price
+                firm.purchase_supplies(quantity, supply_unit_price, self.timestep)
+
+        # 2. Production Phase
+        for firm in self.firms:
+            if not getattr(firm, "in_business", True):
+                continue
+            firm.produce_goods(self.timestep)
+
+        # 3. Pricing Phase
+        firm_prices = {}
+        market_context = {"last_prices": self.firm_prices_last_step}
+        for firm in self.firms:
+            if not getattr(firm, "in_business", True):
+                continue
+            if self.args.firm_type == "LLM":
+                prices = firm.set_price(self.timestep, market_data=market_context)
+            else:
+                prices = firm.set_price(price=10.0, timestep=self.timestep)
+            firm_prices[firm.name] = prices
+            firm.post_quotes(prices)
+
+        # 4. Income Phase: Receive labor income
+        for consumer in self.consumers:
+            consumer.receive_income(self.timestep)
+
+        # 5. Consumption Phase
+        for consumer in self.consumers:
+            if self.args.consumer_type == "CES":
+                orders = consumer.make_orders(
+                    self.timestep, self.args.consumer_scenario
+                )
+            else:
+                orders = consumer.make_orders(self.timestep)
+            consumer.submit_orders(orders)
+
+        pre_clearing_ledger = self.ledger.copy()
+
+        # 6. Market Clearing
+        filled_orders, sales_info = self.market.clear(self.ledger)
+
+        # Update sales tracking
+        for sale in sales_info:
+            firm_name = sale["firm_id"]
+            good = sale["good"]
+            quantity_sold = sale["quantity_sold"]
+            price = firm_prices[firm_name][good]
+            for firm in self.firms:
+                if firm.name == firm_name:
+                    firm.total_quantity_sold_by_good[good] += quantity_sold
+                    firm.total_quantity_sold_by_good_this_timestep[self.timestep][
+                        good
+                    ] += quantity_sold
+
+                    # Update profit if it's a FirmAgent
+                    if hasattr(firm, "update_profit"):
+                        firm.update_profit(
+                            quantity_sold,
+                            price,
+                            unit_cost=getattr(self.args, "unit_cost", 2.0),
+                        )
+                    break
+
+        # 7. Cleanup & Overhead
+        self.market.quotes.clear()
+        while self.market.orders:
+            self.market.orders.popleft()
+
+        for firm in self.firms:
+            if not getattr(firm, "in_business", True):
+                continue
+            firm.pay_overhead_costs(self.timestep)
+
+        # 8. Taxation & Redistribution
+        tax_rates = self.tax_planner.tax_rates
+        total_collected = 0.0
+
+        for firm in self.firms:
+            if not getattr(firm, "in_business", True):
+                continue
+            # Firms pay flat tax for now, or we could apply brackets to profit
+            total_collected += firm.pay_taxes(self.timestep, tax_rates[0] / 100.0)
+
+        for consumer in self.consumers:
+            # Consumers pay income tax based on brackets
+            z = getattr(consumer, "z", consumer.income)
+            tax_amount = self.tax_planner.get_income_tax(
+                [float(r) for r in tax_rates], z
+            )
+            self.ledger.credit(consumer.name, -tax_amount)
+            total_collected += tax_amount
+
+        # Redistribution: Evenly back to consumers as "Social Safety Net"
+        rebate = total_collected / len(self.consumers) if self.consumers else 0
+        for consumer in self.consumers:
+            self.ledger.credit(consumer.name, rebate)
+
+        # 9. Reflection
+        for firm in self.firms:
+            if not getattr(firm, "in_business", True):
+                continue
+            firm.reflect(self.timestep, start_ledger, pre_clearing_ledger, self.ledger)
+
+        for consumer in self.consumers:
+            if hasattr(consumer, "reflect"):
+                consumer.reflect(self.timestep)
+
+        # 10. Planner update
+        agent_stats = []
+        for c in self.consumers:
+            agent_stats.append((getattr(c, "z", c.income), c.utility))
+        self.tax_planner.act(self.timestep, agent_stats)
+
+        # After step is complete, assign rewards to trajectories
+        for firm in self.firms:
+            if hasattr(firm, "trajectory"):
+                for entry in firm.trajectory:
+                    if entry["timestep"] == self.timestep and entry["reward"] is None:
+                        entry["reward"] = getattr(firm, "profit", 0.0)
+
+        for consumer in self.consumers:
+            if hasattr(consumer, "trajectory"):
+                for entry in consumer.trajectory:
+                    if entry["timestep"] == self.timestep and entry["reward"] is None:
+                        entry["reward"] = getattr(consumer, "utility", 0.0)
+
+        self.firm_prices_last_step = firm_prices.copy()
+        stats = {
+            "firms": {
+                f.name: {"cash": f.cash, "profit": getattr(f, "profit", 0.0)}
+                for f in self.firms
+            },
+            "consumers": {
+                c.name: {"cash": c.cash, "utility": c.utility} for c in self.consumers
+            },
+            "sales_count": len(filled_orders),
+            "total_collected": total_collected,
+            "rebate": rebate,
+        }
+
+        self.save_state()
+        self.timestep += 1
+        return stats
+
+    def save_state(self):
+        """Serialize the entire world state to a JSON file."""
+        state = {
+            "timestep": self.timestep,
+            "ledger": {
+                "money": self.ledger.agent_money.copy(),
+                "inventories": self.ledger.agent_inventories.copy(),
+            },
+            "firms": [
+                {
+                    "name": f.name,
+                    "in_business": getattr(f, "in_business", True),
+                    "diary": getattr(f, "diary", [])[-1:]
+                    if hasattr(f, "diary")
+                    else [],
+                }
+                for f in self.firms
+            ],
+            "consumers": [
+                {
+                    "name": c.name,
+                    "labor": getattr(c, "l", 0),
+                    "utility": getattr(c, "utility", 0),
+                    "diary": getattr(c, "diary", [])[-1:]
+                    if hasattr(c, "diary")
+                    else [],
+                }
+                for c in self.consumers
+            ],
+            "tax_rates": self.tax_planner.tax_rates,
+        }
+
+        log_dir = getattr(self.args, "log_dir", "logs")
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+
+        filename = os.path.join(log_dir, f"state_t{self.timestep}.json")
+        import json
+
+        with open(filename, "w") as f:
+            json.dump(state, f, indent=2)
+
+    def is_done(self):
+        if self.timestep >= self.args.max_timesteps:
+            return True
+        if not any(getattr(firm, "in_business", True) for firm in self.firms):
+            return True
+        return False
