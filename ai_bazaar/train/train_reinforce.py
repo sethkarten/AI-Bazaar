@@ -71,8 +71,14 @@ class REINFORCETrainer:
         all_trajectories = []
         for ep in range(num_episodes):
             ep_start = time.time()
-            # Pass our active policy to the world
-            world = BazaarWorld(self.args, llm_model=self.inference_model)
+
+            # If a port is provided, we assume a vLLM server is running
+            # Otherwise we use the in-process UnslothModel
+            llm_model = None
+            if not self.args.port or self.args.port == 0:
+                llm_model = self.inference_model
+
+            world = BazaarWorld(self.args, llm_model=llm_model)
             while not world.is_done():
                 world.step()
                 self.heartbeat()

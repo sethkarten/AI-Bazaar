@@ -112,16 +112,24 @@ class BazaarWorld:
         self.firm_prices_last_step = {}
 
     def step(self):
-        """Execute one timestep of the bazaar"""
+        """Execute one timestep of the bazaar with parallel agent actions"""
+        import concurrent.futures
+
         start_ledger = self.ledger.copy()
 
-        # 0. Labor Phase: Consumers (Workers) choose labor supply
-        for consumer in self.consumers:
-            if hasattr(consumer, "choose_labor"):
-                # Market wage could be dynamic, but let's start with 10.0
-                consumer.choose_labor(self.timestep, wage=10.0)
+        # 0. Labor Phase: Consumers (Workers) choose labor supply (Parallel)
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=len(self.consumers)
+        ) as executor:
+            futures = []
+            for consumer in self.consumers:
+                if hasattr(consumer, "choose_labor"):
+                    futures.append(
+                        executor.submit(consumer.choose_labor, self.timestep, wage=10.0)
+                    )
+            concurrent.futures.wait(futures)
 
-        # 1. Supply Phase
+        # 1. Supply Phase (Sequential for now as it modifies ledger)
         for firm in self.firms:
             if not getattr(firm, "in_business", True):
                 continue
@@ -138,32 +146,59 @@ class BazaarWorld:
                 continue
             firm.produce_goods(self.timestep)
 
-        # 3. Pricing Phase
+        # 3. Pricing Phase (Parallel)
         firm_prices = {}
         market_context = {"last_prices": self.firm_prices_last_step}
-        for firm in self.firms:
-            if not getattr(firm, "in_business", True):
-                continue
-            if self.args.firm_type == "LLM":
-                prices = firm.set_price(self.timestep, market_data=market_context)
-            else:
-                prices = firm.set_price(price=10.0, timestep=self.timestep)
-            firm_prices[firm.name] = prices
-            firm.post_quotes(prices)
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=len(self.firms)
+        ) as executor:
+            future_to_firm = {}
+            for firm in self.firms:
+                if not getattr(firm, "in_business", True):
+                    continue
+                if self.args.firm_type == "LLM":
+                    future_to_firm[
+                        executor.submit(
+                            firm.set_price, self.timestep, market_data=market_context
+                        )
+                    ] = firm
+                else:
+                    prices = firm.set_price(price=10.0, timestep=self.timestep)
+                    firm_prices[firm.name] = prices
+                    firm.post_quotes(prices)
+
+            for future in concurrent.futures.as_completed(future_to_firm):
+                firm = future_to_firm[future]
+                prices = future.result()
+                firm_prices[firm.name] = prices
+                firm.post_quotes(prices)
 
         # 4. Income Phase: Receive labor income
         for consumer in self.consumers:
             consumer.receive_income(self.timestep)
 
-        # 5. Consumption Phase
-        for consumer in self.consumers:
-            if self.args.consumer_type == "CES":
-                orders = consumer.make_orders(
-                    self.timestep, self.args.consumer_scenario
-                )
-            else:
-                orders = consumer.make_orders(self.timestep)
-            consumer.submit_orders(orders)
+        # 5. Consumption Phase (Parallel)
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=len(self.consumers)
+        ) as executor:
+            future_to_cons = {}
+            for consumer in self.consumers:
+                if self.args.consumer_type == "CES":
+                    future_to_cons[
+                        executor.submit(
+                            consumer.make_orders,
+                            self.timestep,
+                            self.args.consumer_scenario,
+                        )
+                    ] = consumer
+                else:
+                    orders = consumer.make_orders(self.timestep)
+                    consumer.submit_orders(orders)
+
+            for future in concurrent.futures.as_completed(future_to_cons):
+                consumer = future_to_cons[future]
+                orders = future.result()
+                consumer.submit_orders(orders)
 
         pre_clearing_ledger = self.ledger.copy()
 
