@@ -131,7 +131,7 @@ class REINFORCETrainer:
 
         print(f"Starting vLLM server on port {port}...", flush=True)
         vllm_cmd = [
-            "python3",
+            sys.executable,
             "-m",
             "vllm.entrypoints.openai.api_server",
             "--model",
