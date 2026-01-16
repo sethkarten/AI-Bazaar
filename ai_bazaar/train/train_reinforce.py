@@ -82,6 +82,11 @@ class REINFORCETrainer:
         self.last_activity_time = time.time()
         self.heartbeat_file = "train_heartbeat.txt"
 
+        # Wrapped model for in-process inference (backup if vLLM fails or not used)
+        self.inference_model = UnslothModel(
+            self.model, self.tokenizer, heartbeat_func=self.heartbeat
+        )
+
         # Start monitoring thread
         self.stop_monitoring = False
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
