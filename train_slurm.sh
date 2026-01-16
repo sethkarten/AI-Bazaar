@@ -27,7 +27,7 @@ fi
 . .venv/bin/activate
 
 python3 -m ai_bazaar.train.train_reinforce \
-    --llm "unsloth/gemma-3-4b-it-bnb-4bit" \
+    --llm "./models/gemma-3-4b-it-bnb-4bit" \
     --num_episodes 10 \
     --num_iterations 100 \
     --lr 5e-5 \
