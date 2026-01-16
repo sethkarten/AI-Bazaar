@@ -29,20 +29,22 @@ This document outlines the roadmap for improving the Agent Bazaar framework and 
     - Integrated `unsloth` for LoRA-based training.
     - Implemented `UnslothModel` for fast in-process trajectory generation.
     - Resolved Gemma 3 processor subscriptable errors.
-    - Launched finetuning on `della-ailab` cluster (Job ID: 3880717).
+    - Optimized speed via **Parallel Agent Actions** and **vLLM Batching**.
+    - Launched finetuning on `della-ailab` cluster (Job ID: 3881097).
 - [x] **Reward Modeling**:
     - Linked Individual Utility and Social Welfare to the RL reward signal.
 - [x] **Environment Robustness**:
     - Configured `uv` environment with CUDA 12.8 support on cluster.
     - Implemented heartbeat monitoring and ETA timers.
-- [x] **Paper Revision**:
-    - Added Notation Table to Methodology section.
 
 ## Phase 4: Visualization & UX
 - [x] **Interactive Dashboard**:
     - Build Streamlit UI for real-time visualization of Gini, wealth flow, and utility.
+- [x] **State Serialization**:
+    - Automatic state snapshotting at each timestep verified.
 - [ ] **Scenario Testing**:
     - Stress-test scenarios (Race to Bottom, etc.) using finetuned models.
+
 
 ## Phase 5: Paper Iteration (AGENT_LOOP)
 - [ ] **Drafting**: Complete Methodology and Experiments sections in `paper/root.tex`.

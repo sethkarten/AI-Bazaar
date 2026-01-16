@@ -115,12 +115,26 @@ class REINFORCETrainer:
             if reward is None:
                 continue
 
-            # Tokenize
+            # Tokenize with workaround for Gemma 3 processor
             full_text = prompt + response
-            encodings = self.tokenizer(full_text, return_tensors="pt").to(self.device)
-            prompt_encodings = self.tokenizer(prompt, return_tensors="pt").to(
-                self.device
-            )
+            try:
+                if hasattr(self.tokenizer, "tokenizer"):
+                    encodings = self.tokenizer.tokenizer(
+                        full_text, return_tensors="pt"
+                    ).to(self.device)
+                    prompt_encodings = self.tokenizer.tokenizer(
+                        prompt, return_tensors="pt"
+                    ).to(self.device)
+                else:
+                    encodings = self.tokenizer(full_text, return_tensors="pt").to(
+                        self.device
+                    )
+                    prompt_encodings = self.tokenizer(prompt, return_tensors="pt").to(
+                        self.device
+                    )
+            except Exception as e:
+                print(f"    Tokenizer failed in train_step: {e}")
+                continue
 
             prompt_len = prompt_encodings.input_ids.shape[1]
 

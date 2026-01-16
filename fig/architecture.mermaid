@@ -1,0 +1,22 @@
+graph TD
+    subgraph BazaarWorld Environment
+        Ledger[Centralized Ledger]
+        Market[Decentralized Market]
+        TaxPlanner[Tax Planner - Strategic Governance]
+        
+        subgraph Agents
+            Firms[Firm Agents - Profit Max]
+            Consumers[Consumer Agents - Utility Max]
+        end
+    end
+
+    Firms -- "1. Purchase Supply" --> Ledger
+    Firms -- "2. Set Prices" --> Market
+    Consumers -- "3. Choose Labor" --> Ledger
+    Consumers -- "4. Submit Orders" --> Market
+    Market -- "5. Clearing" --> Ledger
+    TaxPlanner -- "6. Tax & Redistribute" --> Ledger
+    Agents -- "7. Reflect & Diary" --> Agents
+    
+    Unsloth[Unsloth RL Trainer] -- "Update Policy" --> Agents
+    Agents -- "Trajectories" --> Unsloth

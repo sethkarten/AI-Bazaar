@@ -73,7 +73,15 @@ The study of price wars and first-mover advantages is a staple of classical econ
 We implement Agent Bazaar as a multi-agent reinforcement learning environment with hierarchical and decentralized decision-making. The framework consists of three primary agent types: Firm Agents, Consumer Agents, and a Tax Planner.
 
 \subsection{Environment Dynamics}
-The simulation proceeds in discrete timesteps. Each step involves a sequence of phases: Labor, Supply, Production, Pricing, Consumption, Market Clearing, and Governance. The state of the world is maintained in a centralized \textit{Ledger}, which tracks the cash and multi-good inventory of every participant.
+The simulation proceeds in discrete timesteps. Each step involves a sequence of phases: Labor, Supply, Production, Pricing, Consumption, Market Clearing, and Governance. The state of the world is maintained in a centralized \textit{Ledger}, which tracks the cash and multi-good inventory of every participant. Figure \ref{fig:arch} illustrates the interaction loop.
+
+\begin{figure}[h]
+    \centering
+    % \includegraphics[width=0.8\textwidth]{fig/architecture.png}
+    \fbox{Architecture Diagram Placeholder: Interactions between Firms, Consumers, Ledger, Market, and Tax Planner.}
+    \caption{Agent Bazaar system architecture and interaction loop.}
+    \label{fig:arch}
+\end{figure}
 
 \begin{table}[h]
     \centering
