@@ -1,0 +1,31 @@
+[project]
+name = "ai-bazaar"
+version = "1.0.0"
+description = "A framework for economic simulations using Large Language Models"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "wandb",
+    "openai",
+    "requests",
+    "torch>=2.4.0",
+    "transformers",
+    "trl",
+    "peft",
+    "streamlit",
+    "pandas",
+    "scipy",
+    "pillow",
+    "vllm",
+]
+
+[tool.uv]
+managed = true
+dev-dependencies = [
+    "pytest>=6.0.0",
+    "pytest-cov>=2.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+    "isort>=5.0.0",
+]
