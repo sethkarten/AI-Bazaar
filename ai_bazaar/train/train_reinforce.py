@@ -2,6 +2,7 @@ import os
 import time
 import sys
 import signal
+import threading
 
 # Unsloth must be imported before transformers
 from unsloth import FastLanguageModel
@@ -26,7 +27,7 @@ class REINFORCETrainer:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Load model with Unsloth
-        print(f"Loading model {model_name} with Unsloth...")
+        print(f"Loading model {model_name} with Unsloth...", flush=True)
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_name,
             max_seq_length=2048,
@@ -56,6 +57,7 @@ class REINFORCETrainer:
 
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr)
         self.start_time = time.time()
+        self.last_activity_time = time.time()
         self.heartbeat_file = "train_heartbeat.txt"
 
         # Wrapped model for inference during collection
@@ -63,9 +65,35 @@ class REINFORCETrainer:
             self.model, self.tokenizer, heartbeat_func=self.heartbeat
         )
 
+        # Start monitoring thread
+        self.stop_monitoring = False
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self.monitor_thread.start()
+
     def heartbeat(self):
+        self.last_activity_time = time.time()
         with open(self.heartbeat_file, "w") as f:
-            f.write(str(time.time()))
+            f.write(str(self.last_activity_time))
+
+    def _monitor_loop(self):
+        """Background thread to log progress updates and detect hangs."""
+        while not self.stop_monitoring:
+            time.sleep(600)  # Every 10 minutes
+            elapsed = time.time() - self.start_time
+            idle_time = time.time() - self.last_activity_time
+
+            print(
+                f"\n[MONITOR] Total Elapsed: {elapsed / 3600:.2f}h | Idle: {idle_time / 60:.2f}m",
+                flush=True,
+            )
+
+            if idle_time > 1800:  # 30 minutes of no activity
+                print(
+                    f"[MONITOR] WARNING: No activity detected for {idle_time / 60:.2f}m. Potential hang!",
+                    flush=True,
+                )
+
+            # Progress update logic could go here (e.g. read latest loss)
 
     def collect_trajectories(self, num_episodes: int):
         all_trajectories = []
