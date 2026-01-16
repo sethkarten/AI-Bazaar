@@ -139,7 +139,32 @@ class BazaarWorld:
 
         # 3. Pricing Phase (Parallel)
         firm_prices = {}
-        market_context = {"last_prices": self.firm_prices_last_step}
+
+        # Prepare market context for each firm (Information Asymmetry)
+        market_contexts = {}
+        for firm in self.firms:
+            if not getattr(firm, "in_business", True):
+                continue
+
+            if getattr(self.args, "info_asymmetry", False):
+                # Firm only sees a noisy average of competitor prices
+                noisy_context = {"competitor_summary": {}}
+                for good in self.goods:
+                    comp_prices = [
+                        self.firm_prices_last_step.get(f.name, {}).get(good, 10.0)
+                        for f in self.firms
+                        if f.name != firm.name and getattr(f, "in_business", True)
+                    ]
+                    if comp_prices:
+                        avg = np.mean(comp_prices)
+                        # Add 10% noise
+                        noisy_avg = avg * (1.0 + np.random.uniform(-0.1, 0.1))
+                        noisy_context["competitor_summary"][good] = round(noisy_avg, 2)
+                market_contexts[firm.name] = noisy_context
+            else:
+                # Full information (as before)
+                market_contexts[firm.name] = {"last_prices": self.firm_prices_last_step}
+
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=len(self.firms)
         ) as executor:
@@ -150,7 +175,9 @@ class BazaarWorld:
                 if self.args.firm_type == "LLM":
                     future_to_firm[
                         executor.submit(
-                            firm.set_price, self.timestep, market_data=market_context
+                            firm.set_price,
+                            self.timestep,
+                            market_data=market_contexts.get(firm.name, {}),
                         )
                     ] = firm
                 else:

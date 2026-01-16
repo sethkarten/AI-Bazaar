@@ -30,7 +30,7 @@ This document outlines the roadmap for the Agent Bazaar framework, focusing on f
 - [ ] **Phase 3.5: Comparative Ablations**:
     - **Reward Signal**: Compare "Revenue Maximization" vs. "Bankruptcy Avoidance" (Profit).
     - **Reasoning Impact**: Ablation test of performance with and without "Diary Entries."
-    - **Model Comparison**: Benchmark Gemma 3 4B, Qwen 3 (7B), Ministral 3 (8B), and OLMo 3 (7B).
+    - **Model Comparison**: Benchmark Gemma 3 4B, Qwen 2.5 (7B), Ministral 8B, and OLMo 2 (7B) [Latest available versions].
 - [x] **REINFORCE++ Finetuning**:
     - Integrated `unsloth` for LoRA-based training.
     - Implemented `UnslothModel` for fast in-process trajectory generation.

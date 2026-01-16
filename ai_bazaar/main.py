@@ -375,6 +375,11 @@ def create_argument_parser():
         default=5,
         help="Number of firms visible to consumers (0 for infinite)",
     )
+    parser.add_argument(
+        "--info-asymmetry",
+        action="store_true",
+        help="Enable information asymmetry (firms see noisy competitor data)",
+    )
 
     # Simulation parameters
     parser.add_argument(
