@@ -18,6 +18,20 @@ class BaseFirmAgent:
 
     def __init__(self):
         self.in_business = True
+        self.reputation = 1.0  # Start with perfect reputation
+        self.fulfillment_history = []  # List of (successful_qty, requested_qty)
+
+    def update_reputation(self, successful_qty: float, requested_qty: float):
+        """Update historical fulfillment rate."""
+        self.fulfillment_history.append((successful_qty, requested_qty))
+        # Rolling average of last 10 transactions
+        recent = self.fulfillment_history[-10:]
+        if not recent:
+            self.reputation = 1.0
+        else:
+            success = sum(r[0] for r in recent)
+            total = sum(r[1] for r in recent)
+            self.reputation = success / total if total > 0 else 1.0
 
     def mark_out_of_business(self, reason: Optional[str] = None) -> None:
         """Flag the firm as no longer operating and emit a warning."""

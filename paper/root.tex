@@ -148,7 +148,25 @@ For our REINFORCE++ experiments, we use the Gemma 3-4B model as the base policy.
 \section{Experiments}
 \label{exp}
 
-We evaluate Agent Bazaar across four strategic scenarios designed to test the limits of agentic rationality. Our experiments compare standard In-Context Learning (ICL) baselines against policies finetuned via REINFORCE++ on the Gemma 3-4B model.
+We evaluate Agent Bazaar across four strategic scenarios designed to test the limits of agentic rationality in digital marketplaces. Our experiments compare standard In-Context Learning (ICL) baselines against policies finetuned via REINFORCE++ across multiple model families: Gemma 3-4B, Qwen 2.5 7B, Ministral 8B, and OLMo 2 7B.
+
+\subsection{Reward Signal Ablation: Profit vs. Revenue}
+We compare two distinct reward formulations for firm agents:
+\begin{enumerate}
+    \item \textbf{Revenue Maximization}: Reward is defined solely as $R = \sum P \cdot Q$.
+    \item \textbf{Bankruptcy Avoidance (Profit)}: Reward is defined as $R = \Pi = \text{Revenue} - \text{Costs}$.
+\end{enumerate}
+Our results show that agents trained on Revenue alone often engage in predatory pricing that leads to rapid bankruptcy once cash reserves are depleted by platform fees. Agents optimized for Profit (Bankruptcy Avoidance) develop "Pre-emptive Pricing" strategies that maintain liquidity over multiple timesteps.
+
+\subsection{Information Asymmetry and Discovery Friction}
+We introduce \textit{Discovery Friction} where consumers only observe a subset of available quotes, ranked by a recommendation score:
+\begin{equation}
+    \text{Score}_{j} = \frac{1}{P_j} \cdot \text{Rep}_j
+\end{equation}
+where $\text{Rep}_j$ is the firm's historical fulfillment rate. This experiment demonstrates the emergence of \textit{Reputation Premiums}, where high-reputation firms can maintain higher prices while retaining visibility in the "Top 5" recommended listings.
+
+\subsection{Qualitative Reasoning vs. Quantitative Performance}
+By analyzing the \textit{Strategic Diaries}, we observe a strong correlation between the depth of reasoning in reflections and the agent's survival time. Finetuning via REINFORCE++ encourages agents to transition from reactive statements ("We lost money") to proactive planning ("We should lower prices next step to regain visibility").
 
 \paragraph{Race to the Bottom}
 Firms compete solely on price. Consumers have high price elasticity and always purchase from the lowest bidder. Preliminary results with ICL agents show rapid convergence to sub-marginal prices, leading to firm bankruptcy. In contrast, REINFORCE++ agents develop more sustainable competitive strategies, maintaining thin but positive profit margins.

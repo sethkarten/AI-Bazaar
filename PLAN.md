@@ -9,9 +9,11 @@ This document outlines the roadmap for the Agent Bazaar framework, focusing on f
 - [x] **Realistic Demand**:
     - Consumers choose labor hours to generate income and optimize utility over multiple goods.
     - Necessities (Food) prioritized over luxury items.
-- [ ] **Platform Mechanics**:
-    - Add dynamic platform fees or subscription costs for firms.
-    - Implement "Search" or "Discovery" where consumers only see a subset of firms (Bounded Bazaar).
+- [ ] **Phase 1.5: Advanced Platform Features**:
+    - **Discovery Friction**: Implement "Discovery" where consumers only see a subset (e.g., top 5) of firms.
+    - **Recommendation Algorithm**: Lightweight ranking based on price and reputation.
+    - **Reputation System**: Track firm fulfillment rates and historical "quality" ratings.
+    - **Information Asymmetry**: Firms don't know the exact demand curves or competitor costs.
 
 ## Phase 2: Agentic Social Layer (Interviews + Reflections)
 - [x] **Agent Interview API**:
@@ -25,6 +27,10 @@ This document outlines the roadmap for the Agent Bazaar framework, focusing on f
 ## Phase 3: Model Training & Evaluation
 - [x] **Baseline Benchmarking**:
     - Evaluate Gemma 3-4B and Llama 3.1 8B (In-Context) on local 2x5090.
+- [ ] **Phase 3.5: Comparative Ablations**:
+    - **Reward Signal**: Compare "Revenue Maximization" vs. "Bankruptcy Avoidance" (Profit).
+    - **Reasoning Impact**: Ablation test of performance with and without "Diary Entries."
+    - **Model Comparison**: Benchmark Gemma 3 4B, Qwen 2.5 7B, Ministral 8B, and OLMo 2 7B.
 - [x] **REINFORCE++ Finetuning**:
     - Integrated `unsloth` for LoRA-based training.
     - Implemented `UnslothModel` for fast in-process trajectory generation.

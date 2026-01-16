@@ -260,18 +260,56 @@ class CESConsumerAgent(LLMAgent):
         for order in orders:
             self.market.submit_order(order)
 
-    def make_orders(self, timestep: int, scenario: str) -> List[Order]:
+    def make_orders(
+        self,
+        timestep: int,
+        scenario: str,
+        discovery_limit: int = 5,
+        firm_reputations: Dict[str, float] = None,
+    ) -> List[Order]:
         "Make fixed list of orders (returns orders without submitting)"
         import random
 
         demand = self.compute_demand()
-        quotes = self.market.quotes
+        all_quotes = self.market.quotes
         orders = []
+
+        # Discovery Friction: Consumer only sees a subset of firms
+        visible_quotes = []
+        for good in self.goods:
+            good_str = str(good).strip()
+            good_quotes = [q for q in all_quotes if str(q.good).strip() == good_str]
+
+            if not good_quotes:
+                continue
+
+            # If discovery_limit is set, apply search friction/recommendation
+            if discovery_limit > 0 and len(good_quotes) > discovery_limit:
+                # Simple recommendation algorithm: rank by score = (1/price) * reputation
+                if firm_reputations:
+                    # Normalize price for score (higher is better)
+                    scored_quotes = []
+                    for q in good_quotes:
+                        rep = firm_reputations.get(q.firm_id, 1.0)
+                        score = (1.0 / max(0.01, q.price)) * rep
+                        scored_quotes.append((q, score))
+
+                    # Sort by score and pick top N
+                    scored_quotes.sort(key=lambda x: x[1], reverse=True)
+                    good_quotes = [x[0] for x in scored_quotes[:discovery_limit]]
+                else:
+                    # Random discovery if no reputation data
+                    good_quotes = random.sample(good_quotes, discovery_limit)
+
+            visible_quotes.extend(good_quotes)
+
         if scenario == "RACE_TO_BOTTOM":
             # willingness to pay = lowest quote
             for good in self.goods:
                 good_str = str(good).strip()
-                good_quotes = [q for q in quotes if str(q.good).strip() == good_str]
+                good_quotes = [
+                    q for q in visible_quotes if str(q.good).strip() == good_str
+                ]
                 if good_quotes:
                     lowest_quote = min(good_quotes, key=lambda q: q.price)
                     orders.append(
@@ -282,10 +320,11 @@ class CESConsumerAgent(LLMAgent):
 
         elif scenario == "EARLY_BIRD":
             # find lowest available quote, submit and fill the order immediately
-            # Simulate first-mover advantage by preferring the first firms in the quotes list
             for good in self.goods:
                 good_str = str(good).strip()
-                good_quotes = [q for q in quotes if str(q.good).strip() == good_str]
+                good_quotes = [
+                    q for q in visible_quotes if str(q.good).strip() == good_str
+                ]
                 if good_quotes:
                     # Pick the first firm that posted a quote for this good
                     chosen_quote = good_quotes[0]
@@ -301,7 +340,9 @@ class CESConsumerAgent(LLMAgent):
             # compute willingness to pay for each good and submit an order without firm discrimination
             for good in self.goods:
                 good_str = str(good).strip()
-                good_quotes = [q for q in quotes if str(q.good).strip() == good_str]
+                good_quotes = [
+                    q for q in visible_quotes if str(q.good).strip() == good_str
+                ]
                 if good_quotes:
                     avg_price = sum(q.price for q in good_quotes) / len(good_quotes)
                     # Willingness to pay varies by consumer (simulated with random factor)
@@ -318,7 +359,9 @@ class CESConsumerAgent(LLMAgent):
             # willingness to pay is the average price among all quotes
             for good in self.goods:
                 good_str = str(good).strip()
-                good_quotes = [q for q in quotes if str(q.good).strip() == good_str]
+                good_quotes = [
+                    q for q in visible_quotes if str(q.good).strip() == good_str
+                ]
                 if good_quotes:
                     avg_price = sum(q.price for q in good_quotes) / len(good_quotes)
                     # Pick the cheapest firm but willing to pay up to average
@@ -332,7 +375,9 @@ class CESConsumerAgent(LLMAgent):
             # willingness to pay is average price among a random subset of quotes
             for good in self.goods:
                 good_str = str(good).strip()
-                good_quotes = [q for q in quotes if str(q.good).strip() == good_str]
+                good_quotes = [
+                    q for q in visible_quotes if str(q.good).strip() == good_str
+                ]
                 if good_quotes:
                     subset_size = max(1, len(good_quotes) // 2)
                     subset = random.sample(good_quotes, subset_size)
@@ -568,20 +613,29 @@ class FixedConsumerAgent:
         for order in orders:
             self.market.submit_order(order)
 
-    def make_orders(self, timestep: int) -> List[Order]:
+    def make_orders(self, timestep: int, discovery_limit: int = 0) -> List[Order]:
         "Make fixed list of orders (returns orders without submitting)"
-        quotes = self.market.quotes
+        import random
+
+        all_quotes = self.market.quotes
         orders = []
         for good in self.inventory:
             good_str = str(good).strip()
-            for quote in quotes:
-                if str(quote.good).strip() == good_str:
-                    orders.append(
-                        self.create_order(
-                            quote.firm_id, good, self.quantity_per_good, quote.price
-                        )
-                    )
-                    break
+            good_quotes = [q for q in all_quotes if str(q.good).strip() == good_str]
+
+            if not good_quotes:
+                continue
+
+            if discovery_limit > 0 and len(good_quotes) > discovery_limit:
+                good_quotes = random.sample(good_quotes, discovery_limit)
+
+            # Pick the first one in the (possibly shuffled) list
+            quote = good_quotes[0]
+            orders.append(
+                self.create_order(
+                    quote.firm_id, good, self.quantity_per_good, quote.price
+                )
+            )
         return orders
 
     def pay_taxes(self, timestep: int, tax_rate: float) -> float:

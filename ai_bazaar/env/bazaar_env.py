@@ -4,6 +4,7 @@ import json
 import numpy as np
 import random
 from typing import Dict, List, Any, Sequence
+from collections import defaultdict
 from ..market_core.market_core import Ledger, Market
 from ..agents.firm import FirmAgent, FixedFirmAgent
 from ..agents.consumer import CESConsumerAgent, FixedConsumerAgent
@@ -168,6 +169,10 @@ class BazaarWorld:
             consumer.receive_income(self.timestep)
 
         # 5. Consumption Phase (Parallel)
+        # Get reputations for discovery
+        reputations = {f.name: f.reputation for f in self.firms}
+        discovery_limit = getattr(self.args, "discovery_limit", 5)
+
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=len(self.consumers)
         ) as executor:
@@ -179,10 +184,14 @@ class BazaarWorld:
                             consumer.make_orders,
                             self.timestep,
                             self.args.consumer_scenario,
+                            discovery_limit=discovery_limit,
+                            firm_reputations=reputations,
                         )
                     ] = consumer
                 else:
-                    orders = consumer.make_orders(self.timestep)
+                    orders = consumer.make_orders(
+                        self.timestep, discovery_limit=discovery_limit
+                    )
                     consumer.submit_orders(orders)
 
             for future in concurrent.futures.as_completed(future_to_cons):
@@ -195,11 +204,18 @@ class BazaarWorld:
         # 6. Market Clearing
         filled_orders, sales_info = self.market.clear(self.ledger)
 
-        # Update sales tracking
+        # Update sales tracking and reputations
+        firm_sales_summary = defaultdict(lambda: {"sold": 0.0, "requested": 0.0})
+
         for sale in sales_info:
             firm_name = sale["firm_id"]
             good = sale["good"]
             quantity_sold = sale["quantity_sold"]
+            requested_qty = sale.get("requested_qty", quantity_sold)  # Fallback
+
+            firm_sales_summary[firm_name]["sold"] += quantity_sold
+            firm_sales_summary[firm_name]["requested"] += requested_qty
+
             price = firm_prices[firm_name][good]
             for firm in self.firms:
                 if firm.name == firm_name:
@@ -217,6 +233,12 @@ class BazaarWorld:
                         )
                     break
 
+        # Update reputations for all firms (even if no sales)
+        for firm in self.firms:
+            summary = firm_sales_summary.get(firm.name, {"sold": 0.0, "requested": 0.0})
+            if summary["requested"] > 0:
+                firm.update_reputation(summary["sold"], summary["requested"])
+
         # 7. Cleanup & Overhead
         self.market.quotes.clear()
         while self.market.orders:
@@ -228,13 +250,11 @@ class BazaarWorld:
             firm.pay_overhead_costs(self.timestep)
 
         # 8. Platform Fees (Simulating Amazon/eBay)
-        # Fees are taken from revenue, but here we just deduct a small percentage of cash
-        # to simulate the cost of maintaining the store/listing.
         total_fees = 0.0
         for firm in self.firms:
             if not getattr(firm, "in_business", True):
                 continue
-            fee = firm.cash * 0.05  # 5% maintenance fee per timestep
+            fee = firm.cash * 0.05
             self.ledger.credit(firm.name, -fee)
             total_fees += fee
 
@@ -249,11 +269,18 @@ class BazaarWorld:
                 consumer.reflect(self.timestep)
 
         # After step is complete, assign rewards to trajectories
+        reward_type = getattr(self.args, "reward_type", "PROFIT")
+
         for firm in self.firms:
             if hasattr(firm, "trajectory"):
                 for entry in firm.trajectory:
                     if entry["timestep"] == self.timestep and entry["reward"] is None:
-                        entry["reward"] = getattr(firm, "profit", 0.0)
+                        if reward_type == "REVENUE":
+                            entry["reward"] = firm.calculate_revenue(
+                                self.timestep, pre_clearing_ledger, self.ledger
+                            )
+                        else:  # PROFIT
+                            entry["reward"] = getattr(firm, "profit", 0.0)
 
         for consumer in self.consumers:
             if hasattr(consumer, "trajectory"):
@@ -264,7 +291,11 @@ class BazaarWorld:
         self.firm_prices_last_step = firm_prices.copy()
         stats = {
             "firms": {
-                f.name: {"cash": f.cash, "profit": getattr(f, "profit", 0.0)}
+                f.name: {
+                    "cash": f.cash,
+                    "profit": getattr(f, "profit", 0.0),
+                    "reputation": f.reputation,
+                }
                 for f in self.firms
             },
             "consumers": {
@@ -275,6 +306,9 @@ class BazaarWorld:
         }
 
         self.save_state()
+        self.timestep += 1
+        return stats
+
         self.timestep += 1
         return stats
 

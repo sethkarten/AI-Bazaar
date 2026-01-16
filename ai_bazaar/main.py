@@ -363,6 +363,18 @@ def create_argument_parser():
     parser.add_argument(
         "--unit-cost", type=float, default=2.0, help="Unit cost of production for firms"
     )
+    parser.add_argument(
+        "--reward-type",
+        default="PROFIT",
+        choices=["PROFIT", "REVENUE"],
+        help="Type of reward signal for firms (PROFIT for bankruptcy avoidance)",
+    )
+    parser.add_argument(
+        "--discovery-limit",
+        type=int,
+        default=5,
+        help="Number of firms visible to consumers (0 for infinite)",
+    )
 
     # Simulation parameters
     parser.add_argument(
