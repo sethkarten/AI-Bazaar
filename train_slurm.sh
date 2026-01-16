@@ -26,14 +26,17 @@ fi
 # Run training directly using the virtual environment to avoid uv network checks
 . .venv/bin/activate
 
+# Run training directly using the virtual environment to avoid uv network checks
+. .venv/bin/activate
+
 python3 -m ai_bazaar.train.train_reinforce \
     --llm "./models/gemma-3-4b-it-bnb-4bit" \
-    --num_episodes 10 \
+    --num_episodes 5 \
     --num_iterations 100 \
     --lr 5e-5 \
     --num-firms 3 \
     --num-consumers 10 \
-    --max-timesteps 100 \
+    --max-timesteps 20 \
     --firm-type LLM \
     --consumer-type CES \
     --log-dir logs

@@ -84,7 +84,8 @@ class REINFORCETrainer:
                     agent.trajectory = []  # Clear for next episode
 
             print(
-                f"  Episode {ep + 1}/{num_episodes} collected in {time.time() - ep_start:.2f}s"
+                f"  Episode {ep + 1}/{num_episodes} collected in {time.time() - ep_start:.2f}s",
+                flush=True,
             )
         return all_trajectories
 
