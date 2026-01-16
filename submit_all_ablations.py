@@ -121,7 +121,7 @@ def submit_job(config, test_mode=True):
     payload = {
         "repo": REPO,
         "branch": BRANCH,
-        "script": "ai_bazaar/train/train_reinforce.py",
+        "script": "slurm_wrapper.sh",  # Use bash wrapper to avoid automatic uv sync
         "args": args,
         "gpu_count": 1,
         "gpu_memory_min_gb": 141,
