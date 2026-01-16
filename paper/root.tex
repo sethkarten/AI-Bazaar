@@ -130,7 +130,7 @@ where $\mathcal{G}$ is the set of goods, $\alpha_{i,k}$ are preference weights, 
 The Agent Bazaar is designed for high-speed simulation, but the market clearing process presents a potential bottleneck. Currently, clearing $O$ orders against $Q$ quotes has a worst-case complexity of $O(O \cdot Q)$. To scale to larger populations, we propose indexing quotes by good and firm identity, reducing the complexity to $O(O + Q)$.
 
 \subsection{REINFORCE++ Optimization}
-While standard agents operate via in-context optimization, we train specialized models using REINFORCE++. The policy $\pi_\theta(a|s)$ is finetuned to maximize the expected reward $R$, where $R$ is the individual utility for workers and social welfare for the planner. We compute the policy gradient as:
+While standard agents operate via in-context optimization, we train specialized models using REINFORCE++. The policy $\pi_\theta(a|s)$ is finetuned to maximize the expected reward $R$, where $R$ is the individual utility for consumers and cumulative profit for firms. We compute the policy gradient as:
 \begin{equation}
     \nabla_\theta J(\theta) \approx \frac{1}{N} \sum_{i=1}^N \nabla_\theta \log \pi_\theta(a_i|s_i) (R_i - b)
 \end{equation}
@@ -160,7 +160,7 @@ Firms attempt to segment the market based on consumer personas. We observe that 
 Agents operate with limited information, only observing a subset of market quotes. This more closely mimics human market behavior. We find that the stochastic nature of the Bounded Bazaar provides a natural regularization for the REINFORCE++ policies, preventing overfitting to specific competitor price points.
 
 \paragraph{Monopolistic Instability}
-A single firm dominates the market for a necessity good (Food). We observe the emergent governance response where the Tax Planner increases marginal rates to fund social safety nets, successfully mitigating welfare loss for the lowest-income consumers.
+A single firm dominates the market for a necessity good (Food). We observe the emergent marketplace dynamics and the ability of consumer agents to adapt their labor and consumption patterns to mitigate welfare loss in the absence of centralized intervention.
 
 \section{Conclusion}
 \label{conclusion}
