@@ -3,6 +3,7 @@ import time
 import sys
 import signal
 import threading
+import wandb
 
 # Unsloth must be imported before transformers
 from unsloth import FastLanguageModel
@@ -95,8 +96,9 @@ class REINFORCETrainer:
 
             # Progress update logic could go here (e.g. read latest loss)
 
-    def collect_trajectories(self, num_episodes: int):
+    def collect_trajectories(self, num_episodes: int, iteration: int):
         all_trajectories = []
+        iter_stats = []
         for ep in range(num_episodes):
             ep_start = time.time()
 
@@ -107,8 +109,19 @@ class REINFORCETrainer:
                 llm_model = self.inference_model
 
             world = BazaarWorld(self.args, llm_model=llm_model)
+            ep_utility = []
+            ep_profit = []
+            ep_sales = 0
+
             while not world.is_done():
-                world.step()
+                stats = world.step()
+                ep_utility.append(
+                    np.mean([c["utility"] for c in stats["consumers"].values()])
+                )
+                ep_profit.append(
+                    np.mean([f["profit"] for f in stats["firms"].values()])
+                )
+                ep_sales += stats["sales_count"]
                 self.heartbeat()
 
             # Collect from all agents
@@ -117,13 +130,38 @@ class REINFORCETrainer:
                     all_trajectories.extend(agent.trajectory)
                     agent.trajectory = []  # Clear for next episode
 
+            ep_duration = time.time() - ep_start
             print(
-                f"  Episode {ep + 1}/{num_episodes} collected in {time.time() - ep_start:.2f}s",
+                f"  Episode {ep + 1}/{num_episodes} collected in {ep_duration:.2f}s",
                 flush=True,
             )
+
+            iter_stats.append(
+                {
+                    "avg_utility": np.mean(ep_utility),
+                    "avg_profit": np.mean(ep_profit),
+                    "total_sales": ep_sales,
+                    "duration": ep_duration,
+                }
+            )
+
+        # Log aggregates to wandb
+        if wandb.run:
+            wandb.log(
+                {
+                    "env/avg_utility": np.mean([s["avg_utility"] for s in iter_stats]),
+                    "env/avg_profit": np.mean([s["avg_profit"] for s in iter_stats]),
+                    "env/total_sales": np.mean([s["total_sales"] for s in iter_stats]),
+                    "env/collection_duration": np.mean(
+                        [s["duration"] for s in iter_stats]
+                    ),
+                    "iteration": iteration,
+                }
+            )
+
         return all_trajectories
 
-    def train_step(self, trajectories: List[Dict[str, Any]]):
+    def train_step(self, trajectories: List[Dict[str, Any]], iteration: int):
         # Set to train mode and reset inference flag for UnslothModel
         self.model.train()
         self.model._is_inference = False
@@ -199,8 +237,21 @@ class REINFORCETrainer:
                     f"    Sample {i + 1}/{len(trajectories)} processed. Avg loss: {total_loss / (i + 1):.4f}"
                 )
 
-        print(f"  Train step completed in {time.time() - step_start:.2f}s")
-        return total_loss / len(trajectories) if trajectories else 0
+        train_duration = time.time() - step_start
+        avg_loss = total_loss / len(trajectories) if trajectories else 0
+        print(f"  Train step completed in {train_duration:.2f}s")
+
+        if wandb.run:
+            wandb.log(
+                {
+                    "train/loss": avg_loss,
+                    "train/duration": train_duration,
+                    "train/baseline": baseline,
+                    "iteration": iteration,
+                }
+            )
+
+        return avg_loss
 
 
 def main():
@@ -208,7 +259,12 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--num_episodes", type=int, default=5)
     parser.add_argument("--num_iterations", type=int, default=50)
+    parser.add_argument("--run_name", type=str, default=None)
     args = parser.parse_args()
+
+    # Initialize WandB
+    run_name = args.run_name or f"bazaar-{args.reward_type}-{args.llm.split('/')[-1]}"
+    wandb.init(project="ai-bazaar", name=run_name, config=vars(args), mode="offline")
 
     # Initialize trainer
     model_name = args.llm if args.llm != "None" else "unsloth/gemma-3-4b-it-bnb-4bit"
@@ -218,6 +274,8 @@ def main():
     def signal_handler(sig, frame):
         print("Interrupted! Saving model...", flush=True)
         trainer.model.save_pretrained("checkpoints/interrupted")
+        if wandb.run:
+            wandb.finish()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -227,14 +285,14 @@ def main():
         iter_start = time.time()
         trainer.heartbeat()
         print(f"Iteration {i}: Collecting trajectories...", flush=True)
-        trajs = trainer.collect_trajectories(args.num_episodes)
+        trajs = trainer.collect_trajectories(args.num_episodes, i)
 
         if not trajs:
             print(f"Iteration {i}: No trajectories collected. Skipping.", flush=True)
             continue
 
         print(f"Iteration {i}: Training on {len(trajs)} samples...", flush=True)
-        loss = trainer.train_step(trajs)
+        loss = trainer.train_step(trajs, i)
 
         duration = time.time() - iter_start
         total_elapsed = time.time() - trainer.start_time
@@ -252,6 +310,9 @@ def main():
             checkpoint_path = f"checkpoints/gemma3_bazaar_iter{i}"
             trainer.model.save_pretrained(checkpoint_path)
             print(f"Saved checkpoint to {checkpoint_path}", flush=True)
+
+    if wandb.run:
+        wandb.finish()
 
 
 if __name__ == "__main__":

@@ -336,9 +336,6 @@ class BazaarWorld:
         self.timestep += 1
         return stats
 
-        self.timestep += 1
-        return stats
-
     def save_state(self):
         """Serialize the entire world state to a JSON file."""
         state = {

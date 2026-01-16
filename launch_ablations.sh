@@ -81,6 +81,7 @@ python3 -m ai_bazaar.train.train_reinforce \\
     --discovery-limit ${DISCOVERY} \\
     ${ASYM_FLAG} \\
     ${DIARY_FLAG} \\
+    --run_name "ablation-${NAME}" \\
     --service vllm \\
     --log-dir logs/results_${NAME}
 
