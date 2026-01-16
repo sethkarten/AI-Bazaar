@@ -418,6 +418,8 @@ Please reformat the malformed JSON to match the expected format exactly. Return 
                 temperature=temperature,
                 json_format=True,
             )
+            # Prepend the injected opening brace and quote
+            llm_output = '{"' + llm_output
 
         # Record trajectory for RL training
         self.trajectory.append(
