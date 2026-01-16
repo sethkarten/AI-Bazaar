@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=128G
 #SBATCH --time=48:00:00
-#SBATCH --partition=gpu
+#SBATCH --partition=ailab
 #SBATCH --output=logs/train_%j.log
 #SBATCH --error=logs/train_%j.err
 
