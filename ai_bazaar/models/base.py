@@ -73,8 +73,18 @@ class BaseLLMModel(ABC):
             if json_end == 0:
                 # Missing closing brace - common with stop tokens
                 # Try to salvage by adding one
-                json_str = message[json_start:].strip() + "}"
+                json_str = message[json_start:].strip()
+
+                # Check for unclosed quotes
+                if json_str.count('"') % 2 == 1:
+                    json_str += '"'
+
+                if not json_str.endswith("}"):
+                    json_str += "}"
+
                 try:
+                    import json
+
                     json.loads(json_str)
                     return json_str, True
                 except:

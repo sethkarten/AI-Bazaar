@@ -132,6 +132,9 @@ A centralized Tax Planner sets marginal tax brackets to optimize a Social Welfar
     \text{SWF} = \sum_{i} \frac{U_i}{\max(z_{i}, 1)}
 \end{equation}
 
+\subsection{Scaling and Computational Complexity}
+The Agent Bazaar is designed for high-speed simulation, but the market clearing process presents a potential bottleneck. Currently, clearing $O$ orders against $Q$ quotes has a worst-case complexity of $O(O \cdot Q)$. For a population with $N_c$ consumers, $N_f$ firms, and $N_g$ goods, this scales as $O(N_c N_f N_g^2)$. To scale to larger populations, we propose indexing quotes by good and firm identity, reducing the complexity to $O(O + Q)$.
+
 \subsection{REINFORCE++ Optimization}
 While standard agents operate via in-context optimization, we train specialized models using REINFORCE++. The policy $\pi_\theta(a|s)$ is finetuned to maximize the expected reward $R$, where $R$ is the individual utility for workers and social welfare for the planner. We compute the policy gradient as:
 \begin{equation}

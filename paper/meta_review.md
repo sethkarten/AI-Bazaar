@@ -16,7 +16,7 @@ The reviewers recognize the technical grounding and the importance of study in d
 - [x] **Hyperparameters**: Listed Gemma 3-4B finetuning parameters.
 
 ### Priority 3: Scaling & Implementation
-- [ ] **Scaling constraints**: Discuss the complexity of the Ledger-based market clearing and any observed bottlenecks as the population size increases.
+- [x] **Scaling constraints**: Discussed complexity of $O(O \cdot Q)$ in market clearing and proposed indexing optimizations for large $N$.
 - [x] **Reward signal**: Clarified individual utility (Workers) and Social Welfare (Planner) as reward signals.
 
 ---
