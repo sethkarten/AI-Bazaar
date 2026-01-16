@@ -19,8 +19,8 @@ class LLMAgent:
         port: int,
         name: str,
         prompt_algo: str = "io",
-        history_len: int = 10,
-        timeout: int = 10,
+        history_len: int = 5,  # Reduced from 10
+        timeout: int = 5,  # Reduced from 10
         K: int = 3,
         args=None,
         llm_instance=None,

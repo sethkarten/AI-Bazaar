@@ -80,9 +80,11 @@ class UnslothModel(BaseLLMModel):
         )[0]
 
         # Stop at the first '}' if not already stopped
+        orig_len = len(decoded)
         if "}" in decoded:
             decoded = decoded[: decoded.find("}") + 1]
 
+        # self.logger.info(f"Generated {len(decoded)} tokens (raw: {orig_len})")
         if json_format:
             return self._extract_json(decoded)
 
