@@ -15,6 +15,7 @@ export HF_DATASETS_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export WANDB_MODE=offline
 export CUDA_VISIBLE_DEVICES=0
+export UV_OFFLINE=1
 
 # Check if .venv exists
 if [ ! -d ".venv" ]; then
@@ -22,31 +23,11 @@ if [ ! -d ".venv" ]; then
     exit 1
 fi
 
-# Start vLLM server in the background for inference
-# We use the same model we are training, or a base model? 
-# Usually we want the agents to use the current policy.
-# For simplicity, let's have agents use the base model for now, 
-# or we can use unsloth for in-process inference which is easier.
+# Run training directly using the virtual environment to avoid uv network checks
+. .venv/bin/activate
 
-# However, following instructions "vLLM for inference":
-uv run python3 -m vllm.entrypoints.openai.api_server \
-    --model "unsloth/gemma-3-4b-it-bnb-4bit" \
-    --port 8000 \
-    --gpu-memory-utilization 0.4 \
-    --disable-log-requests &
-VLLM_PID=$!
-
-# Wait for vLLM to be ready
-echo "Waiting for vLLM to start..."
-while ! curl -s http://localhost:8000/v1/models > /dev/null; do
-    sleep 5
-done
-echo "vLLM is ready."
-
-# Use uv run to ensure the right environment
-uv run python3 -m ai_bazaar.train.train_reinforce \
+python3 -m ai_bazaar.train.train_reinforce \
     --llm "unsloth/gemma-3-4b-it-bnb-4bit" \
-    --port 8000 \
     --num_episodes 10 \
     --num_iterations 100 \
     --lr 5e-5 \
@@ -56,6 +37,3 @@ uv run python3 -m ai_bazaar.train.train_reinforce \
     --firm-type LLM \
     --consumer-type CES \
     --log-dir logs
-
-# Cleanup
-kill $VLLM_PID
