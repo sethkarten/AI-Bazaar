@@ -23,16 +23,20 @@ This document outlines the roadmap for improving the Agent Bazaar framework and 
     - Implement full state snapshotting (inventory + mindset) at each timestep.
 
 ## Phase 3: Model Training & Evaluation
-- [ ] **Baseline Benchmarking**:
+- [x] **Baseline Benchmarking**:
     - Evaluate Gemma 3-4B and Llama 3.1 8B (In-Context) on local 2x5090.
-- [ ] **REINFORCE++ Finetuning**:
-    - Finalize token-level log-prob calculation in `train_reinforce.py`.
-    - Launch finetuning on `della-ailab` cluster for Gemma 3-4B.
-- [ ] **Reward Modeling**:
-    - Link Individual Utility and Social Welfare to the RL reward signal.
+- [x] **REINFORCE++ Finetuning**:
+    - Integrated `unsloth` for LoRA-based training.
+    - Implemented `UnslothModel` for fast in-process trajectory generation.
+    - Launched finetuning on `della-ailab` cluster (Job ID: 3879110).
+- [x] **Reward Modeling**:
+    - Linked Individual Utility and Social Welfare to the RL reward signal.
+- [x] **Environment Robustness**:
+    - Configured `uv` environment with CUDA 12.8 support on cluster.
+    - Implemented heartbeat monitoring and ETA timers.
 
 ## Phase 4: Visualization & UX
-- [ ] **Interactive Dashboard**:
+- [x] **Interactive Dashboard**:
     - Build Streamlit UI for real-time visualization of Gini, wealth flow, and utility.
 - [ ] **Scenario Testing**:
     - Stress-test scenarios (Race to Bottom, etc.) using finetuned models.
