@@ -1,13 +1,15 @@
 import os
-import torch
-import numpy as np
-import json
 import time
 import sys
 import signal
+
+# Unsloth must be imported before transformers
+from unsloth import FastLanguageModel
+import torch
+import numpy as np
+import json
 from typing import List, Dict, Any
 from transformers import AutoTokenizer
-from unsloth import FastLanguageModel
 from ai_bazaar.models.unsloth_model import UnslothModel
 from ai_bazaar.env.bazaar_env import BazaarWorld
 from ai_bazaar.main import create_argument_parser
