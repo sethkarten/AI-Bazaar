@@ -157,11 +157,11 @@ def main():
 
     # Initialize trainer
     model_name = args.llm if args.llm != "None" else "unsloth/gemma-3-4b-it-bnb-4bit"
-    print(f"Starting training on {model_name}...")
+    print(f"Starting training on {model_name}...", flush=True)
     trainer = REINFORCETrainer(model_name, args)
 
     def signal_handler(sig, frame):
-        print("Interrupted! Saving model...")
+        print("Interrupted! Saving model...", flush=True)
         trainer.model.save_pretrained("checkpoints/interrupted")
         sys.exit(0)
 
@@ -171,14 +171,14 @@ def main():
     for i in range(args.num_iterations):
         iter_start = time.time()
         trainer.heartbeat()
-        print(f"Iteration {i}: Collecting trajectories...")
+        print(f"Iteration {i}: Collecting trajectories...", flush=True)
         trajs = trainer.collect_trajectories(args.num_episodes)
 
         if not trajs:
-            print(f"Iteration {i}: No trajectories collected. Skipping.")
+            print(f"Iteration {i}: No trajectories collected. Skipping.", flush=True)
             continue
 
-        print(f"Iteration {i}: Training on {len(trajs)} samples...")
+        print(f"Iteration {i}: Training on {len(trajs)} samples...", flush=True)
         loss = trainer.train_step(trajs)
 
         duration = time.time() - iter_start
@@ -188,14 +188,15 @@ def main():
         eta = avg_iter_time * remaining_iters
 
         print(
-            f"Iteration {i}: Loss = {loss:.4f} | Duration = {duration:.2f}s | Total Elapsed = {total_elapsed:.2f}s | ETA = {eta / 60:.2f}m"
+            f"Iteration {i}: Loss = {loss:.4f} | Duration = {duration:.2f}s | Total Elapsed = {total_elapsed:.2f}s | ETA = {eta / 60:.2f}m",
+            flush=True,
         )
 
         # Save checkpoint periodically
         if (i + 1) % 10 == 0:
             checkpoint_path = f"checkpoints/gemma3_bazaar_iter{i}"
             trainer.model.save_pretrained(checkpoint_path)
-            print(f"Saved checkpoint to {checkpoint_path}")
+            print(f"Saved checkpoint to {checkpoint_path}", flush=True)
 
 
 if __name__ == "__main__":
