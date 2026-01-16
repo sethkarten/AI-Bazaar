@@ -136,12 +136,16 @@ class REINFORCETrainer:
         step_start = time.time()
         for i, traj in enumerate(trajectories):
             self.heartbeat()
-            prompt = traj["system_prompt"] + "\n" + traj["user_prompt"]
-            response = traj["response"]
-            reward = traj["reward"]
 
-            if reward is None:
+            s_prompt = traj.get("system_prompt") or ""
+            u_prompt = traj.get("user_prompt") or ""
+            response = traj.get("response") or ""
+            reward = traj.get("reward")
+
+            if reward is None or not response:
                 continue
+
+            prompt = s_prompt + "\n" + u_prompt
 
             # Tokenize with workaround for Gemma 3 processor
             full_text = prompt + response

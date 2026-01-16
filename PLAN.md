@@ -30,12 +30,13 @@ This document outlines the roadmap for improving the Agent Bazaar framework and 
     - Implemented `UnslothModel` for fast in-process trajectory generation.
     - Resolved Gemma 3 processor subscriptable errors.
     - Optimized speed via **Parallel Agent Actions** and **vLLM Batching**.
-    - Launched finetuning on `della-ailab` cluster (Job ID: 3881097).
+    - Launched finetuning on `della-ailab` cluster (Job ID: 3884330).
 - [x] **Reward Modeling**:
     - Linked Individual Utility and Social Welfare to the RL reward signal.
 - [x] **Environment Robustness**:
     - Configured `uv` environment with CUDA 12.8 support on cluster.
     - Implemented heartbeat monitoring and ETA timers.
+    - **Monitoring Timer Hooks**: Set up internal `_monitor_loop` thread and external `training_watcher.py` to detect job hangs and provide progress updates.
 
 ## Phase 4: Visualization & UX
 - [x] **Interactive Dashboard**:

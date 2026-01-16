@@ -43,7 +43,7 @@ class LLMAgent:
 
         self.history_len = history_len
         self.timeout = timeout  # number of times to retry message before failing
-        self.system_prompt = None  # must be overwritten
+        self.system_prompt = ""  # Initialized to empty string instead of None
         self.init_message_history()
 
         self.prompt_algo = prompt_algo
