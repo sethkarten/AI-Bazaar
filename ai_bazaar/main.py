@@ -14,7 +14,7 @@ import wandb
 import random
 import numpy as np
 import time
-from typing import Dict
+from typing import Dict, Optional
 from .market_core.market_core import Ledger, Market
 from .agents.firm import FirmAgent, FixedFirmAgent
 from .agents.consumer import CESConsumerAgent, FixedConsumerAgent
@@ -36,12 +36,12 @@ def setup_logging(args):
     )
 
 
-def run_marketplace_simulation(args):
+def run_marketplace_simulation(args, llm_instance=None):
     """Run the marketplace simulation with firms and consumers."""
     logger = logging.getLogger("main")
 
-    # Test LLM connectivity if using LLM agents
-    if args.firm_type == "LLM":
+    # Test LLM connectivity if using LLM agents and no instance provided
+    if args.firm_type == "LLM" and llm_instance is None:
         try:
             TestAgent(args.llm, args.port, args)
             logger.info(f"Successfully connected to LLM: {args.llm}")
@@ -59,7 +59,7 @@ def run_marketplace_simulation(args):
     goods_list = ["food", "clothing", "electronics", "furniture"]
     goods = []
     for i in range(args.num_goods):
-        if i > len(goods_list):
+        if i >= len(goods_list):
             break
         goods.append(goods_list[i])
 
@@ -80,6 +80,7 @@ def run_marketplace_simulation(args):
                 history_len=args.history_len,
                 timeout=args.timeout,
                 args=args,
+                llm_instance=llm_instance,
             )
         else:
             firm = FixedFirmAgent(
@@ -97,12 +98,11 @@ def run_marketplace_simulation(args):
 
     from ai_bazaar.utils import PERSONAS
 
-    personas = [random.sample(PERSONAS, 1)[0] for i in range(args.num_consumers)]
+    personas = [random.sample(PERSONAS, 1)[0] for _ in range(args.num_consumers)]
 
     for i in range(args.num_consumers):
         name = f"consumer_{i}"
-        #! TODO: Make income more realistic
-        income = np.random.uniform(50, 200)  # Random income between 50-200
+        income = np.random.uniform(50, 200)
         consumer = None
         if args.consumer_type == "CES":
             consumer = CESConsumerAgent(
@@ -117,6 +117,7 @@ def run_marketplace_simulation(args):
                 llm=args.llm,
                 port=args.port,
                 args=args,
+                llm_instance=llm_instance,
             )
         else:
             consumer = FixedConsumerAgent(
@@ -146,26 +147,22 @@ def run_marketplace_simulation(args):
     # Run simulation loop
     start_time = time.time()
     firm_prices_last_step = {}
-    # try block lets us recover stats in wandb if an error occurs
     try:
         for timestep in range(args.max_timesteps):
             logger.info(f"TIMESTEP {timestep}")
             print(f"TIMESTEP {timestep}")
 
             wandb_logger = {}
-
             start_ledger = ledger.copy()
 
             # Supply phase: Firms purchase supplies
             for firm in firms:
                 if not getattr(firm, "in_business", True):
                     continue
-                supply_unit_price = 1.0  #! TODO: Make this dynamic
+                supply_unit_price = 1.0
                 if args.firm_type == "LLM":
                     firm.purchase_supplies(supply_unit_price, timestep)
                 else:
-                    # Fixed behavior: purchase a fixed amount
-                    #! TODO: Make fixed purchase_supplies directly follow CES utility (is this possible?)
                     quantity = firm.cash * 0.5 / supply_unit_price
                     firm.purchase_supplies(quantity, supply_unit_price, timestep)
 
@@ -187,10 +184,7 @@ def run_marketplace_simulation(args):
                 else:
                     prices = firm.set_price(price=10.0, timestep=timestep)
 
-                # Store prices for logging
                 firm_prices[firm.name] = prices
-
-                # Post quotes to market
                 firm.post_quotes(prices)
                 logger.info(f"{firm.name} set prices: {prices}")
 
@@ -221,13 +215,12 @@ def run_marketplace_simulation(args):
             filled_orders, sales_info = market.clear(ledger)
             logger.info(f"Filled {len(filled_orders)} orders")
 
-            # Update running totals of quantity sold by firm
+            # Update sales tracking
             for sale in sales_info:
                 firm_name = sale["firm_id"]
                 good = sale["good"]
                 quantity_sold = sale["quantity_sold"]
-                # Find the firm and update its running total
-                for firm in firms:  # Note: Not great efficiency here
+                for firm in firms:
                     if firm.name == firm_name:
                         if good in firm.total_quantity_sold_by_good:
                             firm.total_quantity_sold_by_good[good] += quantity_sold
@@ -236,8 +229,6 @@ def run_marketplace_simulation(args):
                             ] += quantity_sold
                         break
 
-            # Clean market for next timestep
-            #! TODO: This should probably be done in market.clear()
             market.quotes.clear()
             while market.orders:
                 market.orders.popleft()
@@ -248,18 +239,14 @@ def run_marketplace_simulation(args):
                     continue
                 firm.pay_overhead_costs(timestep)
 
-            # Taxation phase: Firms and consumers pay taxes
-            firms_taxes_paid: Dict[str, float] = {}
-            consumers_taxes_paid: Dict[str, float] = {}
+            # Platform fees (simulating Amazon/eBay)
+            total_fees = 0.0
             for firm in firms:
                 if not getattr(firm, "in_business", True):
-                    firms_taxes_paid[firm.name] = 0.0
                     continue
-                firms_taxes_paid[firm.name] = firm.pay_taxes(timestep, tax_rate)
-            for consumer in consumers:
-                consumers_taxes_paid[consumer.name] = consumer.pay_taxes(
-                    timestep, tax_rate
-                )
+                fee = firm.cash * 0.05
+                ledger.credit(firm.name, -fee)
+                total_fees += fee
 
             # Log statistics
             for i, firm in enumerate(firms):
@@ -268,60 +255,38 @@ def run_marketplace_simulation(args):
                     wandb_logger[f"firm_{i}_{good}_inventory"] = firm.inventory.get(
                         good, 0
                     )
-                    # Log prices by firm and good
                     if firm.name in firm_prices:
                         price = firm_prices[firm.name].get(good, 0.0)
                         wandb_logger[f"firm_{i}_{good}_price"] = price
-                    # Log quantity sold (running total and this timestep)
                     wandb_logger[f"firm_{i}_{good}_total_sold"] = (
                         firm.total_quantity_sold_by_good.get(good, 0.0)
                     )
-                    wandb_logger[f"firm_{i}_{good}_sold_this_timestep"] = (
-                        firm.total_quantity_sold_by_good_this_timestep.get(
-                            timestep, {}
-                        ).get(good, 0.0)
-                    )
 
-            #! TODO: does inventory.get(good, 0) exist?
             for i, consumer in enumerate(consumers):
                 wandb_logger[f"consumer_{i}_cash"] = consumer.cash
                 wandb_logger[f"consumer_{i}_utility"] = consumer.utility
-                wandb_logger[f"consumer_{i}_cost_of_living"] = consumer.cost_of_living
-                wandb_logger[f"consumer_{i}_tax_paid"] = consumers_taxes_paid[
-                    consumer.name
-                ]
                 for good in goods:
                     wandb_logger[f"consumer_{i}_{good}_inventory"] = (
                         consumer.inventory.get(good, 0)
                     )
-                    # Log quantity demanded by consumer for each good
-                    orders = consumer_orders.get(consumer.name, [])
-                    quantity_demanded = sum(
-                        order.quantity for order in orders if order.good == good
-                    )
-                    wandb_logger[f"consumer_{i}_{good}_demand"] = quantity_demanded
 
             if args.wandb:
                 wandb.log(wandb_logger)
 
-            # Reflection phase: Firms reflect on their actions
+            # Reflection phase
             for firm in firms:
                 if not getattr(firm, "in_business", True):
                     continue
                 firm.reflect(timestep, start_ledger, pre_clearing_ledger, ledger)
 
+            for consumer in consumers:
+                if hasattr(consumer, "reflect"):
+                    consumer.reflect(timestep)
+
             if not any(getattr(firm, "in_business", True) for firm in firms):
-                elapsed = time.time() - start_time
-                logger.info(
-                    "All firms are out of business after timestep %s. Ending simulation early.",
-                    timestep,
-                )
-                print(
-                    f"All firms are out of business after timestep {timestep}. Ending simulation early in {elapsed:.2f}s"
-                )
+                logger.info("All firms are out of business. Ending simulation early.")
                 break
 
-            # Print progress
             elapsed = time.time() - start_time
             print(
                 f"Completed {timestep + 1}/{args.max_timesteps} timesteps in {elapsed:.2f}s"
@@ -476,18 +441,13 @@ def main():
     parser = create_argument_parser()
     args = parser.parse_args()
 
-    # Setup logging
     setup_logging(args)
-
     logger = logging.getLogger("main")
     logger.info(f"Starting marketplace simulation: {args.name}")
-    logger.info(args)
 
-    # Set random seeds
     np.random.seed(args.seed)
     random.seed(args.seed)
 
-    # Run the marketplace simulation
     run_marketplace_simulation(args)
 
 

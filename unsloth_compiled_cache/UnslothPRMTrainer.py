@@ -1,8 +1,8 @@
 """
 2026.1.3
 2026.1.3
-4.57.3
-0.24.0
+4.57.0
+0.23.1
 __UNSLOTH_VERSIONING__
 """
 
@@ -27,7 +27,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from typing import Any, List, Optional, Tuple, Union, Dict, Set, Callable
-from trl.trainer.prm_trainer import (BaseImageProcessor, BaseTrainer, Callable, DataCollator, DataCollatorForTokenClassification, Dataset, EvalPrediction, FeatureExtractionMixin, Optional, PRMConfig, PRMTrainer, PartialState, Path, PreTrainedModel, PreTrainedTokenizerBase, ProcessorMixin, TrainerCallback, Union, chain, compute_accuracy, disable_dropout_in_model, features, nn, os, prepare_peft_model, textwrap, torch, warnings, Optional, PreTrainedModel, os, torch)
+from trl.trainer.prm_trainer import (BaseImageProcessor, Callable, DataCollator, DataCollatorForTokenClassification, Dataset, EvalPrediction, FeatureExtractionMixin, Optional, PRMConfig, PRMTrainer, PartialState, Path, PreTrainedModel, PreTrainedTokenizerBase, ProcessorMixin, Trainer, TrainerCallback, Union, chain, compute_accuracy, disable_dropout_in_model, features, generate_model_card, is_wandb_available, nn, os, prepare_peft_model, textwrap, torch, wandb, Optional, PreTrainedModel, Trainer, os, torch)
 
 
 import os
@@ -315,7 +315,7 @@ class UnslothPRMConfig(PRMConfig):
             Maximum length of the sequences (prompt + completion) used for truncation.
         max_prompt_length (`int` or `None`, *optional*, defaults to `512`):
             Maximum length of the prompt used for truncation.
-        max_completion_length (`int`, *optional*):
+        max_completion_length (`int` or `None`, *optional*, defaults to `None`):
             Maximum length of the completion used for truncation. The completion is the concatenation of the steps.
         disable_dropout (`bool`, *optional*, defaults to `True`):
             Whether to disable dropout in the model.
@@ -323,7 +323,7 @@ class UnslothPRMConfig(PRMConfig):
             Separator used to separate each step of the reasoning process.
         train_on_last_step_only (`bool`, *optional*, defaults to `False`):
             Whether to train only on the last step.
-        dataset_num_proc (`int`, *optional*):
+        dataset_num_proc (`int`, *optional*, defaults to `None`):
             Number of processes to use for processing the dataset.
     
     """
@@ -421,7 +421,6 @@ class UnslothPRMConfig(PRMConfig):
         metric_for_best_model = None,
         greater_is_better = None,
         ignore_data_skip = False,
-        fsdp = None,
         fsdp_min_num_params = 0,
         fsdp_config = None,
         fsdp_transformer_layer_cls_to_wrap = None,
@@ -581,7 +580,6 @@ class UnslothPRMConfig(PRMConfig):
             metric_for_best_model = metric_for_best_model,
             greater_is_better = greater_is_better,
             ignore_data_skip = ignore_data_skip,
-            fsdp = fsdp,
             fsdp_min_num_params = fsdp_min_num_params,
             fsdp_config = fsdp_config,
             fsdp_transformer_layer_cls_to_wrap = fsdp_transformer_layer_cls_to_wrap,
@@ -660,23 +658,10 @@ class UnslothPRMConfig(PRMConfig):
         self.max_seq_length = max_seq_length
 pass
 
-class _UnslothPRMTrainer(BaseTrainer):
+class _UnslothPRMTrainer(Trainer):
     """"""
 
     _tag_names = ["trl", "prm"]
-    _name = "PRM"
-    _paper = {
-        "title": "Solving math word problems with process-and outcome-based feedback",
-        "id": "2211.14275",
-        # docstyle-ignore
-        "citation": textwrap.dedent("""\
-            @article{uesato2022solving,
-                title        = {{Solving Math Word Problems With Process- and Outcome-Based Feedback}},
-                author       = {Uesato, Jonathan and Kushman, Nate and Kumar, Ramana and Song, Francis and Siegel, Noah and Wang, Lisa and Creswell, Antonia and Irving, Geoffrey and Higgins, Irina},
-                year         = 2022,
-                journal      = {arXiv preprint arXiv:2211.14275}
-            }"""),
-    }
 
     def __init__(
         self,
@@ -698,13 +683,6 @@ class _UnslothPRMTrainer(BaseTrainer):
         preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
         peft_config: Optional[dict] = None,
     ):
-        if not os.environ.get("TRL_EXPERIMENTAL_SILENCE"):
-            warnings.warn(
-                "This trainer will soon be moved to trl.experimental and is a candidate for removal. If you rely on "
-                "it and want it to remain, please share your comments here: "
-                "https://github.com/huggingface/trl/issues/4223. Silence this warning by setting environment variable "
-                "TRL_EXPERIMENTAL_SILENCE=1."
-            )
         if False:
             model = prepare_peft_model(model, peft_config, args)
 
@@ -798,7 +776,7 @@ class _UnslothPRMTrainer(BaseTrainer):
         Args:
             features (`dict[str, str]`):
                 Row of the dataset, should contain the keys `"prompt"`, `"completions"`, and `"labels"`.
-            tokenizer ([`~transformers.PreTrainedTokenizerBase`]):
+            tokenizer (`PreTrainedTokenizerBase`):
                 Tokenizer used to process the data.
             step_separator (`str`):
                 Separator between steps in the completion.
@@ -884,25 +862,89 @@ class _UnslothPRMTrainer(BaseTrainer):
             model_name = self.args.hub_model_id.split("/")[-1]
         self.create_model_card(model_name=model_name)
         super()._save_checkpoint(model, trial)
+
+    def create_model_card(
+        self,
+        model_name: Optional[str] = None,
+        dataset_name: Optional[str] = None,
+        tags: Union[str, list[str], None] = None,
+    ):
+        """
+        Creates a draft of a model card using the information available to the `Trainer`.
+
+        Args:
+            model_name (`str` or `None`, *optional*, defaults to `None`):
+                Name of the model.
+            dataset_name (`str` or `None`, *optional*, defaults to `None`):
+                Name of the dataset used for training.
+            tags (`str`, `list[str]` or `None`, *optional*, defaults to `None`):
+                Tags to be associated with the model card.
+        """
+        if not self.is_world_process_zero():
+            return
+
+        if hasattr(self.model.config, "_name_or_path") and not os.path.isdir(self.model.config._name_or_path):
+            base_model = self.model.config._name_or_path
+        else:
+            base_model = None
+
+        # normalize `tags` to a mutable set
+        if tags is None:
+            tags = set()
+        elif isinstance(tags, str):
+            tags = {tags}
+        else:
+            tags = set(tags)
+
+        if hasattr(self.model.config, "unsloth_version"):
+            tags.add("unsloth")
+
+        if "JOB_ID" in os.environ:
+            tags.add("hf_jobs")
+
+        tags.update(self._tag_names)
+
+        # docstyle-ignore
+        citation = textwrap.dedent("""\
+        @article{uesato2022solving,
+            title        = {{Solving Math Word Problems With Process- and Outcome-Based Feedback}},
+            author       = {Uesato, Jonathan and Kushman, Nate and Kumar, Ramana and Song, Francis and Siegel, Noah and Wang, Lisa and Creswell, Antonia and Irving, Geoffrey and Higgins, Irina},
+            year         = 2022,
+            journal      = {arXiv preprint arXiv:2211.14275}
+        }""")
+
+        model_card = generate_model_card(
+            base_model=base_model,
+            model_name=model_name,
+            hub_model_id=self.hub_model_id,
+            dataset_name=dataset_name,
+            tags=tags,
+            wandb_url=wandb.run.url if is_wandb_available() and wandb.run is not None else None,
+            trainer_name="PRM",
+            trainer_citation=citation,
+            paper_title="Solving math word problems with process-and outcome-based feedback",
+        )
+
+        model_card.save(os.path.join(self.args.output_dir, "README.md"))
 class UnslothPRMTrainer(_UnslothPRMTrainer):
     """
     
     Initialize PRMTrainer.
 
     Args:
-        model ([`~transformers.PreTrainedModel`]):
+        model (`transformers.PreTrainedModel`):
             The model to train, preferably an `AutoModelForTokenClassification`.
-        args ([`PRMConfig`]):
+        args (`PRMConfig`):
             The arguments to use for training.
-        data_collator ([`~transformers.DataCollator`]):
+        data_collator (`transformers.DataCollator`):
             The data collator to use for training. If None is specified, the default data collator
-            ([`~transformers.DataCollatorForTokenClassification`]) will be used which will pad the sequences to the
-            maximum length of the sequences in the batch, given a dataset of paired sequences.
-        train_dataset ([`~datasets.Dataset`]):
+            (`DataCollatorForTokenClassification`) will be used which will pad the sequences to the maximum length of
+            the sequences in the batch, given a dataset of paired sequences.
+        train_dataset (`datasets.Dataset`):
             The dataset to use for training.
-        eval_dataset ([`~datasets.Dataset`]):
+        eval_dataset (`datasets.Dataset`):
             The dataset to use for evaluation.
-        processing_class ([`~transformers.PreTrainedTokenizerBase`], [`~transformers.BaseImageProcessor`], [`~transformers.FeatureExtractionMixin`] or [`~transformers.ProcessorMixin`], *optional*):
+        processing_class ([`~transformers.PreTrainedTokenizerBase`], [`~transformers.BaseImageProcessor`], [`~transformers.FeatureExtractionMixin`] or [`~transformers.ProcessorMixin`], *optional*, defaults to `None`):
             Processing class used to process the data. If provided, will be used to automatically process the inputs
             for the model, and it will be saved along the model to make it easier to rerun an interrupted training or
             reuse the fine-tuned model.
