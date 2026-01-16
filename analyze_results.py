@@ -13,20 +13,41 @@ def analyze_states(log_dir="logs"):
         print("No state files found.")
         return
 
+    print(f"Timestep | Active Firms | Avg Utility | Avg Profit | Total Cash | Gini")
+    print("-" * 75)
+
     results = []
     for f in state_files:
         with open(f, "r") as f_in:
             state = json.load(f_in)
             t = state["timestep"]
-            avg_utility = np.mean([c["utility"] for c in state["consumers"]])
-            avg_profit = np.mean([f["profit"] for f in state["firms"] if "profit" in f])
-            total_cash = sum(state["ledger"]["money"].values())
-            results.append((t, avg_utility, avg_profit, total_cash))
 
-    print("Timestep | Avg Utility | Avg Profit | Total Cash")
-    print("-" * 50)
-    for r in results:
-        print(f"{r[0]:8} | {r[1]:11.2f} | {r[2]:10.2f} | {r[3]:10.2f}")
+            # Basic metrics
+            active_firms = len([fi for fi in state["firms"] if fi["in_business"]])
+            avg_utility = np.mean([c["utility"] for c in state["consumers"]])
+
+            # Profit logic - handle cases where firms might be missing the key
+            profits = [
+                fi.get("profit", 0.0) for fi in state["firms"] if fi["in_business"]
+            ]
+            avg_profit = np.mean(profits) if profits else 0.0
+
+            total_cash = sum(state["ledger"]["money"].values())
+
+            # Gini Coefficient Calculation
+            cash_values = sorted(state["ledger"]["money"].values())
+            n = len(cash_values)
+            index = np.arange(1, n + 1)
+            gini = (
+                (np.sum((2 * index - n - 1) * cash_values)) / (n * np.sum(cash_values))
+                if total_cash > 0
+                else 0
+            )
+
+            print(
+                f"{t:8} | {active_firms:12} | {avg_utility:11.2f} | {avg_profit:10.2f} | {total_cash:10.2f} | {gini:.4f}"
+            )
+            results.append(state)
 
 
 if __name__ == "__main__":
