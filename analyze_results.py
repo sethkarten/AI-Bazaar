@@ -13,8 +13,10 @@ def analyze_states(log_dir="logs"):
         print("No state files found.")
         return
 
-    print(f"Timestep | Active Firms | Avg Utility | Avg Profit | Total Cash | Gini")
-    print("-" * 75)
+    print(
+        f"Timestep | Active Firms | Avg Utility | Avg Profit | Avg Reputation | Total Cash | Gini"
+    )
+    print("-" * 90)
 
     results = []
     for f in state_files:
@@ -26,11 +28,17 @@ def analyze_states(log_dir="logs"):
             active_firms = len([fi for fi in state["firms"] if fi["in_business"]])
             avg_utility = np.mean([c["utility"] for c in state["consumers"]])
 
-            # Profit logic - handle cases where firms might be missing the key
+            # Profit logic
             profits = [
                 fi.get("profit", 0.0) for fi in state["firms"] if fi["in_business"]
             ]
             avg_profit = np.mean(profits) if profits else 0.0
+
+            # Reputation logic
+            reputations = [
+                fi.get("reputation", 1.0) for fi in state["firms"] if fi["in_business"]
+            ]
+            avg_rep = np.mean(reputations) if reputations else 1.0
 
             total_cash = sum(state["ledger"]["money"].values())
 
@@ -45,7 +53,7 @@ def analyze_states(log_dir="logs"):
             )
 
             print(
-                f"{t:8} | {active_firms:12} | {avg_utility:11.2f} | {avg_profit:10.2f} | {total_cash:10.2f} | {gini:.4f}"
+                f"{t:8} | {active_firms:12} | {avg_utility:11.2f} | {avg_profit:10.2f} | {avg_rep:14.2f} | {total_cash:10.2f} | {gini:.4f}"
             )
             results.append(state)
 
