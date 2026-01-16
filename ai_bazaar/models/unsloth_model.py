@@ -28,7 +28,10 @@ class UnslothModel(BaseLLMModel):
         if temperature is None:
             temperature = self.temperature
 
-        combined_prompt = f"{system_prompt}\n{user_prompt}"
+        # Robustness checks
+        s_prompt = system_prompt if system_prompt is not None else ""
+        u_prompt = user_prompt if user_prompt is not None else ""
+        combined_prompt = f"{s_prompt}\n{u_prompt}"
 
         # Ensure model is in inference mode
         from unsloth import FastLanguageModel
@@ -37,7 +40,13 @@ class UnslothModel(BaseLLMModel):
             FastLanguageModel.for_inference(self.model)
             self.model._is_inference = True
 
-        inputs = self.tokenizer([combined_prompt], return_tensors="pt").to("cuda")
+        try:
+            inputs = self.tokenizer(combined_prompt, return_tensors="pt").to("cuda")
+        except Exception as e:
+            self.logger.error(
+                f"Tokenizer failed: {e}. Prompt type: {type(combined_prompt)}"
+            )
+            return "", False
 
         outputs = self.model.generate(
             **inputs,
