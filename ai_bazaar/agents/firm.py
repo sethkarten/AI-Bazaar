@@ -138,9 +138,19 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         ledger: Ledger = None,
         market: Market = None,
         args=None,
+        llm_instance=None,
     ) -> None:
         BaseFirmAgent.__init__(self)
-        super().__init__(llm, port, name, prompt_algo, history_len, timeout, args=args)
+        super().__init__(
+            llm,
+            port,
+            name,
+            prompt_algo,
+            history_len,
+            timeout,
+            args=args,
+            llm_instance=llm_instance,
+        )
         self.logger = logging.getLogger("main")
         self.name = name
         self.goods = goods

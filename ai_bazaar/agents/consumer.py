@@ -26,6 +26,7 @@ class CESConsumerAgent(LLMAgent):
         quantity_per_good: float = 10.0,
         args=None,
         skill: float = -1.0,
+        llm_instance=None,
     ):
         # Initialize LLMAgent for CES parameter generation
         super().__init__(
@@ -36,6 +37,7 @@ class CESConsumerAgent(LLMAgent):
             history_len=history_len,
             timeout=timeout,
             args=args,
+            llm_instance=llm_instance,
         )
 
         # Consumer-specific attributes

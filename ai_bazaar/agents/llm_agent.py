@@ -23,6 +23,7 @@ class LLMAgent:
         timeout: int = 10,
         K: int = 3,
         args=None,
+        llm_instance=None,
     ) -> None:
         assert args is not None
 
@@ -35,7 +36,10 @@ class LLMAgent:
         self.args = args  # Store args for access to logging flags
 
         # Initialize the appropriate model based on llm_type
-        self.llm = self._create_llm_model(llm_type, port, args)
+        if llm_instance:
+            self.llm = llm_instance
+        else:
+            self.llm = self._create_llm_model(llm_type, port, args)
 
         self.history_len = history_len
         self.timeout = timeout  # number of times to retry message before failing

@@ -42,9 +42,8 @@ class BazaarWorld:
                     ledger=self.ledger,
                     market=self.market,
                     args=args,
+                    llm_instance=llm_model,
                 )
-                if llm_model:
-                    firm.llm = llm_model
             else:
                 firm = FixedFirmAgent(
                     name=name,
@@ -83,9 +82,8 @@ class BazaarWorld:
                     port=args.port,
                     args=args,
                     ces_params=ces_params,  # Use default necessity weights
+                    llm_instance=llm_model,
                 )
-                if llm_model:
-                    consumer.llm = llm_model
             else:
                 consumer = FixedConsumerAgent(
                     name=name,
@@ -105,9 +103,8 @@ class BazaarWorld:
                 name="Joe",
                 num_agents=args.num_consumers + args.num_firms,
                 args=args,
+                llm_instance=llm_model,
             )
-            if llm_model:
-                self.tax_planner.llm = llm_model
         else:
             self.tax_planner = FixedTaxPlanner(name="Joe", tax_type="US_FED", args=args)
 
