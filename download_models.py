@@ -4,10 +4,11 @@ import os
 
 models = [
     "unsloth/gemma-3-4b-it-bnb-4bit",
-    "unsloth/qwen-3-7b-it-bnb-4bit",
-    "unsloth/ministral-3-8b-it-bnb-4bit",
-    "unsloth/olmo-3-7b-it-bnb-4bit",
+    "unsloth/Qwen3-7B-Instruct-bnb-4bit",
+    "unsloth/Ministral-3-8B-Instruct-bnb-4bit",
+    "unsloth/OLMo-3-7B-Instruct-bnb-4bit",
 ]
+
 
 base_dir = "models"
 if not os.path.exists(base_dir):

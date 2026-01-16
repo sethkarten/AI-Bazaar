@@ -96,10 +96,10 @@ submit_job "nodiaries" "${LLM_BASE}/gemma-3-4b-it-bnb-4bit" "PROFIT" "no" 5 8003
 submit_job "nofriction" "${LLM_BASE}/gemma-3-4b-it-bnb-4bit" "PROFIT" "yes" 0 8004
 
 # 5. Model Comparison (Qwen 3)
-submit_job "qwen3" "${LLM_BASE}/Qwen2.5-7B-Instruct-bnb-4bit" "PROFIT" "yes" 5 8005
+submit_job "qwen3" "${LLM_BASE}/Qwen3-7B-Instruct-bnb-4bit" "PROFIT" "yes" 5 8005
 
 # 6. Model Comparison (Ministral 3)
-submit_job "ministral3" "${LLM_BASE}/mistral-7b-instruct-v0.3-bnb-4bit" "PROFIT" "yes" 5 8006
+submit_job "ministral3" "${LLM_BASE}/Ministral-3-8B-Instruct-bnb-4bit" "PROFIT" "yes" 5 8006
 
 # 7. Model Comparison (OLMo 3)
-submit_job "olmo3" "${LLM_BASE}/OLMo-2-1124-7B-Instruct-bnb-4bit" "PROFIT" "yes" 5 8007
+submit_job "olmo3" "${LLM_BASE}/OLMo-3-7B-Instruct-bnb-4bit" "PROFIT" "yes" 5 8007
