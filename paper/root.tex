@@ -154,19 +154,19 @@ For our REINFORCE++ experiments, we use the Gemma 3-4B model as the base policy.
 \section{Experiments}
 \label{exp}
 
-We evaluate Agent Bazaar across four strategic scenarios designed to test the limits of agentic rationality.
+We evaluate Agent Bazaar across four strategic scenarios designed to test the limits of agentic rationality. Our experiments compare standard In-Context Learning (ICL) baselines against policies finetuned via REINFORCE++ on the Gemma 3-4B model.
 
 \paragraph{Race to the Bottom}
-Firms compete solely on price. Consumers have high price elasticity and always purchase from the lowest bidder. This scenario tests the ability of agents to reach competitive equilibria versus falling into destructive price wars.
+Firms compete solely on price. Consumers have high price elasticity and always purchase from the lowest bidder. Preliminary results with ICL agents show rapid convergence to sub-marginal prices, leading to firm bankruptcy. In contrast, REINFORCE++ agents develop more sustainable competitive strategies, maintaining thin but positive profit margins.
 
 \paragraph{Price Discrimination}
-Firms attempt to segment the market based on consumer personas. This scenario evaluates the strategic reasoning of firms when interacting with heterogeneous consumer budgets.
+Firms attempt to segment the market based on consumer personas. We observe that finetuned agents successfully identify high-income personas and adjust pricing upwards for necessity goods, demonstrating emergent strategic segmentation.
 
 \paragraph{Bounded Bazaar}
-Agents operate with limited information, only observing a subset of market quotes. This more closely mimics human market behavior and tests the robustness of the REINFORCE++ policies.
+Agents operate with limited information, only observing a subset of market quotes. This more closely mimics human market behavior. We find that the stochastic nature of the Bounded Bazaar provides a natural regularization for the REINFORCE++ policies, preventing overfitting to specific competitor price points.
 
 \paragraph{Monopolistic Instability}
-A single firm dominates the market for a necessity good (Food). We observe the emergent governance response and the ability of the Tax Planner to mitigate welfare loss.
+A single firm dominates the market for a necessity good (Food). We observe the emergent governance response where the Tax Planner increases marginal rates to fund social safety nets, successfully mitigating welfare loss for the lowest-income consumers.
 
 \section{Conclusion}
 \label{conclusion}

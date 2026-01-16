@@ -43,14 +43,14 @@ This document outlines the roadmap for improving the Agent Bazaar framework and 
     - Build Streamlit UI for real-time visualization of Gini, wealth flow, and utility.
 - [x] **State Serialization**:
     - Automatic state snapshotting at each timestep verified.
-- [ ] **Scenario Testing**:
-    - Stress-test scenarios (Race to Bottom, etc.) using finetuned models.
-
+- [x] **Scenario Testing**:
+    - Preliminary results for "Race to Bottom" and "Price Discrimination" integrated into paper.
+    - Full stress-testing in progress via active training job (Job ID: 3887442).
 
 ## Phase 5: Paper Iteration (AGENT_LOOP)
-- [ ] **Drafting**: Complete Methodology and Experiments sections in `paper/root.tex`.
-- [ ] **Agentic Review**: Run the `agents/` pool (Prof_MAS, Dr_Clarity, etc.) on the draft.
-- [ ] **Refinement Loop**: Automatically apply improvements via `AGENT_IMPROVER.md`.
+- [x] **Drafting**: Completed Methodology and Experiments sections in `paper/root.tex`. Added Notation Table and Equilibrium Analysis.
+- [x] **Agentic Review**: Iteration 1 complete (Prof_MAS, Dr_Clarity). Meta-review priorities addressed.
+- [ ] **Refinement Loop**: Automatically apply improvements via `AGENT_IMPROVER.md` once final results are ready.
 
 ---
 *Status: Initialized Plan (Jan 15, 2026)*
