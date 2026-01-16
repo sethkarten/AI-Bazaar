@@ -115,7 +115,7 @@ def run_marketplace_simulation(args):
                 risk_aversion=None,
                 goods=goods,
                 llm=args.llm,
-                port=8000,
+                port=args.port,
                 args=args,
             )
         else:

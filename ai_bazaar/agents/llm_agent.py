@@ -70,6 +70,8 @@ class LLMAgent:
             or llm_type.startswith(".")
             or llm_type.startswith("/")
         ):
+            if port == 0:
+                return None  # Should be provided via llm_instance
             if args.service == "ollama":
                 return OllamaModel(
                     model_name=llm_type,
