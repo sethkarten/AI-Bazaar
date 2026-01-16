@@ -2,36 +2,81 @@ import os
 import torch
 import numpy as np
 import json
+import time
+import sys
+import signal
 from typing import List, Dict, Any
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
+from unsloth import FastLanguageModel
 from ai_bazaar.env.bazaar_env import BazaarWorld
 from ai_bazaar.main import create_argument_parser
+
+# Force offline mode for HuggingFace and WandB
+os.environ["HF_DATASETS_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["WANDB_MODE"] = "offline"
 
 
 class REINFORCETrainer:
     def __init__(self, model_name: str, args):
         self.args = args
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+        # Load model with Unsloth
+        print(f"Loading model {model_name} with Unsloth...")
+        self.model, self.tokenizer = FastLanguageModel.from_pretrained(
+            model_name=model_name,
+            max_seq_length=2048,
+            load_in_4bit=True,
+        )
+
+        self.model = FastLanguageModel.get_peft_model(
+            self.model,
+            r=16,
+            target_modules=[
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+            ],
+            lora_alpha=16,
+            lora_dropout=0,
+            bias="none",
+            use_gradient_checkpointing="unsloth",
+        )
+
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name, torch_dtype=torch.bfloat16, device_map="auto"
-        )
+
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr)
+        self.start_time = time.time()
+        self.heartbeat_file = "train_heartbeat.txt"
+
+    def heartbeat(self):
+        with open(self.heartbeat_file, "w") as f:
+            f.write(str(time.time()))
 
     def collect_trajectories(self, num_episodes: int):
         all_trajectories = []
-        for _ in range(num_episodes):
+        for ep in range(num_episodes):
+            ep_start = time.time()
             world = BazaarWorld(self.args)
             while not world.is_done():
                 world.step()
+                self.heartbeat()
 
             # Collect from all agents
             for agent in world.firms + world.consumers:
                 if hasattr(agent, "trajectory"):
                     all_trajectories.extend(agent.trajectory)
                     agent.trajectory = []  # Clear for next episode
+
+            print(
+                f"  Episode {ep + 1}/{num_episodes} collected in {time.time() - ep_start:.2f}s"
+            )
         return all_trajectories
 
     def train_step(self, trajectories: List[Dict[str, Any]]):
@@ -42,7 +87,9 @@ class REINFORCETrainer:
         rewards = [t["reward"] for t in trajectories if t["reward"] is not None]
         baseline = np.mean(rewards) if rewards else 0
 
-        for traj in trajectories:
+        step_start = time.time()
+        for i, traj in enumerate(trajectories):
+            self.heartbeat()
             prompt = traj["system_prompt"] + "\n" + traj["user_prompt"]
             response = traj["response"]
             reward = traj["reward"]
@@ -64,23 +111,14 @@ class REINFORCETrainer:
             logits = outputs.logits
 
             # Get log-probs of the response tokens
-            # Shift logits and labels
-            # logits: [batch, seq_len, vocab_size]
-            # labels: [batch, seq_len]
             shift_logits = logits[..., prompt_len - 1 : -1, :].contiguous()
             shift_labels = encodings.input_ids[..., prompt_len:].contiguous()
 
-            # Calculate log_softmax
             log_probs = torch.log_softmax(shift_logits, dim=-1)
-
-            # Gather the log-probs of the actual tokens
-            # shift_labels needs to be [batch, seq_len, 1] for gather
             selected_log_probs = torch.gather(
                 log_probs, -1, shift_labels.unsqueeze(-1)
             ).squeeze(-1)
 
-            # Mean log-prob for the whole response (REINFORCE)
-            # REINFORCE++ would typically include a kl-penalty or more advanced scaling
             mean_log_prob = selected_log_probs.mean()
 
             # Loss: -log_prob * Advantage
@@ -92,6 +130,12 @@ class REINFORCETrainer:
             self.optimizer.step()
             total_loss += loss.item()
 
+            if (i + 1) % 10 == 0:
+                print(
+                    f"    Sample {i + 1}/{len(trajectories)} processed. Avg loss: {total_loss / (i + 1):.4f}"
+                )
+
+        print(f"  Train step completed in {time.time() - step_start:.2f}s")
         return total_loss / len(trajectories) if trajectories else 0
 
 
@@ -99,22 +143,50 @@ def main():
     parser = create_argument_parser()
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--num_episodes", type=int, default=5)
+    parser.add_argument("--num_iterations", type=int, default=50)
     args = parser.parse_args()
 
-    # Initialize trainer with Gemma 3-4B (Placeholder name)
-    model_name = args.llm if args.llm != "None" else "google/gemma-3-4b-it"
+    # Initialize trainer
+    model_name = args.llm if args.llm != "None" else "unsloth/gemma-3-4b-it-bnb-4bit"
+    print(f"Starting training on {model_name}...")
     trainer = REINFORCETrainer(model_name, args)
 
-    for i in range(50):  # Training iterations
+    def signal_handler(sig, frame):
+        print("Interrupted! Saving model...")
+        trainer.model.save_pretrained("checkpoints/interrupted")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    for i in range(args.num_iterations):
+        iter_start = time.time()
+        trainer.heartbeat()
         print(f"Iteration {i}: Collecting trajectories...")
         trajs = trainer.collect_trajectories(args.num_episodes)
+
+        if not trajs:
+            print(f"Iteration {i}: No trajectories collected. Skipping.")
+            continue
+
         print(f"Iteration {i}: Training on {len(trajs)} samples...")
         loss = trainer.train_step(trajs)
-        print(f"Iteration {i}: Loss = {loss:.4f}")
+
+        duration = time.time() - iter_start
+        total_elapsed = time.time() - trainer.start_time
+        avg_iter_time = total_elapsed / (i + 1)
+        remaining_iters = args.num_iterations - (i + 1)
+        eta = avg_iter_time * remaining_iters
+
+        print(
+            f"Iteration {i}: Loss = {loss:.4f} | Duration = {duration:.2f}s | Total Elapsed = {total_elapsed:.2f}s | ETA = {eta / 60:.2f}m"
+        )
 
         # Save checkpoint periodically
-        if i % 10 == 0:
-            trainer.model.save_pretrained(f"checkpoints/gemma3_bazaar_iter{i}")
+        if (i + 1) % 10 == 0:
+            checkpoint_path = f"checkpoints/gemma3_bazaar_iter{i}"
+            trainer.model.save_pretrained(checkpoint_path)
+            print(f"Saved checkpoint to {checkpoint_path}")
 
 
 if __name__ == "__main__":
