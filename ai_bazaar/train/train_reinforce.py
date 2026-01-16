@@ -130,6 +130,16 @@ class REINFORCETrainer:
             self.vllm_process.wait()
 
         print(f"Starting vLLM server on port {port}...", flush=True)
+
+        # Use a different GPU for vLLM if multi-GPU is available
+        env = os.environ.copy()
+        if torch.cuda.device_count() > 1:
+            env["CUDA_VISIBLE_DEVICES"] = "1"
+            print("  Using GPU 1 for vLLM server", flush=True)
+        else:
+            env["CUDA_VISIBLE_DEVICES"] = "0"
+            print("  Using GPU 0 for vLLM server (sharing with training)", flush=True)
+
         vllm_cmd = [
             sys.executable,
             "-m",
@@ -139,19 +149,14 @@ class REINFORCETrainer:
             "--port",
             str(port),
             "--gpu-memory-utilization",
-            "0.4",
+            "0.8" if torch.cuda.device_count() > 1 else "0.4",
             "--disable-log-requests",
             "--trust-remote-code",
         ]
 
-        if lora_path and os.path.exists(lora_path):
-            # vLLM expects a name=path format for lora-modules
-            vllm_cmd.extend(["--enable-lora", "--lora-modules", f"bazaar={lora_path}"])
-            print(f"  Enabling LoRA adapter from {lora_path}", flush=True)
-
         vllm_log = open(os.path.join(self.args.log_dir, f"vllm_{port}.log"), "w")
         self.vllm_process = subprocess.Popen(
-            vllm_cmd, stdout=vllm_log, stderr=subprocess.STDOUT
+            vllm_cmd, stdout=vllm_log, stderr=subprocess.STDOUT, env=env
         )
 
         # Wait for vLLM to be ready

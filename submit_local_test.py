@@ -31,8 +31,8 @@ def submit_local_test():
             "--log-dir",
             "logs/local_test",
         ],
-        "gpu_count": 1,
-        "gpu_memory_min_gb": 24,  # Fits in 5090
+        "gpu_count": 2,
+        "gpu_memory_min_gb": 24,  # Per GPU
         "time_limit_hours": 1,
         "prefer_resource": "local-5090",
     }
