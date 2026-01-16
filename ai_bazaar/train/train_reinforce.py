@@ -44,6 +44,10 @@ class REINFORCETrainer:
         self.checkpoint_dir = f"checkpoints/{args.run_name or 'default'}"
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
+        # Ensure log directory exists
+        if args.log_dir:
+            os.makedirs(args.log_dir, exist_ok=True)
+
         # Load model with Unsloth for training (always stays in memory)
         print(f"Loading model {model_name} with Unsloth for training...", flush=True)
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(
