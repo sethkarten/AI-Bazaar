@@ -184,17 +184,20 @@ class REINFORCETrainer:
 
     def collect_trajectories(self, num_episodes: int, iteration: int):
         # Start/Restart vLLM for this iteration's collection if port is provided
+        llm_model = None
         if self.args.port and self.args.port > 0:
             lora_path = os.path.join(self.checkpoint_dir, "latest")
             self._start_vllm_server(
                 self.args.port, lora_path if iteration > 0 else None
             )
+        else:
+            llm_model = self.inference_model
 
         all_trajectories = []
         iter_stats = []
         for ep in range(num_episodes):
             ep_start = time.time()
-            world = BazaarWorld(self.args)
+            world = BazaarWorld(self.args, llm_model=llm_model)
             ep_utility, ep_profit, ep_sales = [], [], 0
 
             while not world.is_done():
