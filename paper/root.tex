@@ -148,7 +148,7 @@ For our REINFORCE++ experiments, we use the Gemma 3-4B model as the base policy.
 \section{Experiments}
 \label{exp}
 
-We evaluate Agent Bazaar across four strategic scenarios designed to test the limits of agentic rationality in digital marketplaces. Our experiments compare standard In-Context Learning (ICL) baselines against policies finetuned via REINFORCE++ across multiple model families: Gemma 3-4B, Qwen 2.5 7B, Ministral 8B, and OLMo 2 7B.
+We evaluate Agent Bazaar across four strategic scenarios designed to test the limits of agentic rationality in digital marketplaces. Our experiments compare standard In-Context Learning (ICL) baselines against policies finetuned via REINFORCE++ across multiple model families: Gemma 3 4B, Qwen 3 7B, Ministral 3 8B, and OLMo 3 7B.
 
 \subsection{Reward Signal Ablation: Profit vs. Revenue}
 We compare two distinct reward formulations for firm agents:
@@ -180,10 +180,20 @@ Agents operate with limited information, only observing a subset of market quote
 \paragraph{Monopolistic Instability}
 A single firm dominates the market for a necessity good (Food). We observe the emergent marketplace dynamics and the ability of consumer agents to adapt their labor and consumption patterns to mitigate welfare loss in the absence of centralized intervention.
 
+\subsection{Model Family Benchmarking}
+We compare the performance of different open-source model families in the marketplace environment. Our study includes:
+\begin{itemize}
+    \item \textbf{Gemma 3 4B}: Small and efficient, providing a baseline for high-speed trajectory collection.
+    \item \textbf{Qwen 3 7B}: Optimized for tool-use and structured output, showing superior JSON parsing stability.
+    \item \textbf{Ministral 3 8B}: High reasoning capability for its size, exhibiting advanced strategic behavior in diaries.
+    \item \textbf{OLMo 3 7B}: A fully open-source reference model, used to ensure results generalize to non-proprietary training data.
+\end{itemize}
+We analyze the Pareto frontier of \textit{Compute Cost} vs. \textit{Economic Stability}, demonstrating that 7B-8B parameter models achieve a significant survival advantage over smaller architectures when finetuned on market dynamics.
+
 \section{Conclusion}
 \label{conclusion}
 
-Agent Bazaar provides a test bench for exploring risks in agent-driven economic systems.
+Agent Bazaar provides a comprehensive simulation framework for exploring the strategic behavior of autonomous agents in digital marketplaces. By moving beyond centralized governance to model decentralized competition on platforms like Amazon and eBay, we identify key failure modes of standard in-context models, specifically predatory pricing leading to bankruptcy. Our results demonstrate that lightweight RL finetuning via REINFORCE++ allows open-source models to develop robust survival strategies, successfully managing reputation, inventory, and liquidity. These findings suggest that agentic safety in economic systems requires not only strong base models but also specialized alignment with multi-agent market dynamics.
 
 \bibliographystyle{plainnat}
 \bibliography{references}

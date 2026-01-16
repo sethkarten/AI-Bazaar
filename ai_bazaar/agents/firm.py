@@ -527,15 +527,16 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         self.add_message(timestep, Message.REFLECTION, reflection_msg=reflection_msg)
 
         # Strategic Diary Entry
-        diary_prompt = (
-            f"Based on this step's performance:\n{reflection_msg}\n"
-            "Write a 1-2 sentence diary entry reflecting on your pricing strategy and production efficiency. "
-            "How do you feel about your competitors and current cash reserves?"
-        )
-        diary_entry, _ = self.llm.send_msg(
-            "You are a firm manager writing in your private diary.", diary_prompt
-        )
-        self.write_diary_entry(timestep, diary_entry)
+        if not getattr(self.args, "no_diaries", False):
+            diary_prompt = (
+                f"Based on this step's performance:\n{reflection_msg}\n"
+                "Write a 1-2 sentence diary entry reflecting on your pricing strategy and production efficiency. "
+                "How do you feel about your competitors and current cash reserves?"
+            )
+            diary_entry, _ = self.llm.send_msg(
+                "You are a firm manager writing in your private diary.", diary_prompt
+            )
+            self.write_diary_entry(timestep, diary_entry)
 
     def build_reflection(
         self,

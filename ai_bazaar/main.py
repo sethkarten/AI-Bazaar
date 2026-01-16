@@ -457,6 +457,11 @@ def create_argument_parser():
         action="store_true",
         help="Use a parsing agent LLM to clean malformed JSON responses",
     )
+    parser.add_argument(
+        "--no-diaries",
+        action="store_true",
+        help="Disable strategic diary entries for agents",
+    )
 
     return parser
 

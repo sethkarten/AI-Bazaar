@@ -401,6 +401,9 @@ class CESConsumerAgent(LLMAgent):
 
     def reflect(self, timestep: int):
         """Reflect on consumption utility and labor choices."""
+        if getattr(self.args, "no_diaries", False):
+            return
+
         utility = self.compute_utility()
         diary_prompt = (
             f"At timestep {timestep}, your total utility was {utility:.2f}. "

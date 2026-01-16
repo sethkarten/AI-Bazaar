@@ -64,6 +64,9 @@ class LLMAgent:
         elif (
             "llama" in llm_type.lower()
             or "gemma" in llm_type.lower()
+            or "qwen" in llm_type.lower()
+            or "olmo" in llm_type.lower()
+            or "ministral" in llm_type.lower()
             or llm_type.startswith(".")
             or llm_type.startswith("/")
         ):
@@ -151,6 +154,14 @@ class LLMAgent:
                 unique_metrics.add(str(item["metric"]) + str(item["action"]))
                 sorted_message_history.append(item)
         output = "Historical data:\n"
+
+        # Include diary entries as in-context memory
+        if self.diary:
+            output += "Your Strategic Reflections (Recent):\n"
+            for t_diary, entry in self.diary[-3:]:  # Last 3 reflections
+                output += f"Timestep {t_diary}: {entry}\n"
+            output += "\n"
+
         for t in range(
             max(0, timestep - min(self.history_len, len(self.message_history))),
             timestep + 1,
