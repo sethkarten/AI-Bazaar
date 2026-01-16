@@ -1,26 +1,26 @@
-# Agent Bazaar: COLM 2026 Development Plan
+# Agent Bazaar: Agentic Marketplace Dynamics (COLM 2026)
 
-This document outlines the roadmap for improving the Agent Bazaar framework and preparing the research paper for COLM 2026.
+This document outlines the roadmap for the Agent Bazaar framework, focusing on firm and consumer behavior in digital marketplaces like Amazon and eBay.
 
-## Phase 1: Core Marketplace Integration (Labor + Governance)
-- [x] **Labor Market Integration**: 
-    - Link `CESConsumerAgent` to labor supply logic from `Worker` class.
-    - Implement wage payments from `Firms` to `Workers`.
-- [x] **Governance & Redistribution**:
-    - Integrate `TaxPlanner` into `BazaarWorld`.
-    - Implement tax collection and "Social Safety Net" redistribution.
-- [x] **Granular Necessity Metrics**:
-    - Map goods to Food, Housing, and Utilities.
-    - Update utility functions with necessity weights and penalties.
+## Phase 1: Marketplace Integration (Refocused)
+- [x] **Store Operations**: 
+    - Firms manage inventory, pricing, and cash flow to avoid bankruptcy.
+    - Implement platform fees (Amazon/eBay style) as a cost of business.
+- [x] **Realistic Demand**:
+    - Consumers choose labor hours to generate income and optimize utility over multiple goods.
+    - Necessities (Food) prioritized over luxury items.
+- [ ] **Platform Mechanics**:
+    - Add dynamic platform fees or subscription costs for firms.
+    - Implement "Search" or "Discovery" where consumers only see a subset of firms (Bounded Bazaar).
 
 ## Phase 2: Agentic Social Layer (Interviews + Reflections)
 - [x] **Agent Interview API**:
-    - Create a wrapper to trigger conversations with agents during simulation pauses.
+    - Create a wrapper to query agent internal state/reasoning in character.
 - [x] **Strategic Reflection**:
-    - Implement "Diary Entries" for agents to store reasoning and retrospective analysis.
-    - Use reflections as in-context memory for future timesteps.
+    - "Diary Entries" for agents to store reasoning and retrospective analysis.
+    - Reflections used as in-context memory.
 - [x] **State Serialization**:
-    - Implement full state snapshotting (inventory + mindset) at each timestep.
+    - Full state snapshotting verified.
 
 ## Phase 3: Model Training & Evaluation
 - [x] **Baseline Benchmarking**:

@@ -95,18 +95,8 @@ class BazaarWorld:
                 )
             self.consumers.append(consumer)
 
-        # Initialize Tax Planner
-        if args.planner_type == "LLM":
-            self.tax_planner = TaxPlanner(
-                llm=args.llm,
-                port=args.port,
-                name="Joe",
-                num_agents=args.num_consumers + args.num_firms,
-                args=args,
-                llm_instance=llm_model,
-            )
-        else:
-            self.tax_planner = FixedTaxPlanner(name="Joe", tax_type="US_FED", args=args)
+        # Marketplace platform fees (simulating Amazon/eBay)
+        self.platform_fee_rate = 0.10  # 10% on revenue
 
         self.timestep = 0
         self.firm_prices_last_step = {}
@@ -237,29 +227,16 @@ class BazaarWorld:
                 continue
             firm.pay_overhead_costs(self.timestep)
 
-        # 8. Taxation & Redistribution
-        tax_rates = self.tax_planner.tax_rates
-        total_collected = 0.0
-
+        # 8. Platform Fees (Simulating Amazon/eBay)
+        # Fees are taken from revenue, but here we just deduct a small percentage of cash
+        # to simulate the cost of maintaining the store/listing.
+        total_fees = 0.0
         for firm in self.firms:
             if not getattr(firm, "in_business", True):
                 continue
-            # Firms pay flat tax for now, or we could apply brackets to profit
-            total_collected += firm.pay_taxes(self.timestep, tax_rates[0] / 100.0)
-
-        for consumer in self.consumers:
-            # Consumers pay income tax based on brackets
-            z = getattr(consumer, "z", consumer.income)
-            tax_amount = self.tax_planner.get_income_tax(
-                [float(r) for r in tax_rates], z
-            )
-            self.ledger.credit(consumer.name, -tax_amount)
-            total_collected += tax_amount
-
-        # Redistribution: Evenly back to consumers as "Social Safety Net"
-        rebate = total_collected / len(self.consumers) if self.consumers else 0
-        for consumer in self.consumers:
-            self.ledger.credit(consumer.name, rebate)
+            fee = firm.cash * 0.05  # 5% maintenance fee per timestep
+            self.ledger.credit(firm.name, -fee)
+            total_fees += fee
 
         # 9. Reflection
         for firm in self.firms:
@@ -270,12 +247,6 @@ class BazaarWorld:
         for consumer in self.consumers:
             if hasattr(consumer, "reflect"):
                 consumer.reflect(self.timestep)
-
-        # 10. Planner update
-        agent_stats = []
-        for c in self.consumers:
-            agent_stats.append((getattr(c, "z", c.income), c.utility))
-        self.tax_planner.act(self.timestep, agent_stats)
 
         # After step is complete, assign rewards to trajectories
         for firm in self.firms:
@@ -300,8 +271,7 @@ class BazaarWorld:
                 c.name: {"cash": c.cash, "utility": c.utility} for c in self.consumers
             },
             "sales_count": len(filled_orders),
-            "total_collected": total_collected,
-            "rebate": rebate,
+            "total_fees": total_fees,
         }
 
         self.save_state()
@@ -338,7 +308,7 @@ class BazaarWorld:
                 }
                 for c in self.consumers
             ],
-            "tax_rates": self.tax_planner.tax_rates,
+            "total_fees": getattr(self, "total_fees", 0.0),
         }
 
         log_dir = getattr(self.args, "log_dir", "logs")

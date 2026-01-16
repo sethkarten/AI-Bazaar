@@ -361,19 +361,7 @@ def create_argument_parser():
         help="Type of firm agents",
     )
     parser.add_argument(
-        "--planner-type",
-        default="FIXED",
-        choices=["LLM", "FIXED"],
-        help="Type of tax planner",
-    )
-    parser.add_argument(
         "--unit-cost", type=float, default=2.0, help="Unit cost of production for firms"
-    )
-    parser.add_argument(
-        "--warmup", type=int, default=0, help="Warmup timesteps before tax updates"
-    )
-    parser.add_argument(
-        "--two-timescale", type=int, default=10, help="Timesteps between tax updates"
     )
 
     # Simulation parameters
