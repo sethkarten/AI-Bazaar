@@ -47,9 +47,6 @@ export TRANSFORMERS_OFFLINE=1
 export WANDB_MODE=offline
 export CUDA_VISIBLE_DEVICES=0
 
-# Ensure venv is synced with pyproject.toml
-uv sync --index-url https://download.pytorch.org/whl/cu124
-
 . .venv/bin/activate
 
 # Start vLLM server
