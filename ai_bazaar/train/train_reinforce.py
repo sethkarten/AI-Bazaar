@@ -178,9 +178,12 @@ class REINFORCETrainer:
         sys.exit(1)
 
     def collect_trajectories(self, num_episodes: int, iteration: int):
-        # Start/Restart vLLM for this iteration's collection
-        lora_path = os.path.join(self.checkpoint_dir, "latest")
-        self._start_vllm_server(self.args.port, lora_path if iteration > 0 else None)
+        # Start/Restart vLLM for this iteration's collection if port is provided
+        if self.args.port and self.args.port > 0:
+            lora_path = os.path.join(self.checkpoint_dir, "latest")
+            self._start_vllm_server(
+                self.args.port, lora_path if iteration > 0 else None
+            )
 
         all_trajectories = []
         iter_stats = []
@@ -214,10 +217,11 @@ class REINFORCETrainer:
             )
             print(f"  Episode {ep + 1}/{num_episodes} collected", flush=True)
 
-        # Shutdown vLLM to free memory for Unsloth training
-        self.vllm_process.terminate()
-        self.vllm_process.wait()
-        self.vllm_process = None
+        # Shutdown vLLM if it was used
+        if self.vllm_process:
+            self.vllm_process.terminate()
+            self.vllm_process.wait()
+            self.vllm_process = None
 
         if wandb.run:
             wandb.log(
