@@ -12,7 +12,7 @@ def submit_local_test():
     payload = {
         "repo": REPO,
         "branch": BRANCH,
-        "script": "ai_bazaar/train/train_reinforce.py",
+        "script": "local_launcher.sh",
         "args": [
             "--llm",
             "./models/gemma-3-4b-it-bnb-4bit",
