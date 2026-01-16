@@ -59,7 +59,9 @@ class REINFORCETrainer:
         self.heartbeat_file = "train_heartbeat.txt"
 
         # Wrapped model for inference during collection
-        self.inference_model = UnslothModel(self.model, self.tokenizer)
+        self.inference_model = UnslothModel(
+            self.model, self.tokenizer, heartbeat_func=self.heartbeat
+        )
 
     def heartbeat(self):
         with open(self.heartbeat_file, "w") as f:

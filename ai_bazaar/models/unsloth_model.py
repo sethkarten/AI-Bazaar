@@ -13,10 +13,12 @@ class UnslothModel(BaseLLMModel):
         model_name: str = "unsloth-model",
         max_tokens: int = 1000,
         temperature: float = 0.7,
+        heartbeat_func=None,
     ):
         super().__init__(model_name, max_tokens, temperature)
         self.model = model
         self.tokenizer = tokenizer
+        self.heartbeat_func = heartbeat_func
 
     def send_msg(
         self,
@@ -25,6 +27,8 @@ class UnslothModel(BaseLLMModel):
         temperature: Optional[float] = None,
         json_format: bool = False,
     ) -> Tuple[str, bool]:
+        if self.heartbeat_func:
+            self.heartbeat_func()
         if temperature is None:
             temperature = self.temperature
 
