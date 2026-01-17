@@ -1803,7 +1803,7 @@ class _UnslothRLOOTrainer(Trainer):
                 vllm_inputs = all_prompts_text
 
                 with profiling_context(self, "vLLM.generate"):
-                    all_outputs = self.llm.generate(vllm_inputs, sampling_params=sampling_params, use_tqdm=False, lora_request = self.model.load_lora('rloo_trainer_lora_model_' + (os.environ.get('CUDA_VISIBLE_DEVICES', '0').replace(',','')), load_tensors = True))
+                    all_outputs = self.llm.generate(vllm_inputs, sampling_params=sampling_params, use_tqdm=False, lora_request = self.model.load_lora('rloo_trainer_lora_model', load_tensors = True))
 
                 completion_ids = [output.token_ids for outputs in all_outputs for output in outputs.outputs]
 

@@ -65,6 +65,18 @@ class BaseLLMModel(ABC):
         """Extract JSON from a message string with aggressive salvaging."""
         try:
             msg = message.strip()
+
+            # Case 0: Look for markdown code blocks first
+            if "```json" in msg:
+                json_part = msg.split("```json")[-1].split("```")[0].strip()
+                try:
+                    import json as json_lib
+
+                    json_lib.loads(json_part)
+                    return json_part, True
+                except:
+                    msg = json_part  # Continue with salvaged part
+
             # Case 1: Injected start - message might be just the rest of the JSON
             # e.g. ' weight_food": "0.4" }' or ' "weight_food": "0.4" }'
             if not msg.startswith("{") and ":" in msg:
@@ -73,8 +85,14 @@ class BaseLLMModel(ABC):
                 msg = "{" + msg
 
             message = msg
-            json_start = message.find("{")
+            # Find the LAST instance of { and corresponding } to get the actual JSON
+            # if multiple exist (reasoning might contain braces)
+            json_start = message.rfind("{")
             json_end = message.rfind("}") + 1
+
+            # If rfind didn't work for start, try lfind
+            if json_start == -1:
+                json_start = message.find("{")
 
             if json_start == -1:
                 return message, False
@@ -93,6 +111,7 @@ class BaseLLMModel(ABC):
 
                 message = json_str
                 json_end = len(message)
+                json_start = 0
 
             json_str = message[json_start:json_end]
             if len(json_str) > 0:
@@ -104,7 +123,6 @@ class BaseLLMModel(ABC):
                     return json_str, True
                 except:
                     # Still invalid, try to replace placeholders like "X" or "Y" if present
-                    # This happens when model is lazy
                     salvaged = (
                         json_str.replace('"X"', "0.25")
                         .replace('"Y"', "0.25")
