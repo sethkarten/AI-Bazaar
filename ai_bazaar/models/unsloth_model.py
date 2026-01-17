@@ -1,6 +1,8 @@
 from typing import Tuple, Optional
 from .base import BaseLLMModel
 import torch
+import threading
+from unsloth import FastLanguageModel
 
 
 class UnslothModel(BaseLLMModel):
@@ -19,6 +21,7 @@ class UnslothModel(BaseLLMModel):
         self.model = model
         self.tokenizer = tokenizer
         self.heartbeat_func = heartbeat_func
+        self._lock = threading.Lock()
 
     def send_msg(
         self,
@@ -37,54 +40,49 @@ class UnslothModel(BaseLLMModel):
         u_prompt = user_prompt if user_prompt is not None else ""
         combined_prompt = f"{s_prompt}\n{u_prompt}"
 
-        # Ensure model is in inference mode
-        from unsloth import FastLanguageModel
+        with self._lock:
+            # Ensure model is in inference mode
+            if not getattr(self.model, "_is_inference", False):
+                FastLanguageModel.for_inference(self.model)
+                self.model._is_inference = True
 
-        if not getattr(self.model, "_is_inference", False):
-            FastLanguageModel.for_inference(self.model)
-            self.model._is_inference = True
-
-        try:
-            # Gemma 3 might need text= explicitly or handle lists
-            if hasattr(self.tokenizer, "tokenizer"):
-                # It's a processor, try using the underlying tokenizer for text-only
-                inputs = self.tokenizer.tokenizer(
-                    combined_prompt, return_tensors="pt"
-                ).to("cuda")
-            else:
-                inputs = self.tokenizer(combined_prompt, return_tensors="pt").to("cuda")
-        except Exception as e:
-            self.logger.error(
-                f"Tokenizer failed: {e}. Prompt type: {type(combined_prompt)}"
-            )
-            # Fallback to a very simple call
             try:
-                inputs = self.tokenizer(text=[combined_prompt], return_tensors="pt").to(
-                    "cuda"
-                )
-            except:
-                return "", False
+                # Gemma 3 might need text= explicitly or handle lists
+                if hasattr(self.tokenizer, "tokenizer"):
+                    # It's a processor, try using the underlying tokenizer for text-only
+                    inputs = self.tokenizer.tokenizer(
+                        combined_prompt, return_tensors="pt"
+                    ).to("cuda")
+                else:
+                    inputs = self.tokenizer(combined_prompt, return_tensors="pt").to(
+                        "cuda"
+                    )
+            except Exception as e:
+                # Fallback to a very simple call
+                try:
+                    inputs = self.tokenizer(
+                        text=[combined_prompt], return_tensors="pt"
+                    ).to("cuda")
+                except:
+                    return "", False
 
-        outputs = self.model.generate(
-            **inputs,
-            max_new_tokens=256,  # Reduced from 1000 for speed
-            temperature=temperature,
-            use_cache=True,
-            # We don't use stop_strings here because it needs a Processor
-        )
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=256,  # Reduced from 1000 for speed
+                temperature=temperature,
+                use_cache=True,
+            )
 
-        # Decode only the new tokens
-        input_len = inputs.input_ids.shape[1]
-        decoded = self.tokenizer.batch_decode(
-            outputs[:, input_len:], skip_special_tokens=True
-        )[0]
+            # Decode only the new tokens
+            input_len = inputs.input_ids.shape[1]
+            decoded = self.tokenizer.batch_decode(
+                outputs[:, input_len:], skip_special_tokens=True
+            )[0]
 
-        # Stop at the first '}' if not already stopped
-        orig_len = len(decoded)
-        if "}" in decoded:
-            decoded = decoded[: decoded.find("}") + 1]
+            # Stop at the first '}' if not already stopped
+            if "}" in decoded:
+                decoded = decoded[: decoded.find("}") + 1]
 
-        # self.logger.info(f"Generated {len(decoded)} tokens (raw: {orig_len})")
         if json_format:
             return self._extract_json(decoded)
 

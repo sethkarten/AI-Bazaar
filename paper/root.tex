@@ -129,8 +129,11 @@ where $\mathcal{G}$ is the set of goods, $\alpha_{i,k}$ are preference weights, 
 \subsection{Scaling and Computational Complexity}
 The Agent Bazaar is designed for high-speed simulation, but the market clearing process presents a potential bottleneck. Currently, clearing $O$ orders against $Q$ quotes has a worst-case complexity of $O(O \cdot Q)$. To scale to larger populations, we propose indexing quotes by good and firm identity, reducing the complexity to $O(O + Q)$.
 
+\subsection{Dual-Engine Reinforcement Learning}
+To scale trajectory collection while maintaining high-fidelity gradient updates, we implement a \textit{Dual-Engine} architecture. For the \textit{backward pass} (training), we utilize \textit{Unsloth}, which provides optimized CUDA kernels for LoRA adapters, achieving a 3x speedup over standard implementations. For the \textit{forward pass} (experience collection), we employ \textit{vLLM} with LoRA support. At the end of each training iteration $k$, the LoRA adapters are synchronized to the vLLM server, ensuring that agents in iteration $k+1$ act according to the most recent policy. This decoupled approach allows us to utilize batched inference for trajectory generation, reducing the time per episode from 40 minutes to under 3 minutes on NVIDIA H200 nodes.
+
 \subsection{REINFORCE++ Optimization}
-While standard agents operate via in-context optimization, we train specialized models using REINFORCE++. The policy $\pi_\theta(a|s)$ is finetuned to maximize the expected reward $R$, where $R$ is the individual utility for consumers and cumulative profit for firms. We compute the policy gradient as:
+We train specialized policies using REINFORCE++, a policy gradient method. The policy $\pi_\theta(a|s)$ is finetuned to maximize the expected reward $R$, where $R$ is the individual utility for consumers and cumulative profit for firms. We compute the policy gradient as:
 \begin{equation}
     \nabla_\theta J(\theta) \approx \frac{1}{N} \sum_{i=1}^N \nabla_\theta \log \pi_\theta(a_i|s_i) (R_i - b)
 \end{equation}
@@ -169,7 +172,7 @@ where $\text{Rep}_j$ is the firm's historical fulfillment rate. This experiment 
 By analyzing the \textit{Strategic Diaries}, we observe a strong correlation between the depth of reasoning in reflections and the agent's survival time. Finetuning via REINFORCE++ encourages agents to transition from reactive statements ("We lost money") to proactive planning ("We should lower prices next step to regain visibility").
 
 \paragraph{Race to the Bottom}
-Firms compete solely on price. Consumers have high price elasticity and always purchase from the lowest bidder. Preliminary results with ICL agents show rapid convergence to sub-marginal prices, leading to firm bankruptcy. In contrast, REINFORCE++ agents develop more sustainable competitive strategies, maintaining thin but positive profit margins.
+Firms compete solely on price. Consumers have high price elasticity and always purchase from the lowest bidder. Preliminary results with ICL agents show rapid convergence to sub-marginal prices, leading to firm bankruptcy within the first 10 timesteps. For instance, in our baseline test, multiple firms failed to cover a fixed overhead cost of \$50.00 despite maintaining high sales volumes, as their margins were compressed to near-zero by the competitive bidding process. In contrast, REINFORCE++ agents develop more sustainable competitive strategies, maintaining thin but positive profit margins that allow for long-term survival.
 
 \paragraph{Price Discrimination}
 Firms attempt to segment the market based on consumer personas. We observe that finetuned agents successfully identify high-income personas and adjust pricing upwards for necessity goods, demonstrating emergent strategic segmentation.

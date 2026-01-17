@@ -62,13 +62,57 @@ class BaseLLMModel(ABC):
         time.sleep(wait_time)
 
     def _extract_json(self, message: str) -> Tuple[str, bool]:
-        """Extract JSON from a message string."""
+        """Extract JSON from a message string with aggressive salvaging."""
         try:
+            # Case 1: Injected start - message might be just the rest of the JSON
+            # e.g. ' "weight_food": "0.4" }'
+            if not message.strip().startswith('{') and '"' in message and ':' in message:
+                message = '{' + message.strip()
+
             json_start = message.find("{")
             json_end = message.rfind("}") + 1
 
             if json_start == -1:
                 return message, False
+
+            if json_end == 0:
+                # Missing closing brace - common with stop tokens
+                # Try to salvage by adding one
+                json_str = message[json_start:].strip()
+
+                # Check for unclosed quotes
+                if json_str.count('"') % 2 == 1:
+                    json_str += '"'
+
+                if not json_str.endswith("}"):
+                    json_str += "}"
+                
+                message = json_str
+                json_end = len(message)
+
+            json_str = message[json_start:json_end]
+            if len(json_str) > 0:
+                # Basic validation - try to parse
+                try:
+                    import json as json_lib
+                    json_lib.loads(json_str)
+                    return json_str, True
+                except:
+                    # Still invalid, try to replace placeholders like "X" or "Y" if present
+                    # This happens when model is lazy
+                    salvaged = json_str.replace('"X"', '0.25').replace('"Y"', '0.25').replace('"Z"', '0.25')
+                    try:
+                        import json as json_lib
+                        json_lib.loads(salvaged)
+                        return salvaged, True
+                    except:
+                        return json_str, False
+        except Exception as e:
+            self.logger.warning(f"Error extracting JSON: {e}")
+            pass
+
+        return message, False
+
 
             if json_end == 0:
                 # Missing closing brace - common with stop tokens

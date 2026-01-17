@@ -239,15 +239,21 @@ class REINFORCETrainer:
         return all_trajectories
 
     def train_step(self, trajectories: List[Dict[str, Any]], iteration: int):
+        print(
+            f"Starting training step for iteration {iteration} with {len(trajectories)} samples...",
+            flush=True,
+        )
         self.model.train()
         total_loss = 0
 
         rewards = [t["reward"] for t in trajectories if t["reward"] is not None]
         baseline = np.mean(rewards) if rewards else 0
+        print(f"  Baseline reward: {baseline:.4f}", flush=True)
 
         step_start = time.time()
         for i, traj in enumerate(trajectories):
             self.heartbeat()
+            # ...
             s_prompt = traj.get("system_prompt") or ""
             u_prompt = traj.get("user_prompt") or ""
             response = traj.get("response") or ""
