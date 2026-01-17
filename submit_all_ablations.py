@@ -7,7 +7,7 @@ REPO = "git@github.com:sethkarten/AI-Bazaar.git"
 BRANCH = "Market-v0"
 
 # Configuration matrix
-LLM_BASE = "/scratch/gpfs/CHIJ/milkkarten/AI-Bazaar/models"
+LLM_BASE = "./models"
 ABLATIONS = [
     {
         "name": "baseline",
@@ -121,11 +121,12 @@ def submit_job(config, test_mode=True):
     payload = {
         "repo": REPO,
         "branch": BRANCH,
-        "script": "slurm_wrapper.sh",  # Use bash wrapper to avoid automatic uv sync
+        "script": "cluster_launcher.sh",  # Use bash wrapper to avoid automatic uv sync
         "args": args,
         "gpu_count": 1,
-        "gpu_memory_min_gb": 141,
+        "gpu_memory_min_gb": 40,
         "time_limit_hours": 1 if test_mode else 48,
+        "prefer_resource": "Pikachu",
     }
 
     print(f"Submitting job: {config['name']} (Test: {test_mode})")
