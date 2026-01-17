@@ -27,7 +27,12 @@ for m in models:
 
     print(f"Downloading {m} to {target_dir}...")
     try:
-        snapshot_download(repo_id=m, local_dir=target_dir, cache_dir="./models/.cache")
+        snapshot_download(
+            repo_id=m,
+            local_dir=target_dir,
+            cache_dir="/scratch/gpfs/CHIJ/milkkarten/.cache/huggingface",
+            local_dir_use_symlinks=False,
+        )
         print(f"Successfully downloaded {name}.")
     except Exception as e:
         print(f"Failed to download {m}: {e}")
