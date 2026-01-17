@@ -64,15 +64,15 @@ class BaseLLMModel(ABC):
     def _extract_json(self, message: str) -> Tuple[str, bool]:
         """Extract JSON from a message string with aggressive salvaging."""
         try:
+            msg = message.strip()
             # Case 1: Injected start - message might be just the rest of the JSON
-            # e.g. ' "weight_food": "0.4" }'
-            if (
-                not message.strip().startswith("{")
-                and '"' in message
-                and ":" in message
-            ):
-                message = "{" + message.strip()
+            # e.g. ' weight_food": "0.4" }' or ' "weight_food": "0.4" }'
+            if not msg.startswith("{") and ":" in msg:
+                if not msg.startswith('"'):
+                    msg = '"' + msg
+                msg = "{" + msg
 
+            message = msg
             json_start = message.find("{")
             json_end = message.rfind("}") + 1
 

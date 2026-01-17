@@ -427,13 +427,16 @@ Please reformat the malformed JSON to match the expected format exactly. Return 
         if not response_found:
             llm_output, _ = self.llm.send_msg(
                 self.system_prompt,
-                msg + "\n{",  # Only inject brace, let model handle first quote
+                msg + '\n{"',  # Inject brace and first quote
                 temperature=temperature,
                 json_format=True,
             )
-            # Prepend the injected opening brace if missing
+            # Prepend the injected opening brace and quote if missing
             if not llm_output.strip().startswith("{"):
-                llm_output = "{" + llm_output
+                if llm_output.strip().startswith('"'):
+                    llm_output = "{" + llm_output
+                else:
+                    llm_output = '{"' + llm_output
 
         # Record trajectory for RL training
         self.trajectory.append(
