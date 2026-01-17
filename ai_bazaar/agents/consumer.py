@@ -427,7 +427,7 @@ class CESConsumerAgent(LLMAgent):
 
         # Create keys matching the format expected in the prompt
         weight_keys = [f"weight_{good}" for good in goods]
-        params_format = "{" + ", ".join([f'"{key}":"X"' for key in weight_keys]) + "}"
+        params_format = "{" + ", ".join([f'"{key}":0.25' for key in weight_keys]) + "}"
 
         # Build prompt
         system_prompt = f"You are an expert in consumer economics and utility functions. Generate CES (Constant Elasticity of Substitution) utility parameters based on consumer personas."
@@ -435,9 +435,7 @@ class CESConsumerAgent(LLMAgent):
         user_prompt = f"Based on this consumer persona:\n{role_message}\n"
         user_prompt += f"Generate CES utility parameters that reflect this persona's preferences for each of the following goods in JSON format: {', '.join(goods)}\n"
         user_prompt += f"The weights should:\n1. Sum to 1.0\n2. All be positive values\n3. Be realistic and grounded.\n"
-        user_prompt += (
-            f"Respond with the CES utility parameters in JSON format: {params_format}\n"
-        )
+        user_prompt += f"Respond ONLY with the CES utility parameters in JSON format. Example: {params_format}\n"
 
         # Set system_prompt for call_llm to use
         original_system_prompt = self.system_prompt

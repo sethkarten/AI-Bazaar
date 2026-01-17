@@ -288,6 +288,10 @@ class REINFORCETrainer:
             ).squeeze(-1)
 
             loss = -selected_log_probs.mean() * (reward - baseline)
+            print(
+                f"    Sample {i + 1}/{len(trajectories)}: Reward={reward:.2f}, Baseline={baseline:.2f}, Loss={loss.item():.4f}",
+                flush=True,
+            )
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
