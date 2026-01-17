@@ -27,11 +27,6 @@ from ai_bazaar.models.unsloth_model import UnslothModel
 from ai_bazaar.env.bazaar_env import BazaarWorld
 from ai_bazaar.main import create_argument_parser
 
-# Force offline mode for HuggingFace and WandB
-os.environ["HF_DATASETS_OFFLINE"] = "1"
-os.environ["TRANSFORMERS_OFFLINE"] = "1"
-os.environ["WANDB_MODE"] = "offline"
-
 
 class REINFORCETrainer:
     def __init__(self, model_name: str, args):
@@ -313,10 +308,21 @@ def main():
     parser.add_argument("--num_episodes", type=int, default=5)
     parser.add_argument("--num_iterations", type=int, default=50)
     parser.add_argument("--run_name", type=str, default=None)
+    parser.add_argument(
+        "--wandb_mode",
+        type=str,
+        default="offline",
+        choices=["online", "offline", "disabled"],
+    )
     args = parser.parse_args()
 
+    # Force offline mode for HuggingFace and WandB (unless overridden)
+    os.environ["HF_DATASETS_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    os.environ["WANDB_MODE"] = args.wandb_mode
+
     wandb.init(
-        project="ai-bazaar", name=args.run_name, config=vars(args), mode="offline"
+        project="ai-bazaar", name=args.run_name, config=vars(args), mode=args.wandb_mode
     )
     trainer = REINFORCETrainer(args.llm, args)
 

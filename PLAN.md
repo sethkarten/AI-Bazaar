@@ -30,16 +30,15 @@ This document outlines the roadmap for the Agent Bazaar framework, focusing on f
 - [x] **Phase 3.5: Comparative Ablations**:
     - **Reward Signal**: Launched "Revenue Maximization" vs. "Bankruptcy Avoidance" (Profit) ablation.
     - **Reasoning Impact**: Launched ablation test of performance with and without "Diary Entries."
-    - **Model Comparison**: Launched benchmarking for **Gemma 3 4B**, **Qwen 3 8B**, **Ministral 3 8B**, and **OLMo 3 7B**.
+    - **Model Comparison**: Launched benchmarking for **Gemma 3 4B**, **Qwen 2.5 7B**, **Llama 3.1 8B**, and **Mistral 7B v0.3**.
     - **Information Asymmetry**: Launched ablation testing effects of noisy competitor data.
     - **Full Integration**: Launched "Final" configuration combining all features.
 - [x] **REINFORCE++ Finetuning**:
     - Integrated `unsloth` for LoRA-based training.
     - Implemented `UnslothModel` for fast in-process trajectory generation.
-    - Resolved Gemma 3 processor subscriptable errors.
-    - Optimized speed via **Parallel Agent Actions** and **vLLM Batching**.
-    - Launched 9 parallel ablation verification matrix (Job IDs starting with `1f8ff65f`).
-    - **Current Progress**: All 9 variants active on `della-ailab` in verification phase.
+    - Optimized speed via **Parallel Agent Actions**.
+    - Launched 9 parallel ablation verification matrix on **Pikachu** (A6000).
+    - **Current Progress**: Staggered submission active to ensure unique GPU assignment.
 - [x] **Reward Modeling**:
     - Linked Individual Utility and Social Welfare to the RL reward signal.
 - [x] **Environment Robustness**:
@@ -54,7 +53,7 @@ This document outlines the roadmap for the Agent Bazaar framework, focusing on f
     - Automatic state snapshotting at each timestep verified.
 - [x] **Scenario Testing**:
     - Preliminary results for "Race to Bottom" and "Price Discrimination" integrated into paper.
-    - Full stress-testing in progress via active training job (Job ID: 3887442).
+    - Full stress-testing in progress via active ablation matrix on Pikachu.
 
 ## Phase 5: Paper Iteration (AGENT_LOOP)
 - [x] **Drafting**: Completed Methodology and Experiments sections in `paper/root.tex`. Added Notation Table and Equilibrium Analysis.

@@ -118,6 +118,9 @@ def submit_job(config, test_mode=True):
     if config["asymmetry"]:
         args.append("--info-asymmetry")
 
+    # Pikachu has live internet for WandB
+    args.extend(["--wandb_mode", "online"])
+
     payload = {
         "repo": REPO,
         "branch": BRANCH,
