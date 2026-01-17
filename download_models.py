@@ -16,13 +16,18 @@ if not os.path.exists(base_dir):
 for m in models:
     name = m.split("/")[-1]
     target_dir = os.path.join(base_dir, name)
-    if os.path.exists(target_dir):
+    # Check for actual model files instead of just directory existence
+    if os.path.exists(target_dir) and any(
+        f.endswith(".safetensors") or f.endswith(".bin")
+        for f in os.listdir(target_dir)
+        if not os.path.isdir(os.path.join(target_dir, f))
+    ):
         print(f"Model {name} already exists. Skipping.")
         continue
 
-    print(f"Downloading {m}...")
+    print(f"Downloading {m} to {target_dir}...")
     try:
-        snapshot_download(repo_id=m, local_dir=target_dir)
+        snapshot_download(repo_id=m, local_dir=target_dir, cache_dir="./models/.cache")
         print(f"Successfully downloaded {name}.")
     except Exception as e:
         print(f"Failed to download {m}: {e}")
