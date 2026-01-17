@@ -152,9 +152,10 @@ class REINFORCETrainer:
             "--port",
             str(port),
             "--gpu-memory-utilization",
-            "0.8" if torch.cuda.device_count() > 1 else "0.4",
+            "0.5" if torch.cuda.device_count() > 1 else "0.2",
             "--disable-log-requests",
             "--trust-remote-code",
+            "--enforce-eager",  # Memory saving
         ]
 
         vllm_log = open(os.path.join(self.args.log_dir, f"vllm_{port}.log"), "w")
