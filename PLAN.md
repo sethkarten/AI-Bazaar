@@ -38,8 +38,8 @@ This document outlines the roadmap for the Agent Bazaar framework, focusing on f
     - Implemented `UnslothModel` for fast in-process trajectory generation.
     - Resolved Gemma 3 processor subscriptable errors.
     - Optimized speed via **Parallel Agent Actions** and **vLLM Batching**.
-    - Launched finetuning on `della-ailab` cluster (Job ID: 3887442).
-    - **Current Progress**: Iteration 34/100 (Jan 16).
+    - Launched 9 parallel ablation verification matrix (Job IDs starting with `1f8ff65f`).
+    - **Current Progress**: All 9 variants active on `della-ailab` in verification phase.
 - [x] **Reward Modeling**:
     - Linked Individual Utility and Social Welfare to the RL reward signal.
 - [x] **Environment Robustness**:
