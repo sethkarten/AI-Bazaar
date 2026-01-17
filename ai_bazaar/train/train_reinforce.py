@@ -1,15 +1,12 @@
 import sys
+import sys
 import os
 import time
 
 # Add project root to PYTHONPATH
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, root_dir)
-print(f"DEBUG: PYTHONPATH: {sys.path}", flush=True)
-print(f"DEBUG: Root dir: {root_dir}", flush=True)
-print(f"DEBUG: Contents of root: {os.listdir(root_dir)}", flush=True)
-print(f"DEBUG: __file__: {__file__}", flush=True)
-print(f"DEBUG: cwd: {os.getcwd()}", flush=True)
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 
 import signal
 import threading
@@ -17,6 +14,7 @@ import wandb
 import subprocess
 import atexit
 import requests
+
 
 # Unsloth must be imported before transformers
 from unsloth import FastLanguageModel
