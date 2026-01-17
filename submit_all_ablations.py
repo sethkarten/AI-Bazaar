@@ -7,7 +7,7 @@ REPO = "git@github.com:sethkarten/AI-Bazaar.git"
 BRANCH = "Market-v0"
 
 # Configuration matrix
-LLM_BASE = "./models"
+LLM_BASE = "/scratch/gpfs/CHIJ/milkkarten/AI-Bazaar/models"
 ABLATIONS = [
     {
         "name": "baseline",
