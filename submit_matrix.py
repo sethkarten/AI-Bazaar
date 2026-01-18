@@ -14,6 +14,24 @@ BRANCH = "Market-v0"
 LLM_BASE = "/data3/milkkarten/AI-Bazaar/models"
 ABLATIONS = [
     {
+        "name": "baseline",
+        "llm": f"{LLM_BASE}/gemma-3-4b-it-bnb-4bit",
+        "reward": "PROFIT",
+        "diaries": True,
+        "discovery": 5,
+        "asymmetry": False,
+        "batch_size": 16,
+    },
+    {
+        "name": "revenue",
+        "llm": f"{LLM_BASE}/gemma-3-4b-it-bnb-4bit",
+        "reward": "REVENUE",
+        "diaries": True,
+        "discovery": 5,
+        "asymmetry": False,
+        "batch_size": 16,
+    },
+    {
         "name": "nodiaries",
         "llm": f"{LLM_BASE}/gemma-3-4b-it-bnb-4bit",
         "reward": "PROFIT",
