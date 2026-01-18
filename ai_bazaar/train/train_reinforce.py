@@ -286,7 +286,7 @@ class REINFORCETrainer:
 def main():
     parser = create_argument_parser()
     parser.add_argument("--lr", type=float, default=1e-5)
-    parser.add_argument("--num_episodes", type=int, default=20)
+    parser.add_argument("--num_episodes", type=int, default=50)  # Increased from 20 to maximize GPU utilization
     parser.add_argument("--num_iterations", type=int, default=50)
     parser.add_argument("--run_name", type=str, default=None)
     parser.add_argument("--train_batch_size", type=int, default=8)

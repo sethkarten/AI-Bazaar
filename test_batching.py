@@ -15,10 +15,10 @@ model, tokenizer = FastLanguageModel.from_pretrained(
 print("Model loaded!")
 
 # Create UnslothModel with batching
-llm = UnslothModel(model, tokenizer, batch_timeout_ms=80, max_batch_size=32)
+llm = UnslothModel(model, tokenizer, batch_timeout_ms=80, max_batch_size=128)
 
-# Test: Send 100 concurrent requests
-NUM_REQUESTS = 100
+# Test: Send 500 concurrent requests to test larger batches
+NUM_REQUESTS = 500
 results = []
 errors = []
 
