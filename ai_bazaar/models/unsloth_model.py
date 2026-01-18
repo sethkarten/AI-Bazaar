@@ -95,11 +95,16 @@ class UnslothModel(BaseLLMModel):
 
             # Generate for the batch
             # Use the first temperature (assuming all similar for simplicity)
+            # Add stop token for '}' to terminate JSON generation early
+            stop_token_ids = [self.tokenizer.convert_tokens_to_ids('}')] if hasattr(self.tokenizer, 'convert_tokens_to_ids') else None
+
             outputs = self.model.generate(
                 **inputs,
-                max_new_tokens=256,
+                max_new_tokens=64,  # Reduced from 256 for speed - JSON responses are short
                 temperature=temperatures[0] if temperatures[0] is not None else self.temperature,
                 use_cache=True,
+                do_sample=True,  # Enable sampling for temperature
+                eos_token_id=stop_token_ids if stop_token_ids else self.tokenizer.eos_token_id,
             )
 
             # Decode results
