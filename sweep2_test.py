@@ -13,7 +13,7 @@ payload = {
         "--llm",
         "/media/milkkarten/data/AI-Bazaar/models/gemma-3-4b-it-bnb-4bit",
         "--num_episodes",
-        "20",
+        "50",
         "--num_iterations",
         "1",
         "--max-timesteps",
@@ -38,10 +38,11 @@ if response.ok:
         print(f"\n✅ Sweep 2 (batching) job submitted successfully!")
         print(f"Job ID: {job_data.get('id')}")
         print(f"\nExpected behavior:")
-        print(f"  - Request queue fills with ~140 requests per phase")
-        print(f"  - Batch sizes: 20-32 items (check logs)")
-        print(f"  - GPU power: >250W (partial saturation)")
-        print(f"  - Iteration 0 completes successfully")
+        print(f"  - Request queue fills with ~350 requests per phase (50 episodes)")
+        print(f"  - Batch sizes: 128 items (4x increase)")
+        print(f"  - GPU power: >300W (high saturation)")
+        print(f"  - Throughput: ~77 req/s (4.2x faster)")
+        print(f"  - Complete in ~2-3 minutes (vs 15+ min before)")
     except Exception as e:
         print(f"Error parsing JSON: {e}")
 else:
