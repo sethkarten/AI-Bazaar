@@ -8,7 +8,7 @@ BRANCH = "Market-v0"
 payload = {
     "repo": REPO,
     "branch": BRANCH,
-    "script": "local_launcher.sh",  # Uses 'uv run'
+    "script": "cluster_launcher.sh",  # Uses .venv
     "args": [
         "--llm",
         "/media/milkkarten/data/AI-Bazaar/models/gemma-3-4b-it-bnb-4bit",

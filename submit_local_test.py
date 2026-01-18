@@ -14,7 +14,7 @@ def submit_local_test(name, reward):
     payload = {
         "repo": REPO,
         "branch": BRANCH,
-        "script": "local_launcher.sh",
+        "script": "cluster_launcher.sh",
         "args": [
             "--llm",
             "/media/milkkarten/data/AI-Bazaar/models/gemma-3-4b-it-bnb-4bit",
