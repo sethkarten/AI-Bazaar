@@ -97,18 +97,25 @@ class REINFORCETrainer:
                 print(f"[MONITOR] WARNING: Idle for {idle / 60:.1f}m", flush=True)
 
     def collect_trajectories(self, num_episodes: int, iteration: int):
+        collect_start = time.time()
         all_trajectories = []
         iter_stats = []
 
         def run_episode(ep_idx):
+            ep_start = time.time()
             print(f"  Starting Episode {ep_idx + 1}/{num_episodes}", flush=True)
             world = BazaarWorld(
                 self.args, llm_model=self.inference_model
             )
             ep_utility, ep_profit, ep_sales = [], [], 0
+            step_count = 0
+            step_times = []
 
             while not world.is_done():
+                step_start = time.time()
                 stats = world.step()
+                step_times.append(time.time() - step_start)
+                step_count += 1
                 ep_utility.append(
                     np.mean([c["utility"] for c in stats["consumers"].values()])
                 )
@@ -124,7 +131,9 @@ class REINFORCETrainer:
                     ep_trajs.extend(agent.trajectory)
                     agent.trajectory = []
 
-            print(f"  Episode {ep_idx + 1}/{num_episodes} completed", flush=True)
+            ep_time = time.time() - ep_start
+            avg_step_time = np.mean(step_times) if step_times else 0
+            print(f"  Episode {ep_idx + 1}/{num_episodes} completed in {ep_time:.2f}s ({step_count} steps, {avg_step_time:.2f}s/step, {1/avg_step_time if avg_step_time > 0 else 0:.2f} steps/s)", flush=True)
             return ep_trajs, {
                 "avg_utility": np.mean(ep_utility) if ep_utility else 0,
                 "avg_profit": np.mean(ep_profit) if ep_profit else 0,
@@ -144,12 +153,17 @@ class REINFORCETrainer:
             all_trajectories.extend(trajs)
             iter_stats.append(stats)
 
+        collect_time = time.time() - collect_start
+        print(f"\nCollected {num_episodes} episodes in {collect_time:.2f}s ({collect_time/num_episodes:.2f}s/episode, {num_episodes/collect_time:.2f} episodes/s)", flush=True)
+
         if wandb.run:
             wandb.log(
                 {
                     "env/avg_utility": np.mean([s["avg_utility"] for s in iter_stats]),
                     "env/total_sales": np.sum([s["total_sales"] for s in iter_stats]),
                     "iteration": iteration,
+                    "perf/collection_time_s": collect_time,
+                    "perf/episodes_per_s": num_episodes/collect_time if collect_time > 0 else 0,
                 }
             )
         return all_trajectories
