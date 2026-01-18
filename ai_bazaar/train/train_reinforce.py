@@ -103,7 +103,7 @@ class REINFORCETrainer:
         def run_episode(ep_idx):
             print(f"  Starting Episode {ep_idx + 1}/{num_episodes}", flush=True)
             world = BazaarWorld(
-                self.args, llm_model=self.inference_model, episode_id=ep_idx
+                self.args, llm_model=self.inference_model
             )
             ep_utility, ep_profit, ep_sales = [], [], 0
 
