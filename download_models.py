@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-from huggingface_hub import snapshot_download
 import os
+import subprocess
 
 models = [
     "unsloth/gemma-3-4b-it-bnb-4bit",
@@ -16,7 +16,8 @@ if not os.path.exists(base_dir):
 for m in models:
     name = m.split("/")[-1]
     target_dir = os.path.join(base_dir, name)
-    # Check for actual model files instead of just directory existence
+
+    # Check for actual model files
     if os.path.exists(target_dir) and any(
         f.endswith(".safetensors") or f.endswith(".bin")
         for f in os.listdir(target_dir)
@@ -26,13 +27,16 @@ for m in models:
         continue
 
     print(f"Downloading {m} to {target_dir}...")
+    # Use huggingface-cli for better reliability and progress tracking
+    cmd = [
+        "huggingface-cli",
+        "download",
+        m,
+        "--local-dir",
+        target_dir,
+    ]
     try:
-        snapshot_download(
-            repo_id=m,
-            local_dir=target_dir,
-            cache_dir="/scratch/gpfs/CHIJ/milkkarten/.cache/huggingface",
-            local_dir_use_symlinks=False,
-        )
+        subprocess.run(cmd, check=True)
         print(f"Successfully downloaded {name}.")
     except Exception as e:
         print(f"Failed to download {m}: {e}")

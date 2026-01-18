@@ -4,35 +4,15 @@ import time
 
 # SYSTEMATIC ABLATION SUBMISSION SCRIPT
 # VERSION 3 MODELS
-# EXPLICIT GPU ID ASSIGNMENT FOR PIKACHU
-# ABSOLUTE PATHS FOR STABILITY
+# TARGETING PIKACHU (7-8 GPUs)
 
 GPU_MANAGER_URL = "http://localhost:8080/api/jobs"
 REPO = "git@github.com:sethkarten/AI-Bazaar.git"
 BRANCH = "Market-v0"
 
-# Configuration matrix
-# Pikachu has 8 GPUs (0-7)
+# Configuration matrix for Pikachu
 LLM_BASE = "/data3/milkkarten/AI-Bazaar/models"
 ABLATIONS = [
-    {
-        "name": "baseline",
-        "llm": f"{LLM_BASE}/gemma-3-4b-it-bnb-4bit",
-        "reward": "PROFIT",
-        "diaries": True,
-        "discovery": 5,
-        "asymmetry": False,
-        "batch_size": 16,
-    },
-    {
-        "name": "revenue",
-        "llm": f"{LLM_BASE}/gemma-3-4b-it-bnb-4bit",
-        "reward": "REVENUE",
-        "diaries": True,
-        "discovery": 5,
-        "asymmetry": False,
-        "batch_size": 16,
-    },
     {
         "name": "nodiaries",
         "llm": f"{LLM_BASE}/gemma-3-4b-it-bnb-4bit",
@@ -104,7 +84,7 @@ def submit_job(config, test_mode=True):
         "--llm",
         config["llm"],
         "--port",
-        "0",
+        "0",  # In-process Unsloth for stability
         "--num_episodes",
         "1" if test_mode else "5",
         "--num_iterations",
@@ -134,7 +114,7 @@ def submit_job(config, test_mode=True):
         "script": "cluster_launcher.sh",
         "args": args,
         "gpu_count": 1,
-        "gpu_memory_min_gb": 40,
+        "gpu_memory_min_gb": 32,
         "time_limit_hours": 1 if test_mode else 48,
         "prefer_resource": "Pikachu",
     }
@@ -166,5 +146,5 @@ if __name__ == "__main__":
         jid = submit_job(config, test_mode=not args.production)
         if jid:
             job_ids.append(jid)
-        time.sleep(120)  # Large delay to ensure unique GPU assignment on Pikachu
-    print(f"\nAll jobs submitted. Active Job IDs: {job_ids}")
+        time.sleep(30)  # Delay to ensure unique GPU assignment on Pikachu
+    print(f"\nAll Pikachu jobs submitted. Active Job IDs: {job_ids}")
