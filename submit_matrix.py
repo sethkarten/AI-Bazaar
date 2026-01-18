@@ -132,7 +132,7 @@ def submit_job(config, test_mode=True):
         "script": "cluster_launcher.sh",
         "args": args,
         "gpu_count": 1,
-        "gpu_memory_min_gb": 32,
+        "gpu_memory_min_gb": 40,  # Ensure exclusive GPU
         "time_limit_hours": 1 if test_mode else 48,
         "prefer_resource": "Pikachu",
     }
