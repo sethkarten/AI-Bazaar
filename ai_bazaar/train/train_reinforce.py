@@ -308,6 +308,8 @@ def main():
     parser.add_argument("--num_episodes", type=int, default=5)
     parser.add_argument("--num_iterations", type=int, default=50)
     parser.add_argument("--run_name", type=str, default=None)
+    parser.add_argument("--train_batch_size", type=int, default=4)
+    parser.add_argument("--gpu_id", type=int, default=None)
     parser.add_argument(
         "--wandb_mode",
         type=str,
