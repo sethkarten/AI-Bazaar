@@ -20,7 +20,7 @@ ABLATIONS = [
         "diaries": True,
         "discovery": 5,
         "asymmetry": False,
-        "batch_size": 16,
+        "batch_size": 8,
     },
     {
         "name": "revenue",
@@ -29,7 +29,7 @@ ABLATIONS = [
         "diaries": True,
         "discovery": 5,
         "asymmetry": False,
-        "batch_size": 16,
+        "batch_size": 8,
     },
     {
         "name": "nodiaries",
@@ -38,7 +38,7 @@ ABLATIONS = [
         "diaries": False,
         "discovery": 5,
         "asymmetry": False,
-        "batch_size": 16,
+        "batch_size": 8,
     },
     {
         "name": "nofriction",
@@ -47,7 +47,7 @@ ABLATIONS = [
         "diaries": True,
         "discovery": 0,
         "asymmetry": False,
-        "batch_size": 16,
+        "batch_size": 8,
     },
     {
         "name": "asymmetry",
@@ -56,7 +56,7 @@ ABLATIONS = [
         "diaries": True,
         "discovery": 5,
         "asymmetry": True,
-        "batch_size": 16,
+        "batch_size": 8,
     },
     {
         "name": "final-gemma",
@@ -65,7 +65,7 @@ ABLATIONS = [
         "diaries": True,
         "discovery": 5,
         "asymmetry": True,
-        "batch_size": 16,
+        "batch_size": 8,
     },
     {
         "name": "qwen3",
@@ -74,7 +74,7 @@ ABLATIONS = [
         "diaries": True,
         "discovery": 5,
         "asymmetry": True,
-        "batch_size": 8,
+        "batch_size": 4,
     },
     {
         "name": "olmo3",
@@ -83,7 +83,7 @@ ABLATIONS = [
         "diaries": True,
         "discovery": 5,
         "asymmetry": True,
-        "batch_size": 8,
+        "batch_size": 4,
     },
     {
         "name": "ministral3",
@@ -92,7 +92,7 @@ ABLATIONS = [
         "diaries": True,
         "discovery": 5,
         "asymmetry": True,
-        "batch_size": 8,
+        "batch_size": 4,
     },
 ]
 
@@ -104,7 +104,7 @@ def submit_job(config, test_mode=True):
         "--port",
         "0",  # In-process Unsloth for stability
         "--num_episodes",
-        "1" if test_mode else "5",
+        "1" if test_mode else "20",
         "--num_iterations",
         "1" if test_mode else "50",
         "--reward-type",
@@ -119,6 +119,8 @@ def submit_job(config, test_mode=True):
         "online",
         "--train_batch_size",
         str(config["batch_size"]),
+        "--format_reward_weight",
+        "1.0",
     ]
 
     if not config["diaries"]:
@@ -164,5 +166,5 @@ if __name__ == "__main__":
         jid = submit_job(config, test_mode=not args.production)
         if jid:
             job_ids.append(jid)
-        time.sleep(30)  # Delay to ensure unique GPU assignment on Pikachu
+        time.sleep(90)  # Delay to ensure unique GPU assignment on Pikachu
     print(f"\nAll Pikachu jobs submitted. Active Job IDs: {job_ids}")

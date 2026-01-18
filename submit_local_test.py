@@ -8,7 +8,7 @@ BRANCH = "Market-v0"
 
 
 def submit_local_test(name, reward):
-    # Use a small model and small settings for quick local test
+    # Production version with optimized throughput parameters
     # local-5090 has 32GB VRAM per card.
     ts = int(time.time())
     payload = {
@@ -21,9 +21,9 @@ def submit_local_test(name, reward):
             "--port",
             "0",
             "--num_episodes",
-            "1",
+            "20",
             "--num_iterations",
-            "1",
+            "50",
             "--reward-type",
             reward,
             "--discovery-limit",
@@ -33,11 +33,13 @@ def submit_local_test(name, reward):
             "--log-dir",
             f"logs/local_{name}_{ts}",
             "--train_batch_size",
-            "16",
+            "8",
+            "--format_reward_weight",
+            "1.0",
         ],
         "gpu_count": 1,
-        "gpu_memory_min_gb": 24,  # Fits in 5090
-        "time_limit_hours": 1,
+        "gpu_memory_min_gb": 32,
+        "time_limit_hours": 24,
         "prefer_resource": "local-5090",
     }
 

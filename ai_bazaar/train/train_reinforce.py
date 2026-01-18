@@ -275,8 +275,8 @@ def main():
     parser.add_argument("--num_episodes", type=int, default=20)
     parser.add_argument("--num_iterations", type=int, default=50)
     parser.add_argument("--run_name", type=str, default=None)
-    parser.add_argument("--train_batch_size", type=int, default=4)
-    parser.add_argument("--format_reward_weight", type=float, default=5.0)
+    parser.add_argument("--train_batch_size", type=int, default=8)
+    parser.add_argument("--format_reward_weight", type=float, default=1.0)
     parser.add_argument(
         "--wandb_mode",
         type=str,
