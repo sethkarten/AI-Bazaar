@@ -21,7 +21,7 @@ def submit_local_test(name, reward):
             "--port",
             "0",
             "--num_episodes",
-            "20",
+            "50",
             "--num_iterations",
             "50",
             "--reward-type",

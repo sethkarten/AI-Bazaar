@@ -104,7 +104,7 @@ def submit_job(config, test_mode=True):
         "--port",
         "0",  # In-process Unsloth for stability
         "--num_episodes",
-        "1" if test_mode else "20",
+        "1" if test_mode else "50",
         "--num_iterations",
         "1" if test_mode else "50",
         "--reward-type",

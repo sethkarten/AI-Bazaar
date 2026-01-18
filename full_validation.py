@@ -13,7 +13,7 @@ payload = {
         "--llm",
         "/media/milkkarten/data/AI-Bazaar/models/gemma-3-4b-it-bnb-4bit",
         "--num_episodes",
-        "20",
+        "50",
         "--num_iterations",
         "50",
         "--format_reward_weight",
