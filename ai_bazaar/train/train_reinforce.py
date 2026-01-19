@@ -233,13 +233,29 @@ class REINFORCETrainer:
                     max_length=2048,
                 ).to(self.device)
 
+                # Defensive checks for None values
+                if enc.input_ids is None or p_enc.input_ids is None:
+                    print("    Batch skipped: tokenizer returned None for input_ids")
+                    continue
+
                 outputs = self.model(**enc)
                 logits = outputs.logits
 
+                # Check if logits is None
+                if logits is None:
+                    print("    Batch skipped: model returned None for logits")
+                    continue
+
                 batch_loss = 0
                 for j in range(len(full_texts)):
+                    # Defensive check for pad_token_id
+                    pad_token_id = self.tokenizer.pad_token_id
+                    if pad_token_id is None:
+                        # Use eos_token_id as fallback
+                        pad_token_id = self.tokenizer.eos_token_id if self.tokenizer.eos_token_id else 0
+
                     p_len = (
-                        (p_enc.input_ids[j] != self.tokenizer.pad_token_id).sum().item()
+                        (p_enc.input_ids[j] != pad_token_id).sum().item()
                     )
                     shift_logits = logits[j, p_len - 1 : -1, :].contiguous()
                     shift_labels = enc.input_ids[j, p_len:].contiguous()
@@ -269,7 +285,10 @@ class REINFORCETrainer:
                 if i % (batch_size * 5) == 0:
                     torch.cuda.empty_cache()
             except Exception as e:
+                import traceback
                 print(f"    Batch failed: {e}")
+                print(f"    Exception type: {type(e).__name__}")
+                traceback.print_exc()
                 continue
 
         self.model.save_pretrained(os.path.join(self.checkpoint_dir, "latest"))
