@@ -217,6 +217,23 @@ class REINFORCETrainer:
             if not full_texts:
                 continue
 
+            # Filter out None values that can cause tokenizer to fail
+            # Zip together to maintain alignment between full_texts, prompts, and rewards
+            valid_data = [
+                (ft, p, r)
+                for ft, p, r in zip(full_texts, prompts, batch_total_rewards)
+                if ft is not None and p is not None
+            ]
+
+            if not valid_data:
+                print("    Batch skipped: all texts were None")
+                continue
+
+            full_texts, prompts, batch_total_rewards = zip(*valid_data)
+            full_texts = list(full_texts)
+            prompts = list(prompts)
+            batch_total_rewards = list(batch_total_rewards)
+
             try:
                 enc = self.tokenizer(
                     full_texts,
