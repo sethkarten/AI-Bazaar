@@ -26,8 +26,34 @@ export HF_DATASETS_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export WANDB_MODE=offline
 
-# Run training
+# Extract log directory from arguments for unique stdout/stderr capture
+LOG_DIR="logs"
+RUN_NAME="unknown"
+for arg in "$@"; do
+    case "$prev_arg" in
+        --log-dir)
+            LOG_DIR="$arg"
+            ;;
+        --run_name)
+            RUN_NAME="$arg"
+            ;;
+    esac
+    prev_arg="$arg"
+done
+
+# Create log directory if it doesn't exist
+mkdir -p "$LOG_DIR"
+
+# Create unique log files for this job
+STDOUT_LOG="$LOG_DIR/stdout.log"
+STDERR_LOG="$LOG_DIR/stderr.log"
+
+# Run training with redirected output
 echo "Starting training script..."
-python3 ai_bazaar/train/train_reinforce.py "$@"
-echo "=== Cluster Launcher Finished ==="
+echo "Redirecting stdout to: $STDOUT_LOG"
+echo "Redirecting stderr to: $STDERR_LOG"
+python3 ai_bazaar/train/train_reinforce.py "$@" > "$STDOUT_LOG" 2> "$STDERR_LOG"
+EXIT_CODE=$?
+echo "=== Cluster Launcher Finished (exit code: $EXIT_CODE) ==="
+exit $EXIT_CODE
 
