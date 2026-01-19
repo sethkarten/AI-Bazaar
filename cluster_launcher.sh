@@ -21,14 +21,14 @@ else
     exit 1
 fi
 
-# Force offline modes
+# Force offline modes for HuggingFace (but NOT wandb)
 export HF_DATASETS_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
-export WANDB_MODE=offline
 
 # Extract log directory from arguments for unique stdout/stderr capture
 LOG_DIR="logs"
 RUN_NAME="unknown"
+WANDB_MODE="online"
 for arg in "$@"; do
     case "$prev_arg" in
         --log-dir)
@@ -37,12 +37,39 @@ for arg in "$@"; do
         --run_name)
             RUN_NAME="$arg"
             ;;
+        --wandb_mode)
+            WANDB_MODE="$arg"
+            ;;
     esac
     prev_arg="$arg"
 done
 
 # Create log directory if it doesn't exist
 mkdir -p "$LOG_DIR"
+
+# Get job ID from environment (set by GPU Manager)
+JOB_ID="${GPU_MANAGER_JOB_ID:-unknown}"
+
+# Write job metadata to log directory
+cat > "$LOG_DIR/job_info.json" << EOF
+{
+  "job_id": "$JOB_ID",
+  "run_name": "$RUN_NAME",
+  "log_dir": "$LOG_DIR",
+  "wandb_mode": "$WANDB_MODE",
+  "started_at": "$(date -Iseconds)",
+  "hostname": "$(hostname)",
+  "pwd": "$(pwd)",
+  "git_commit": "$(git rev-parse HEAD 2>/dev/null || echo 'unknown')",
+  "git_branch": "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
+}
+EOF
+
+echo "Job ID: $JOB_ID"
+echo "Run name: $RUN_NAME"
+echo "Log directory: $LOG_DIR"
+echo "WandB mode: $WANDB_MODE"
+echo "Job info written to: $LOG_DIR/job_info.json"
 
 # Create unique log files for this job
 STDOUT_LOG="$LOG_DIR/stdout.log"

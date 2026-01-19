@@ -156,11 +156,29 @@ class REINFORCETrainer:
         collect_time = time.time() - collect_start
         print(f"\nCollected {num_episodes} episodes in {collect_time:.2f}s ({collect_time/num_episodes:.2f}s/episode, {num_episodes/collect_time:.2f} episodes/s)", flush=True)
 
+        # Calculate format success rate
+        format_valid = sum(1 for t in all_trajectories if t.get("is_format_valid", True))
+        format_success_rate = format_valid / len(all_trajectories) if all_trajectories else 0
+
+        # Calculate reward statistics
+        env_rewards = [t["reward"] for t in all_trajectories if t.get("reward") is not None]
+        avg_env_reward = np.mean(env_rewards) if env_rewards else 0
+
+        print(f"Trajectory stats: {len(all_trajectories)} total, {format_success_rate:.1%} format valid, avg env reward: {avg_env_reward:.2f}", flush=True)
+
         if wandb.run:
             wandb.log(
                 {
                     "env/avg_utility": np.mean([s["avg_utility"] for s in iter_stats]),
+                    "env/avg_profit": np.mean([s["avg_profit"] for s in iter_stats]),
                     "env/total_sales": np.sum([s["total_sales"] for s in iter_stats]),
+                    "trajectories/count": len(all_trajectories),
+                    "trajectories/format_success_rate": format_success_rate,
+                    "trajectories/format_failures": len(all_trajectories) - format_valid,
+                    "rewards/env_avg": avg_env_reward,
+                    "rewards/env_std": np.std(env_rewards) if env_rewards else 0,
+                    "rewards/env_min": np.min(env_rewards) if env_rewards else 0,
+                    "rewards/env_max": np.max(env_rewards) if env_rewards else 0,
                     "iteration": iteration,
                     "perf/collection_time_s": collect_time,
                     "perf/episodes_per_s": num_episodes/collect_time if collect_time > 0 else 0,
@@ -169,12 +187,16 @@ class REINFORCETrainer:
         return all_trajectories
 
     def train_step(self, trajectories: List[Dict[str, Any]], iteration: int):
+        train_start = time.time()
         print(
             f"Starting training step: Iteration {iteration}, {len(trajectories)} samples",
             flush=True,
         )
         self.model.train()
         total_loss = 0
+        successful_batches = 0
+        failed_batches = 0
+        skipped_samples = 0
 
         # Calculate baseline from environmental rewards only
         env_rewards = [t["reward"] for t in trajectories if t.get("reward") is not None]
@@ -200,6 +222,7 @@ class REINFORCETrainer:
                 is_valid = traj.get("is_format_valid", True)
 
                 if rew is None or not res:
+                    skipped_samples += 1
                     continue
 
                 # Composite reward: Environmental success + Format compliance
@@ -215,6 +238,7 @@ class REINFORCETrainer:
                 batch_total_rewards.append(total_reward)
 
             if not full_texts:
+                skipped_samples += len(batch)
                 continue
 
             # Filter out None values that can cause tokenizer to fail
@@ -227,6 +251,7 @@ class REINFORCETrainer:
 
             if not valid_data:
                 print("    Batch skipped: all texts were None")
+                skipped_samples += len(full_texts)
                 continue
 
             full_texts, prompts, batch_total_rewards = zip(*valid_data)
@@ -297,6 +322,7 @@ class REINFORCETrainer:
                     final_loss.backward()
                     self.optimizer.step()
                     total_loss += final_loss.item()
+                    successful_batches += 1
 
                 del outputs, logits, enc, p_enc
                 if i % (batch_size * 5) == 0:
@@ -306,13 +332,40 @@ class REINFORCETrainer:
                 print(f"    Batch failed: {e}")
                 print(f"    Exception type: {type(e).__name__}")
                 traceback.print_exc()
+                failed_batches += 1
                 continue
 
+        train_time = time.time() - train_start
+        num_batches = (len(trajectories) + batch_size - 1) // batch_size
+
+        # Get GPU memory usage
+        if torch.cuda.is_available():
+            gpu_memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+            gpu_memory_reserved = torch.cuda.memory_reserved() / 1024**3    # GB
+        else:
+            gpu_memory_allocated = 0
+            gpu_memory_reserved = 0
+
+        print(f"Training completed: {successful_batches}/{num_batches} batches successful, {failed_batches} failed, {skipped_samples} samples skipped", flush=True)
+        print(f"Training time: {train_time:.2f}s, GPU memory: {gpu_memory_allocated:.2f}GB allocated, {gpu_memory_reserved:.2f}GB reserved", flush=True)
+
         self.model.save_pretrained(os.path.join(self.checkpoint_dir, "latest"))
+
+        avg_loss = total_loss / successful_batches if successful_batches > 0 else 0
+
         if wandb.run:
             wandb.log(
                 {
-                    "train/loss": total_loss / (len(trajectories) / batch_size + 1),
+                    "train/loss": avg_loss,
+                    "train/total_loss": total_loss,
+                    "train/successful_batches": successful_batches,
+                    "train/failed_batches": failed_batches,
+                    "train/skipped_samples": skipped_samples,
+                    "train/batch_success_rate": successful_batches / num_batches if num_batches > 0 else 0,
+                    "train/time_s": train_time,
+                    "train/samples_per_s": len(trajectories) / train_time if train_time > 0 else 0,
+                    "gpu/memory_allocated_gb": gpu_memory_allocated,
+                    "gpu/memory_reserved_gb": gpu_memory_reserved,
                     "iteration": iteration,
                 }
             )
@@ -341,11 +394,42 @@ def main():
     )
 
     trainer = REINFORCETrainer(args.llm, args)
+    print(f"\n{'='*80}")
+    print(f"Starting training: {args.num_iterations} iterations × {args.num_episodes} episodes")
+    print(f"Run name: {args.run_name}")
+    print(f"WandB mode: {args.wandb_mode}")
+    if wandb.run:
+        print(f"WandB run: {wandb.run.url}")
+    print(f"{'='*80}\n")
+
     for i in range(args.num_iterations):
+        iter_start = time.time()
+        print(f"\n{'='*80}")
+        print(f"ITERATION {i+1}/{args.num_iterations}")
+        print(f"{'='*80}")
+
         trajs = trainer.collect_trajectories(args.num_episodes, i)
         if trajs:
             trainer.train_step(trajs, i)
+
+        iter_time = time.time() - iter_start
+        print(f"\nIteration {i+1} completed in {iter_time:.2f}s ({iter_time/60:.2f} min)")
+
+        if wandb.run:
+            wandb.log({
+                "iteration_time_s": iter_time,
+                "iteration_time_min": iter_time / 60,
+                "iteration": i,
+            })
+
+    print(f"\n{'='*80}")
+    print(f"Training completed! {args.num_iterations} iterations finished")
+    print(f"{'='*80}\n")
+
     trainer.cleanup()
+
+    if wandb.run:
+        wandb.finish()
 
 
 if __name__ == "__main__":
