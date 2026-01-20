@@ -152,11 +152,13 @@ class REINFORCETrainer:
         iter_stats = []
 
         # SYNCHRONIZED COLLECTION: All episodes step together for maximum batching
-        print(f"  Initializing {num_episodes} episodes...", flush=True)
-        worlds = [
-            BazaarWorld(self.args, llm_model=self.inference_model)
-            for _ in range(num_episodes)
-        ]
+        # Create worlds progressively to avoid blocking batcher thread with GIL contention
+        print(f"  Initializing {num_episodes} episodes progressively...", flush=True)
+        worlds = []
+        for i in range(num_episodes):
+            worlds.append(BazaarWorld(self.args, llm_model=self.inference_model))
+            if (i + 1) % 10 == 0:
+                print(f"    {i+1}/{num_episodes} episodes initialized", flush=True)
         print(f"  All {num_episodes} episodes initialized!", flush=True)
 
         ep_utilities = [[] for _ in range(num_episodes)]
