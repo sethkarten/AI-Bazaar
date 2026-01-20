@@ -127,6 +127,10 @@ class UnslothModel(BaseLLMModel):
                         output_tokens, skip_special_tokens=True
                     )
 
+                # Debug: log raw decoded output before JSON extraction
+                if i == 0 and len(batch) > 1:
+                    print(f"[DEBUG] Raw decoded (first 200 chars): {decoded[:200]!r}", flush=True)
+
                 # Extract complete JSON object (find matching closing brace)
                 # Don't stop at first '}' - it might be in the middle of the JSON
                 if "{" in decoded and "}" in decoded:
