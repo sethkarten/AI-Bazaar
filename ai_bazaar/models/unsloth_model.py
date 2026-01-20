@@ -110,8 +110,13 @@ class UnslothModel(BaseLLMModel):
             # Decode results
             input_lens = inputs.attention_mask.sum(dim=1)
             for i, (output, input_len) in enumerate(zip(outputs, input_lens)):
+                # Debug: log raw token count
+                output_tokens = output[input_len:]
+                if i == 0 and len(batch) > 1:  # Log first item in batch
+                    print(f"[DEBUG] Generated {len(output_tokens)} tokens, first 10: {output_tokens[:10].tolist()}", flush=True)
+
                 decoded = self.tokenizer.decode(
-                    output[input_len:], skip_special_tokens=True
+                    output_tokens, skip_special_tokens=True
                 )
 
                 # Extract complete JSON object (find matching closing brace)
