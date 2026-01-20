@@ -115,9 +115,15 @@ class UnslothModel(BaseLLMModel):
                 if i == 0 and len(batch) > 1:  # Log first item in batch
                     print(f"[DEBUG] Generated {len(output_tokens)} tokens, first 10: {output_tokens[:10].tolist()}", flush=True)
 
-                decoded = self.tokenizer.decode(
-                    output_tokens, skip_special_tokens=True
-                )
+                # Use encoding_tokenizer to bypass Gemma3Processor bug
+                if hasattr(self, 'encoding_tokenizer'):
+                    decoded = self.encoding_tokenizer.decode(
+                        output_tokens, skip_special_tokens=True
+                    )
+                else:
+                    decoded = self.tokenizer.decode(
+                        output_tokens, skip_special_tokens=True
+                    )
 
                 # Extract complete JSON object (find matching closing brace)
                 # Don't stop at first '}' - it might be in the middle of the JSON
