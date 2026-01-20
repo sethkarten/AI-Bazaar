@@ -199,8 +199,11 @@ class UnslothModel(BaseLLMModel):
         event = threading.Event()
         self.request_queue.put((combined_prompt, temperature, event, result_container))
 
-        # Wait for result
-        event.wait(timeout=30)  # 30 second timeout
+        # Wait for result - use longer timeout for large batch inference
+        # 64 requests × 1024 tokens each can take 2-3 minutes
+        timeout_result = event.wait(timeout=300)  # 5 minute timeout
+        if not timeout_result:
+            print(f"[WARNING] Inference timeout after 300s", flush=True)
         decoded = result_container[0]
 
         if json_format:
