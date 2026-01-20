@@ -131,12 +131,26 @@ class UnslothModel(BaseLLMModel):
                 if i == 0 and len(batch) > 1:
                     print(f"[DEBUG] Raw decoded (first 200 chars): {decoded[:200]!r}", flush=True)
 
-                # Extract complete JSON object (find matching closing brace)
-                # Don't stop at first '}' - it might be in the middle of the JSON
+                # Robust JSON extraction: handle markdown, thinking tags, and mixed output
+                # 1. Remove markdown code blocks
+                if "```json" in decoded:
+                    decoded = decoded.split("```json", 1)[1]
+                    if "```" in decoded:
+                        decoded = decoded.split("```", 1)[0]
+                elif "```" in decoded and "{" in decoded:
+                    # Generic code block
+                    decoded = decoded.split("```", 1)[1]
+                    if "```" in decoded:
+                        decoded = decoded.split("```", 1)[0]
+
+                # 2. Remove thinking tags if present
+                if "</think>" in decoded:
+                    decoded = decoded.split("</think>", 1)[1]
+
+                # 3. Extract complete JSON object (find matching closing brace)
                 if "{" in decoded and "}" in decoded:
-                    # Find the last complete JSON object
+                    # Find the FIRST complete JSON object (most likely to be the answer)
                     start = decoded.find("{")
-                    # Count braces to find matching close
                     brace_count = 0
                     for idx in range(start, len(decoded)):
                         if decoded[idx] == "{":
@@ -146,6 +160,10 @@ class UnslothModel(BaseLLMModel):
                             if brace_count == 0:
                                 decoded = decoded[start:idx + 1]
                                 break
+                else:
+                    # No valid JSON found - log for debugging but don't fail silently
+                    if i == 0 and len(batch) > 1:
+                        print(f"[WARNING] No JSON braces found in output: {decoded[:100]!r}", flush=True)
 
                 # Store result and signal completion
                 result_containers[i][0] = decoded
