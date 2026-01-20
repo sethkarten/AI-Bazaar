@@ -268,14 +268,15 @@ class REINFORCETrainer:
             batch_total_rewards = list(batch_total_rewards)
 
             try:
-                enc = self.tokenizer(
+                # Use encoding_tokenizer to bypass Gemma3Processor bug
+                enc = self.encoding_tokenizer(
                     full_texts,
                     return_tensors="pt",
                     padding=True,
                     truncation=True,
                     max_length=2048,
                 ).to(self.device)
-                p_enc = self.tokenizer(
+                p_enc = self.encoding_tokenizer(
                     prompts,
                     return_tensors="pt",
                     padding=True,
