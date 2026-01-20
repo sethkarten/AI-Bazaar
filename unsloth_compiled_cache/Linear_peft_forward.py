@@ -1,8 +1,8 @@
 """
 2026.1.3
 2026.1.3
-4.57.0
-0.23.1
+4.57.3
+0.24.0
 __UNSLOTH_VERSIONING__
 """
 
@@ -33,7 +33,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from typing import Any, List, Optional, Tuple, Union, Dict, Set, Callable
-from peft.tuners.lora.layer import (Any, F, VARIANT_KWARG_KEYS, torch)
+from peft.tuners.lora.torchao import (Any, torch)
 
 
 torch_addmm = torch.addmm

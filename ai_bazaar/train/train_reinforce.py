@@ -82,10 +82,52 @@ class REINFORCETrainer:
             self.model, self.tokenizer, heartbeat_func=self.heartbeat
         )
 
+        # Preallocate GPU memory with warmup pass to prevent reallocation during rollouts
+        print("Preallocating GPU memory with warmup batch...", flush=True)
+        self._warmup_gpu_memory()
+
         self.stop_monitoring = False
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.monitor_thread.start()
         atexit.register(self.cleanup)
+
+    def _warmup_gpu_memory(self):
+        """Preallocate GPU memory by running a warmup batch through the model.
+        This prevents memory reallocation during training and claims GPU for GPU Manager."""
+        max_batch_size = 128  # Match UnslothModel max_batch_size
+        warmup_text = "Test prompt for memory allocation."
+
+        # Create dummy batch
+        dummy_prompts = [warmup_text] * max_batch_size
+
+        # Tokenize
+        if hasattr(self.tokenizer, "tokenizer"):
+            inputs = self.tokenizer.tokenizer(
+                dummy_prompts, return_tensors="pt", padding=True, truncation=True
+            ).to("cuda")
+        else:
+            inputs = self.tokenizer(
+                dummy_prompts, return_tensors="pt", padding=True, truncation=True
+            ).to("cuda")
+
+        # Run forward pass to allocate memory
+        with torch.no_grad():
+            _ = self.model.generate(
+                **inputs,
+                max_new_tokens=64,
+                temperature=0.7,
+                use_cache=True,
+                do_sample=True,
+            )
+
+        # Get memory stats
+        allocated = torch.cuda.memory_allocated() / 1024**3
+        reserved = torch.cuda.max_memory_reserved() / 1024**3
+        print(f"GPU memory preallocated: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved", flush=True)
+
+        # Clear intermediate tensors but keep memory reserved
+        del inputs
+        torch.cuda.empty_cache()
 
     def heartbeat(self):
         self.last_activity_time = time.time()
@@ -110,17 +152,11 @@ class REINFORCETrainer:
         iter_stats = []
 
         # SYNCHRONIZED COLLECTION: All episodes step together for maximum batching
-        print(f"  Initializing {num_episodes} episodes in batches...", flush=True)
-        worlds = []
-        batch_size = 10
-        for batch_idx in range(0, num_episodes, batch_size):
-            batch_end = min(batch_idx + batch_size, num_episodes)
-            print(f"    Creating episodes {batch_idx+1}-{batch_end}...", flush=True)
-            batch_worlds = [
-                BazaarWorld(self.args, llm_model=self.inference_model)
-                for _ in range(batch_end - batch_idx)
-            ]
-            worlds.extend(batch_worlds)
+        print(f"  Initializing {num_episodes} episodes...", flush=True)
+        worlds = [
+            BazaarWorld(self.args, llm_model=self.inference_model)
+            for _ in range(num_episodes)
+        ]
         print(f"  All {num_episodes} episodes initialized!", flush=True)
 
         ep_utilities = [[] for _ in range(num_episodes)]
