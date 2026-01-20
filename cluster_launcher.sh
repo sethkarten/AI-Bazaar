@@ -71,6 +71,13 @@ echo "Log directory: $LOG_DIR"
 echo "WandB mode: $WANDB_MODE"
 echo "Job info written to: $LOG_DIR/job_info.json"
 
+# Reserve GPU memory immediately to prevent race conditions in GPU Manager
+# GPU Manager only detects jobs using >5% GPU memory, so we allocate 2GB dummy tensor
+echo "Reserving GPU memory to claim GPU assignment..."
+python3 -c "import torch; torch.cuda.set_device(0); dummy = torch.zeros(512, 1024, 1024, device='cuda'); print(f'Reserved {dummy.element_size() * dummy.nelement() / 1024**3:.2f} GB GPU memory'); import time; time.sleep(5)" &
+RESERVE_PID=$!
+sleep 2  # Give it time to allocate
+
 # Create unique log files for this job
 STDOUT_LOG="$LOG_DIR/stdout.log"
 STDERR_LOG="$LOG_DIR/stderr.log"
@@ -81,6 +88,9 @@ echo "Redirecting stdout to: $STDOUT_LOG"
 echo "Redirecting stderr to: $STDERR_LOG"
 python3 -u ai_bazaar/train/train_reinforce.py "$@" > "$STDOUT_LOG" 2> "$STDERR_LOG"
 EXIT_CODE=$?
+
+# Kill the dummy reservation process
+kill $RESERVE_PID 2>/dev/null || true
 echo "=== Cluster Launcher Finished (exit code: $EXIT_CODE) ==="
 exit $EXIT_CODE
 
