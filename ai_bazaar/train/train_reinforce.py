@@ -37,30 +37,15 @@ class REINFORCETrainer:
         if args.log_dir:
             os.makedirs(args.log_dir, exist_ok=True)
 
-        print(f"Loading model {model_name} with Unsloth for training (fp16)...", flush=True)
+        print(f"Loading model {model_name} with Unsloth for training (4-bit, no LoRA)...", flush=True)
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_name,
             max_seq_length=2048,
-            load_in_4bit=False,  # Use fp16 for 2-3x speedup
+            load_in_4bit=True,  # Use pre-quantized 4-bit weights
         )
 
-        self.model = FastLanguageModel.get_peft_model(
-            self.model,
-            r=16,
-            target_modules=[
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj",
-                "gate_proj",
-                "up_proj",
-                "down_proj",
-            ],
-            lora_alpha=16,
-            lora_dropout=0,
-            bias="none",
-            use_gradient_checkpointing="unsloth",
-        )
+        # No LoRA - testing pure 4-bit inference speed
+        # Note: Training gradients will update the base model directly
 
         # Fix for Gemma3Processor: use underlying tokenizer for encoding
         if hasattr(self.tokenizer, 'tokenizer'):
