@@ -427,16 +427,12 @@ Please reformat the malformed JSON to match the expected format exactly. Return 
         if not response_found:
             llm_output, _ = self.llm.send_msg(
                 self.system_prompt,
-                msg + '\n{"',  # Inject brace and first quote
+                msg,  # No injection - let thinking models do CoT then output JSON
                 temperature=temperature,
                 json_format=True,
             )
-            # Prepend the injected opening brace and quote if missing
-            if not llm_output.strip().startswith("{"):
-                if llm_output.strip().startswith('"'):
-                    llm_output = "{" + llm_output
-                else:
-                    llm_output = '{"' + llm_output
+            # Extract JSON from output (may contain thinking/reasoning before JSON)
+            # The JSON extraction in unsloth_model.py will handle this
 
         # Record trajectory for RL training
         self.trajectory.append(
