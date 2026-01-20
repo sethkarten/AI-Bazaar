@@ -75,11 +75,11 @@ echo "Job info written to: $LOG_DIR/job_info.json"
 STDOUT_LOG="$LOG_DIR/stdout.log"
 STDERR_LOG="$LOG_DIR/stderr.log"
 
-# Run training with redirected output
+# Run training with redirected output (unbuffered)
 echo "Starting training script..."
 echo "Redirecting stdout to: $STDOUT_LOG"
 echo "Redirecting stderr to: $STDERR_LOG"
-python3 ai_bazaar/train/train_reinforce.py "$@" > "$STDOUT_LOG" 2> "$STDERR_LOG"
+python3 -u ai_bazaar/train/train_reinforce.py "$@" > "$STDOUT_LOG" 2> "$STDERR_LOG"
 EXIT_CODE=$?
 echo "=== Cluster Launcher Finished (exit code: $EXIT_CODE) ==="
 exit $EXIT_CODE
