@@ -62,6 +62,14 @@ class REINFORCETrainer:
             use_gradient_checkpointing="unsloth",
         )
 
+        # Fix for Gemma3Processor: use underlying tokenizer for encoding
+        # The processor's __call__ has a bug with list inputs
+        if hasattr(self.tokenizer, 'tokenizer'):
+            print("Using underlying tokenizer for Gemma3Processor", flush=True)
+            self.encoding_tokenizer = self.tokenizer.tokenizer
+        else:
+            self.encoding_tokenizer = self.tokenizer
+
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -259,46 +267,22 @@ class REINFORCETrainer:
             prompts = list(prompts)
             batch_total_rewards = list(batch_total_rewards)
 
-            # Additional defensive check: ensure no None values in lists
-            if None in full_texts or None in prompts:
-                print(f"    Batch skipped: None found after filtering (full_texts: {None in full_texts}, prompts: {None in prompts})")
-                skipped_samples += len([x for x in full_texts if x is not None])
-                continue
-
-            # Debug: check types before tokenizer call
-            if not isinstance(full_texts, list) or not full_texts:
-                print(f"    Batch skipped: full_texts is not a valid list (type: {type(full_texts)}, len: {len(full_texts) if isinstance(full_texts, (list, tuple)) else 'N/A'})")
-                skipped_samples += len(batch)
-                continue
-
             try:
-                # Wrap tokenizer calls in try-except to debug
-                try:
-                    enc = self.tokenizer(
-                        full_texts,
-                        return_tensors="pt",
-                        padding=True,
-                        truncation=True,
-                        max_length=2048,
-                    ).to(self.device)
-                except TypeError as te:
-                    print(f"    Tokenizer error on full_texts: {te}")
-                    print(f"    full_texts type: {type(full_texts)}, len: {len(full_texts) if full_texts else 0}")
-                    print(f"    First 3 items: {[ft[:50] if ft else None for ft in (full_texts[:3] if full_texts else [])]}")
-                    raise
-
-                try:
-                    p_enc = self.tokenizer(
-                        prompts,
-                        return_tensors="pt",
-                        padding=True,
-                        truncation=True,
-                        max_length=2048,
-                    ).to(self.device)
-                except TypeError as te:
-                    print(f"    Tokenizer error on prompts: {te}")
-                    print(f"    prompts type: {type(prompts)}, len: {len(prompts) if prompts else 0}")
-                    raise
+                # Use encoding_tokenizer (underlying tokenizer for Gemma3, regular tokenizer otherwise)
+                enc = self.encoding_tokenizer(
+                    full_texts,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    max_length=2048,
+                ).to(self.device)
+                p_enc = self.encoding_tokenizer(
+                    prompts,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    max_length=2048,
+                ).to(self.device)
 
                 # Defensive checks for None values
                 if enc.input_ids is None or p_enc.input_ids is None:
