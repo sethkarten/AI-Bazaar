@@ -21,6 +21,7 @@ class UnslothModel(BaseLLMModel):
         batch_timeout_ms: float = 100,  # 100ms - balance between batching and latency for desynchronized episodes
         max_batch_size: int = 128,  # Increased from 32 to maximize GPU utilization
         encoding_tokenizer=None,  # For bypassing Gemma3Processor bug
+        device=None,  # Specify device for inference (e.g., "cuda:0")
     ):
         super().__init__(model_name, max_tokens, temperature)
         self.model = model
@@ -29,6 +30,7 @@ class UnslothModel(BaseLLMModel):
         self.heartbeat_func = heartbeat_func
         self.batch_timeout_ms = batch_timeout_ms
         self.max_batch_size = max_batch_size
+        self.device = device if device is not None else "cuda"
 
         # Batching infrastructure
         self.request_queue = queue.Queue()
@@ -93,11 +95,11 @@ class UnslothModel(BaseLLMModel):
             if hasattr(self.tokenizer, "tokenizer"):
                 inputs = self.tokenizer.tokenizer(
                     prompts, return_tensors="pt", padding=True, truncation=True
-                ).to("cuda")
+                ).to(self.device)
             else:
                 inputs = self.tokenizer(
                     prompts, return_tensors="pt", padding=True, truncation=True
-                ).to("cuda")
+                ).to(self.device)
 
             # Generate for the batch
             # Use the first temperature (assuming all similar for simplicity)

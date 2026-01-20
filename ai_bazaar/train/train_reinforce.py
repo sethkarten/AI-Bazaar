@@ -29,7 +29,6 @@ class REINFORCETrainer:
     def __init__(self, model_name: str, args):
         self.args = args
         self.model_name = model_name
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.vllm_process = None
         self.checkpoint_dir = f"checkpoints/{args.run_name or 'default'}"
         os.makedirs(self.checkpoint_dir, exist_ok=True)
@@ -37,20 +36,32 @@ class REINFORCETrainer:
         if args.log_dir:
             os.makedirs(args.log_dir, exist_ok=True)
 
-        print(f"Loading model {model_name} with Unsloth for training (fp16 FULL finetuning, no LoRA)...", flush=True)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        num_gpus = torch.cuda.device_count()
+        print(f"Using device: {self.device} ({num_gpus} GPU(s) available)", flush=True)
+
+        # Use 4-bit quantization for memory efficiency (fp16 causes OOM during training)
+        use_4bit = getattr(args, 'use_4bit', True)
+        print(f"Loading model {model_name} with Unsloth ({'4-bit' if use_4bit else 'fp16'} + LoRA)...", flush=True)
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_name,
             max_seq_length=2048,
-            load_in_4bit=False,  # Use fp16 for faster training
+            load_in_4bit=use_4bit,
         )
 
-        # Full finetuning: enable gradients on all parameters (no LoRA)
-        for param in self.model.parameters():
-            param.requires_grad = True
-
-        # Enable gradient checkpointing for memory efficiency
-        if hasattr(self.model, 'gradient_checkpointing_enable'):
-            self.model.gradient_checkpointing_enable()
+        # Add LoRA adapters for efficient training
+        self.model = FastLanguageModel.get_peft_model(
+            self.model,
+            r=16,
+            target_modules=[
+                "q_proj", "k_proj", "v_proj", "o_proj",
+                "gate_proj", "up_proj", "down_proj",
+            ],
+            lora_alpha=16,
+            lora_dropout=0,
+            bias="none",
+            use_gradient_checkpointing="unsloth",
+        )
 
         # Fix for Gemma3Processor: use underlying tokenizer for encoding
         if hasattr(self.tokenizer, 'tokenizer'):
@@ -67,18 +78,23 @@ class REINFORCETrainer:
         self.last_activity_time = time.time()
         self.start_time = time.time()
 
+        # Use smaller batch size for inference to avoid OOM during training phase
+        inference_batch_size = getattr(args, 'inference_batch_size', 64)
         self.inference_model = UnslothModel(
             self.model, self.tokenizer, heartbeat_func=self.heartbeat,
-            encoding_tokenizer=self.encoding_tokenizer
+            encoding_tokenizer=self.encoding_tokenizer,
+            device=self.device,
+            max_batch_size=inference_batch_size,
         )
 
         # Preallocate GPU memory to prevent reallocation during rollouts and claim GPU for GPU Manager
         print("Preallocating GPU memory...", flush=True)
         with torch.no_grad():
             # Use encoding_tokenizer (bypasses Gemma3Processor bug)
-            dummy_input = self.encoding_tokenizer(["warmup"] * 128, return_tensors="pt", padding=True).to("cuda")
+            dummy_input = self.encoding_tokenizer(["warmup"] * 64, return_tensors="pt", padding=True).to(self.device)
             _ = self.model.generate(**dummy_input, max_new_tokens=8)
             del dummy_input
+        torch.cuda.empty_cache()
         allocated_gb = torch.cuda.memory_allocated() / 1024**3
         print(f"GPU memory preallocated: {allocated_gb:.2f}GB", flush=True)
 
@@ -201,15 +217,14 @@ class REINFORCETrainer:
             flush=True,
         )
 
-        # Debug: Analyze why samples might be skipped
+        # Clear GPU cache before training to avoid OOM
+        torch.cuda.empty_cache()
+
+        # Analyze trajectory quality
         rewards_none = sum(1 for t in trajectories if t.get("reward") is None)
         responses_empty = sum(1 for t in trajectories if not t.get("response", ""))
-        print(f"  DEBUG: {rewards_none}/{len(trajectories)} trajectories have reward=None", flush=True)
-        print(f"  DEBUG: {responses_empty}/{len(trajectories)} trajectories have empty response", flush=True)
-        if trajectories:
-            sample = trajectories[0]
-            print(f"  DEBUG: Sample trajectory keys: {list(sample.keys())}", flush=True)
-            print(f"  DEBUG: Sample reward: {sample.get('reward')}, response len: {len(sample.get('response', '') or '')}", flush=True)
+        if rewards_none > 0 or responses_empty > 0:
+            print(f"  Warning: {rewards_none} trajectories missing reward, {responses_empty} have empty response", flush=True)
 
         self.model.train()
         total_loss = 0
@@ -400,6 +415,9 @@ def main():
     parser.add_argument("--run_name", type=str, default=None)
     parser.add_argument("--train_batch_size", type=int, default=8)
     parser.add_argument("--format_reward_weight", type=float, default=1.0)
+    parser.add_argument("--use_4bit", action="store_true", default=True, help="Use 4-bit quantization (default: True)")
+    parser.add_argument("--use_fp16", action="store_true", help="Use fp16 instead of 4-bit (requires more VRAM)")
+    parser.add_argument("--inference_batch_size", type=int, default=64, help="Max batch size for inference (lower = less OOM risk)")
     parser.add_argument(
         "--wandb_mode",
         type=str,
@@ -407,6 +425,10 @@ def main():
         choices=["online", "offline", "disabled"],
     )
     args = parser.parse_args()
+
+    # Handle mutually exclusive quantization options
+    if args.use_fp16:
+        args.use_4bit = False
 
     os.environ["WANDB_MODE"] = args.wandb_mode
     wandb.init(
