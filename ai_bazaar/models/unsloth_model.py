@@ -18,7 +18,7 @@ class UnslothModel(BaseLLMModel):
         max_tokens: int = 1000,
         temperature: float = 0.7,
         heartbeat_func=None,
-        batch_timeout_ms: float = 500,  # Increased from 80 to accumulate larger batches
+        batch_timeout_ms: float = 2000,  # 2 seconds to accumulate requests from 5 parallel episodes
         max_batch_size: int = 128,  # Increased from 32 to maximize GPU utilization
     ):
         super().__init__(model_name, max_tokens, temperature)
