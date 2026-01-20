@@ -20,10 +20,12 @@ class UnslothModel(BaseLLMModel):
         heartbeat_func=None,
         batch_timeout_ms: float = 100,  # 100ms - balance between batching and latency for desynchronized episodes
         max_batch_size: int = 128,  # Increased from 32 to maximize GPU utilization
+        encoding_tokenizer=None,  # For bypassing Gemma3Processor bug
     ):
         super().__init__(model_name, max_tokens, temperature)
         self.model = model
         self.tokenizer = tokenizer
+        self.encoding_tokenizer = encoding_tokenizer if encoding_tokenizer is not None else tokenizer
         self.heartbeat_func = heartbeat_func
         self.batch_timeout_ms = batch_timeout_ms
         self.max_batch_size = max_batch_size

@@ -78,7 +78,8 @@ class REINFORCETrainer:
         self.start_time = time.time()
 
         self.inference_model = UnslothModel(
-            self.model, self.tokenizer, heartbeat_func=self.heartbeat
+            self.model, self.tokenizer, heartbeat_func=self.heartbeat,
+            encoding_tokenizer=self.encoding_tokenizer
         )
 
         # Preallocate GPU memory to prevent reallocation during rollouts and claim GPU for GPU Manager
