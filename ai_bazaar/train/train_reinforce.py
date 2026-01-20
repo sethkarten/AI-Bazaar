@@ -84,7 +84,8 @@ class REINFORCETrainer:
         # Preallocate GPU memory to prevent reallocation during rollouts and claim GPU for GPU Manager
         print("Preallocating GPU memory...", flush=True)
         with torch.no_grad():
-            dummy_input = self.tokenizer(["warmup"] * 128, return_tensors="pt", padding=True).to("cuda")
+            # Use encoding_tokenizer (bypasses Gemma3Processor bug)
+            dummy_input = self.encoding_tokenizer(["warmup"] * 128, return_tensors="pt", padding=True).to("cuda")
             _ = self.model.generate(**dummy_input, max_new_tokens=8)
             del dummy_input
         allocated_gb = torch.cuda.memory_allocated() / 1024**3
