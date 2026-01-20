@@ -259,6 +259,12 @@ class REINFORCETrainer:
             prompts = list(prompts)
             batch_total_rewards = list(batch_total_rewards)
 
+            # Additional defensive check: ensure no None values in lists
+            if None in full_texts or None in prompts:
+                print(f"    Batch skipped: None found after filtering (full_texts: {None in full_texts}, prompts: {None in prompts})")
+                skipped_samples += len([x for x in full_texts if x is not None])
+                continue
+
             try:
                 enc = self.tokenizer(
                     full_texts,
