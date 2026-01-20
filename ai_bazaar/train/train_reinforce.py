@@ -109,58 +109,61 @@ class REINFORCETrainer:
         all_trajectories = []
         iter_stats = []
 
-        def run_episode(ep_idx):
-            ep_start = time.time()
-            print(f"  Starting Episode {ep_idx + 1}/{num_episodes}", flush=True)
-            world = BazaarWorld(
-                self.args, llm_model=self.inference_model
-            )
-            ep_utility, ep_profit, ep_sales = [], [], 0
-            step_count = 0
-            step_times = []
+        # SYNCHRONIZED COLLECTION: All episodes step together for maximum batching
+        print(f"  Initializing {num_episodes} episodes...", flush=True)
+        worlds = [
+            BazaarWorld(self.args, llm_model=self.inference_model)
+            for _ in range(num_episodes)
+        ]
 
-            while not world.is_done():
-                step_start = time.time()
-                stats = world.step()
-                step_times.append(time.time() - step_start)
-                step_count += 1
-                ep_utility.append(
-                    np.mean([c["utility"] for c in stats["consumers"].values()])
-                )
-                ep_profit.append(
-                    np.mean([f["profit"] for f in stats["firms"].values()])
-                )
-                ep_sales += stats["sales_count"]
-                self.heartbeat()
+        ep_utilities = [[] for _ in range(num_episodes)]
+        ep_profits = [[] for _ in range(num_episodes)]
+        ep_sales = [0 for _ in range(num_episodes)]
 
+        step_count = 0
+        step_times = []
+
+        # Step all episodes together - this creates large batches naturally
+        while any(not world.is_done() for world in worlds):
+            step_start = time.time()
+
+            # All active episodes step simultaneously
+            # This sends all requests to the batcher at once → large batches!
+            for ep_idx, world in enumerate(worlds):
+                if not world.is_done():
+                    stats = world.step()
+                    ep_utilities[ep_idx].append(
+                        np.mean([c["utility"] for c in stats["consumers"].values()])
+                    )
+                    ep_profits[ep_idx].append(
+                        np.mean([f["profit"] for f in stats["firms"].values()])
+                    )
+                    ep_sales[ep_idx] += stats["sales_count"]
+
+            step_times.append(time.time() - step_start)
+            step_count += 1
+            self.heartbeat()
+
+            if step_count % 10 == 0:
+                print(f"  Step {step_count} completed", flush=True)
+
+        # Collect trajectories from all episodes
+        for ep_idx, world in enumerate(worlds):
             ep_trajs = []
             for agent in world.firms + world.consumers:
                 if hasattr(agent, "trajectory"):
                     ep_trajs.extend(agent.trajectory)
                     agent.trajectory = []
 
-            ep_time = time.time() - ep_start
-            avg_step_time = np.mean(step_times) if step_times else 0
-            print(f"  Episode {ep_idx + 1}/{num_episodes} completed in {ep_time:.2f}s ({step_count} steps, {avg_step_time:.2f}s/step, {1/avg_step_time if avg_step_time > 0 else 0:.2f} steps/s)", flush=True)
-            return ep_trajs, {
-                "avg_utility": np.mean(ep_utility) if ep_utility else 0,
-                "avg_profit": np.mean(ep_profit) if ep_profit else 0,
-                "total_sales": ep_sales,
-            }
+            all_trajectories.extend(ep_trajs)
+            iter_stats.append({
+                "avg_utility": np.mean(ep_utilities[ep_idx]) if ep_utilities[ep_idx] else 0,
+                "avg_profit": np.mean(ep_profits[ep_idx]) if ep_profits[ep_idx] else 0,
+                "total_sales": ep_sales[ep_idx],
+            })
 
-        if num_episodes > 1:
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=num_episodes
-            ) as executor:
-                results = list(executor.map(run_episode, range(num_episodes)))
-            for trajs, stats in results:
-                all_trajectories.extend(trajs)
-                iter_stats.append(stats)
-        else:
-            trajs, stats = run_episode(0)
-            all_trajectories.extend(trajs)
-            iter_stats.append(stats)
-
+        avg_step_time = np.mean(step_times) if step_times else 0
+        print(f"  All {num_episodes} episodes completed in {time.time() - collect_start:.2f}s ({step_count} steps, {avg_step_time:.2f}s/step)", flush=True)
         collect_time = time.time() - collect_start
         print(f"\nCollected {num_episodes} episodes in {collect_time:.2f}s ({collect_time/num_episodes:.2f}s/episode, {num_episodes/collect_time:.2f} episodes/s)", flush=True)
 
