@@ -265,21 +265,40 @@ class REINFORCETrainer:
                 skipped_samples += len([x for x in full_texts if x is not None])
                 continue
 
+            # Debug: check types before tokenizer call
+            if not isinstance(full_texts, list) or not full_texts:
+                print(f"    Batch skipped: full_texts is not a valid list (type: {type(full_texts)}, len: {len(full_texts) if isinstance(full_texts, (list, tuple)) else 'N/A'})")
+                skipped_samples += len(batch)
+                continue
+
             try:
-                enc = self.tokenizer(
-                    full_texts,
-                    return_tensors="pt",
-                    padding=True,
-                    truncation=True,
-                    max_length=2048,
-                ).to(self.device)
-                p_enc = self.tokenizer(
-                    prompts,
-                    return_tensors="pt",
-                    padding=True,
-                    truncation=True,
-                    max_length=2048,
-                ).to(self.device)
+                # Wrap tokenizer calls in try-except to debug
+                try:
+                    enc = self.tokenizer(
+                        full_texts,
+                        return_tensors="pt",
+                        padding=True,
+                        truncation=True,
+                        max_length=2048,
+                    ).to(self.device)
+                except TypeError as te:
+                    print(f"    Tokenizer error on full_texts: {te}")
+                    print(f"    full_texts type: {type(full_texts)}, len: {len(full_texts) if full_texts else 0}")
+                    print(f"    First 3 items: {[ft[:50] if ft else None for ft in (full_texts[:3] if full_texts else [])]}")
+                    raise
+
+                try:
+                    p_enc = self.tokenizer(
+                        prompts,
+                        return_tensors="pt",
+                        padding=True,
+                        truncation=True,
+                        max_length=2048,
+                    ).to(self.device)
+                except TypeError as te:
+                    print(f"    Tokenizer error on prompts: {te}")
+                    print(f"    prompts type: {type(prompts)}, len: {len(prompts) if prompts else 0}")
+                    raise
 
                 # Defensive checks for None values
                 if enc.input_ids is None or p_enc.input_ids is None:
