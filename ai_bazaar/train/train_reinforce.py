@@ -37,11 +37,11 @@ class REINFORCETrainer:
         if args.log_dir:
             os.makedirs(args.log_dir, exist_ok=True)
 
-        print(f"Loading model {model_name} with Unsloth for training...", flush=True)
+        print(f"Loading model {model_name} with Unsloth for training (fp16)...", flush=True)
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_name,
             max_seq_length=2048,
-            load_in_4bit=True,
+            load_in_4bit=False,  # Use fp16 for 2-3x speedup
         )
 
         self.model = FastLanguageModel.get_peft_model(
