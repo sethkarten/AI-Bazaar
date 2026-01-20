@@ -200,6 +200,17 @@ class REINFORCETrainer:
             f"Starting training step: Iteration {iteration}, {len(trajectories)} samples",
             flush=True,
         )
+
+        # Debug: Analyze why samples might be skipped
+        rewards_none = sum(1 for t in trajectories if t.get("reward") is None)
+        responses_empty = sum(1 for t in trajectories if not t.get("response", ""))
+        print(f"  DEBUG: {rewards_none}/{len(trajectories)} trajectories have reward=None", flush=True)
+        print(f"  DEBUG: {responses_empty}/{len(trajectories)} trajectories have empty response", flush=True)
+        if trajectories:
+            sample = trajectories[0]
+            print(f"  DEBUG: Sample trajectory keys: {list(sample.keys())}", flush=True)
+            print(f"  DEBUG: Sample reward: {sample.get('reward')}, response len: {len(sample.get('response', '') or '')}", flush=True)
+
         self.model.train()
         total_loss = 0
         successful_batches = 0
