@@ -42,6 +42,9 @@ class BazaarWorld:
                     initial_cash=args.firm_initial_cash,
                     ledger=self.ledger,
                     market=self.market,
+                    prompt_algo=getattr(args, "prompt_algo", "io"),
+                    history_len=getattr(args, "history_len", 10),
+                    timeout=getattr(args, "timeout", 30),
                     args=args,
                     llm_instance=llm_model,
                 )
@@ -83,6 +86,7 @@ class BazaarWorld:
                     port=args.port,
                     args=args,
                     ces_params=ces_params,  # Use default necessity weights
+                    risk_aversion=getattr(args, "risk_aversion", None),
                     llm_instance=llm_model,
                 )
             else:
@@ -196,8 +200,12 @@ class BazaarWorld:
             consumer.receive_income(self.timestep)
 
         # 5. Consumption Phase (Parallel)
-        # Get reputations for discovery
-        reputations = {f.name: f.reputation for f in self.firms}
+        # Get reputations for discovery (only firms in business, to match main.py)
+        reputations = {
+            f.name: f.reputation
+            for f in self.firms
+            if getattr(f, "in_business", True)
+        }
         discovery_limit = getattr(self.args, "discovery_limit", 5)
 
         with concurrent.futures.ThreadPoolExecutor(
@@ -230,6 +238,7 @@ class BazaarWorld:
 
         # 6. Market Clearing
         filled_orders, sales_info = self.market.clear(self.ledger)
+        self.logger.info(f"Filled {len(filled_orders)} orders")
 
         # Update sales tracking and reputations
         firm_sales_summary = defaultdict(lambda: {"sold": 0.0, "requested": 0.0})
@@ -238,7 +247,7 @@ class BazaarWorld:
             firm_name = sale["firm_id"]
             good = sale["good"]
             quantity_sold = sale["quantity_sold"]
-            requested_qty = sale.get("requested_qty", quantity_sold)  # Fallback
+            requested_qty = sale.get("requested_quantity", quantity_sold)  # market_core returns requested_quantity
 
             firm_sales_summary[firm_name]["sold"] += quantity_sold
             firm_sales_summary[firm_name]["requested"] += requested_qty
@@ -322,11 +331,18 @@ class BazaarWorld:
                     "cash": f.cash,
                     "profit": getattr(f, "profit", 0.0),
                     "reputation": f.reputation,
+                    "prices": firm_prices.get(f.name, {}).copy(),
+                    "inventory": dict(getattr(f, "inventory", {})),
                 }
                 for f in self.firms
             },
             "consumers": {
-                c.name: {"cash": c.cash, "utility": c.utility} for c in self.consumers
+                c.name: {
+                    "cash": c.cash,
+                    "utility": c.utility,
+                    "inventory": dict(getattr(c, "inventory", {})),
+                }
+                for c in self.consumers
             },
             "sales_count": len(filled_orders),
             "total_fees": total_fees,
@@ -348,7 +364,15 @@ class BazaarWorld:
                 {
                     "name": f.name,
                     "in_business": getattr(f, "in_business", True),
+                    "cash": self.ledger.agent_money.get(f.name, 0.0),
                     "profit": getattr(f, "profit", 0.0),
+                    "prices": self.firm_prices_last_step.get(f.name, {}).copy(),
+                    "inventory": dict(self.ledger.agent_inventories.get(f.name, {})),
+                    "sales_by_good": dict(getattr(f, "total_quantity_sold_by_good", {})),
+                    "sales_this_step": dict(
+                        getattr(f, "total_quantity_sold_by_good_this_timestep", {})
+                        .get(self.timestep, {})
+                    ),
                     "diary": getattr(f, "diary", [])[-1:]
                     if hasattr(f, "diary")
                     else [],
@@ -359,7 +383,9 @@ class BazaarWorld:
                 {
                     "name": c.name,
                     "labor": getattr(c, "l", 0),
+                    "cash": self.ledger.agent_money.get(c.name, 0.0),
                     "utility": getattr(c, "utility", 0),
+                    "inventory": dict(self.ledger.agent_inventories.get(c.name, {})),
                     "diary": getattr(c, "diary", [])[-1:]
                     if hasattr(c, "diary")
                     else [],

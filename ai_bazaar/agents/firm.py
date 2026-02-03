@@ -21,6 +21,8 @@ class BaseFirmAgent:
         self.reputation = 1.0  # Start with perfect reputation
         self.fulfillment_history = []  # List of (successful_qty, requested_qty)
 
+
+    # update repuation [0.0, 1.0] based on number of orders fully fulfilled
     def update_reputation(self, successful_qty: float, requested_qty: float):
         """Update historical fulfillment rate."""
         self.fulfillment_history.append((successful_qty, requested_qty))

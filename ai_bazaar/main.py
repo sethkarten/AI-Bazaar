@@ -140,6 +140,7 @@ def run_marketplace_simulation(args, llm_instance=None):
     if args.wandb:
         wandb.init(
             project="ai-bazaar-marketplace",
+            entity="princeton-ai",
             name=args.name if args.name else "marketplace_simulation",
             config=vars(args),
         )
@@ -186,7 +187,8 @@ def run_marketplace_simulation(args, llm_instance=None):
 
                 firm_prices[firm.name] = prices
                 firm.post_quotes(prices)
-                logger.info(f"{firm.name} set prices: {prices}")
+                rep = getattr(firm, "reputation", 1.0)
+                logger.info(f"{firm.name} set prices: {prices} reputation={rep:.3f}")
 
             firm_prices_last_step = firm_prices.copy()
 
@@ -194,13 +196,25 @@ def run_marketplace_simulation(args, llm_instance=None):
             for consumer in consumers:
                 consumer.receive_income(timestep)
 
-            # Consumption phase: Consumers make orders
+            # Consumption phase: Consumers make orders (discovery_limit caps firms polled per good)
+            firm_reputations = {
+                firm.name: firm.reputation
+                for firm in firms
+                if getattr(firm, "in_business", True)
+            }
             consumer_orders = {}
             for consumer in consumers:
                 if args.consumer_type == "CES":
-                    orders = consumer.make_orders(timestep, args.consumer_scenario)
+                    orders = consumer.make_orders(
+                        timestep,
+                        args.consumer_scenario,
+                        discovery_limit=args.discovery_limit,
+                        firm_reputations=firm_reputations,
+                    )
                 else:
-                    orders = consumer.make_orders(timestep)
+                    orders = consumer.make_orders(
+                        timestep, discovery_limit=args.discovery_limit
+                    )
                 consumer_orders[consumer.name] = orders
 
             # Submit orders to market
@@ -215,11 +229,12 @@ def run_marketplace_simulation(args, llm_instance=None):
             filled_orders, sales_info = market.clear(ledger)
             logger.info(f"Filled {len(filled_orders)} orders")
 
-            # Update sales tracking
+            # Update sales tracking and firm reputations (fulfillment rate)
             for sale in sales_info:
                 firm_name = sale["firm_id"]
                 good = sale["good"]
                 quantity_sold = sale["quantity_sold"]
+                requested_quantity = sale.get("requested_quantity", quantity_sold)
                 for firm in firms:
                     if firm.name == firm_name:
                         if good in firm.total_quantity_sold_by_good:
@@ -227,6 +242,7 @@ def run_marketplace_simulation(args, llm_instance=None):
                             firm.total_quantity_sold_by_good_this_timestep[timestep][
                                 good
                             ] += quantity_sold
+                        firm.update_reputation(quantity_sold, requested_quantity)
                         break
 
             market.quotes.clear()
@@ -251,6 +267,9 @@ def run_marketplace_simulation(args, llm_instance=None):
             # Log statistics
             for i, firm in enumerate(firms):
                 wandb_logger[f"firm_{i}_cash"] = firm.cash
+                wandb_logger[f"firm_{i}_reputation"] = getattr(
+                    firm, "reputation", 1.0
+                )
                 for good in goods:
                     wandb_logger[f"firm_{i}_{good}_inventory"] = firm.inventory.get(
                         good, 0
@@ -338,7 +357,7 @@ def create_argument_parser():
         "--discovery-limit",
         type=int,
         default=5,
-        help="Number of firms visible to consumers (0 for infinite)",
+        help="Max firms (per good) a consumer can poll for prices before ordering (0 = no limit)",
     )
     parser.add_argument(
         "--info-asymmetry",

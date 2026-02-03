@@ -62,7 +62,13 @@ else:
 
     with tab2:
         st.subheader("Firm States")
-        st.table(pd.DataFrame(state["firms"]))
+        firms_df = pd.DataFrame(state["firms"])
+        #! Temp fix to avoid serialization errors
+        # Drop complex columns that PyArrow can't serialize for st.table
+        for col in ["diary", "prices", "inventory"]:
+            if col in firms_df.columns:
+                firms_df = firms_df.drop(columns=[col])
+        st.table(firms_df)
 
     with tab3:
         st.subheader("Consumer States")
@@ -74,4 +80,9 @@ else:
         )
         for c in state["consumers"]:
             if c["name"] == selected_consumer:
-                st.info(f"Last Diary Entry: {c['diary']}")
+                diary = c.get("diary") or []
+                if isinstance(diary, list) and diary and isinstance(diary[-1], (list, tuple)):
+                    last_entry = diary[-1][-1] if len(diary[-1]) > 1 else str(diary[-1])
+                else:
+                    last_entry = diary if isinstance(diary, str) else (diary[-1] if diary else "—")
+                st.info(f"Last Diary Entry: {last_entry}")

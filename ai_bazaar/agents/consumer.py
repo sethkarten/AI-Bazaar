@@ -278,30 +278,35 @@ class CESConsumerAgent(LLMAgent):
         visible_quotes = []
         for good in self.goods:
             good_str = str(good).strip()
-            good_quotes = [q for q in all_quotes if str(q.good).strip() == good_str]
+            all_good_quotes = [q for q in all_quotes if str(q.good).strip() == good_str]
 
-            if not good_quotes:
+            if not all_good_quotes:
                 continue
+            visible_good_quotes = []
 
             # If discovery_limit is set, apply search friction/recommendation
-            if discovery_limit > 0 and len(good_quotes) > discovery_limit:
+            if discovery_limit > 0 and len(all_good_quotes) > discovery_limit:
+                # Use recommendation algorithm if heterogeneity in firm reputations
                 # Simple recommendation algorithm: rank by score = (1/price) * reputation
-                if firm_reputations:
+                if firm_reputations and len(set(firm_reputations.values())) != 1:
                     # Normalize price for score (higher is better)
                     scored_quotes = []
-                    for q in good_quotes:
+                    for q in all_good_quotes:
                         rep = firm_reputations.get(q.firm_id, 1.0)
                         score = (1.0 / max(0.01, q.price)) * rep
                         scored_quotes.append((q, score))
 
                     # Sort by score and pick top N
                     scored_quotes.sort(key=lambda x: x[1], reverse=True)
-                    good_quotes = [x[0] for x in scored_quotes[:discovery_limit]]
+                    visible_good_quotes = [x[0] for x in scored_quotes[:discovery_limit]]
                 else:
-                    # Random discovery if no reputation data
-                    good_quotes = random.sample(good_quotes, discovery_limit)
+                    # Random discovery if no useful reputation data
+                    visible_good_quotes = random.sample(all_good_quotes, discovery_limit)
+            # Else, all quotes are visible
+            else: 
+                visible_quotes = all_good_quotes
 
-            visible_quotes.extend(good_quotes)
+            visible_quotes.extend(visible_good_quotes)
 
         if scenario == "RACE_TO_BOTTOM":
             # willingness to pay = lowest quote

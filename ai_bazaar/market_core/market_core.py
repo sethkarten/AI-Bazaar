@@ -92,7 +92,7 @@ class Market:
         
         Returns:
             tuple: (filled_orders, sales_info) where sales_info is a list of dicts
-                   with keys: firm_id, good, quantity_sold
+                   with keys: firm_id, good, quantity_sold, requested_quantity
         """
         filled_orders = []
         sales_info = []
@@ -107,7 +107,8 @@ class Market:
                     sales_info.append({
                         'firm_id': order.firm_id,
                         'good': order.good,
-                        'quantity_sold': quantity_sold
+                        'quantity_sold': quantity_sold,
+                        'requested_quantity': order.quantity,
                     })
                 
         return filled_orders, sales_info
