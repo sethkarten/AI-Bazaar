@@ -10,6 +10,18 @@ Run from project root. Use **`python -m ai_bazaar.main`** (works without install
 
 ---
 
+## Visualization dashboard
+
+Run the Streamlit dashboard to inspect simulation state (requires `logs/state_t*.json` from a run that saves state, e.g. via `bazaar_env`):
+
+```bash
+streamlit run ai_bazaar/viz/dashboard.py
+```
+
+Run from project root so the dashboard finds the `logs/` directory.
+
+---
+
 ## Basic LLM marketplace
 
 **rep_disc_test_1** — 5 Gemini firms, 20 CES consumers, discovery=2, 5 steps, CoT, RACE_TO_BOTTOM:

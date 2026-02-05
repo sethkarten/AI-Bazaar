@@ -36,8 +36,12 @@ def get_bazaar_env_test_args():
     return parser.parse_args(argv)
 
 
-def run_bazaar_env_simulation():
-    """Run a short BazaarWorld simulation with the test config."""
+def run_bazaar_env_simulation(test_discovery_limit=False):
+    """Run a short BazaarWorld simulation with the test config.
+
+    If test_discovery_limit is True, discovery_limit is set to 2 on the same world
+    before the step loop so the simulation exercises the discovery-limit path.
+    """
     args = get_bazaar_env_test_args()
     assert args.firm_type == "LLM"
     assert args.num_firms == 1
@@ -54,8 +58,14 @@ def run_bazaar_env_simulation():
     print("Creating BazaarWorld: 1 Gemini firm, 3 CES consumers, discovery=0, 5 steps, CoT, RACE_TO_BOTTOM")
     world = BazaarWorld(args, llm_model=None)
 
+    if test_discovery_limit:
+        world.args.discovery_limit = 2
+        print("  (discovery_limit set to 2 for this run)")
+
     step_count = 0
     while not world.is_done():
+        if test_discovery_limit:
+            assert world.args.discovery_limit == 2, "discovery_limit should remain 2 during simulation"
         stats = world.step()
         step_count += 1
         print(f"  Step {step_count}: sales={stats['sales_count']}, fees={stats['total_fees']:.2f}")
@@ -73,5 +83,19 @@ def test_bazaar_env_run():
     assert len(world.consumers) == 3
 
 
+def test_bazaar_env_run_with_discovery_limit():
+    """Pytest entry: same simulation with discovery_limit=2 exercised in-step."""
+    world, step_count = run_bazaar_env_simulation(test_discovery_limit=True)
+    assert step_count <= 5
+    assert step_count >= 1
+    assert len(world.firms) == 1
+    assert len(world.consumers) == 3
+    assert world.args.discovery_limit == 2
+
+
 if __name__ == "__main__":
-    run_bazaar_env_simulation()
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument("--test-discovery", action="store_true", help="Run with discovery_limit=2 in simulation")
+    run_args = p.parse_args()
+    run_bazaar_env_simulation(test_discovery_limit=run_args.test_discovery)
