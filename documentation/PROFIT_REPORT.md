@@ -172,3 +172,13 @@ Implementing (1) and (3) should remove the main structural reasons profits look 
 
 4. **Dashboard / state**
    - Either fix `f.profit` as above so it reflects step-level economic profit, or have `save_state()` (and thus the dashboard) use an economic-profit value. For LLM firms, `_timestep_stats[timestep]["profit"]` from `calculate_profit()` is already computed in reflection; that value could be written to state (e.g. a separate field or by updating `f.profit` after reflection) so the profit chart aligns with cash growth.
+
+---
+
+## 5. Implementation status (fixes applied)
+
+The following changes were made to implement recommendations 1–3:
+
+- **Unit cost (Rec 1):** Default `unit_cost` in `bazaar_env.step()` is now **1.0** to match `supply_unit_price` (still overridable via `args.unit_cost`).
+- **Price (Rec 2):** `market_core.Market._fill_order()` now returns `(filled, quantity_sold, best_quote.price)`; `clear()` adds `"price"` to each `sales_info` entry. The env uses `sale.get("price", firm_prices[...])` when calling `update_profit`, so profit uses the actual transaction price.
+- **Accumulation (Rec 3):** At the start of market clearing, each firm’s `profit` is reset to **0**. `BaseFirmAgent.update_profit()` now **accumulates** (`self.profit += margin`) instead of overwriting, and `BaseFirmAgent.__init__` initializes `self.profit = 0.0`. The value saved to state and shown on the profit chart is therefore step-level total margin across all sales (before overhead/fees/taxes).

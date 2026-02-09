@@ -240,6 +240,13 @@ class BazaarWorld:
         filled_orders, sales_info = self.market.clear(self.ledger)
         self.logger.info(f"Filled {len(filled_orders)} orders")
 
+        # Reset step-level profit before accumulating (unit_cost 1.0 matches supply_unit_price)
+        supply_unit_price = 1.0
+        unit_cost = getattr(self.args, "unit_cost", supply_unit_price)
+        for firm in self.firms:
+            if hasattr(firm, "update_profit"):
+                firm.profit = 0.0
+
         # Update sales tracking and reputations
         firm_sales_summary = defaultdict(lambda: {"sold": 0.0, "requested": 0.0})
 
@@ -248,11 +255,12 @@ class BazaarWorld:
             good = sale["good"]
             quantity_sold = sale["quantity_sold"]
             requested_qty = sale.get("requested_quantity", quantity_sold)  # market_core returns requested_quantity
+            # Use filled price from sale when available (from market.clear), else fallback to firm_prices
+            price = sale.get("price", firm_prices[firm_name][good])
 
             firm_sales_summary[firm_name]["sold"] += quantity_sold
             firm_sales_summary[firm_name]["requested"] += requested_qty
 
-            price = firm_prices[firm_name][good]
             for firm in self.firms:
                 if firm.name == firm_name:
                     firm.total_quantity_sold_by_good[good] += quantity_sold
@@ -260,12 +268,12 @@ class BazaarWorld:
                         good
                     ] += quantity_sold
 
-                    # Update profit if it's a FirmAgent
+                    # Accumulate profit (margin per sale; unit_cost matches supply cost)
                     if hasattr(firm, "update_profit"):
                         firm.update_profit(
                             quantity_sold,
                             price,
-                            unit_cost=getattr(self.args, "unit_cost", 2.0),
+                            unit_cost=unit_cost,
                         )
                     break
 
@@ -353,45 +361,20 @@ class BazaarWorld:
         return stats
 
     def save_state(self):
-        """Serialize the entire world state to a JSON file."""
+        """Serialize the entire world state to a JSON file.
+        Firms and consumers lists are built from both self.firms/self.consumers and
+        the ledger, so every agent with ledger state is included (fixes missing agents in charts).
+        """
+        money = self.ledger.agent_money
+        inventories = self.ledger.agent_inventories
         state = {
             "timestep": self.timestep,
             "ledger": {
-                "money": self.ledger.agent_money.copy(),
-                "inventories": self.ledger.agent_inventories.copy(),
+                "money": money.copy(),
+                "inventories": {k: v.copy() for k, v in inventories.items()},
             },
-            "firms": [
-                {
-                    "name": f.name,
-                    "in_business": getattr(f, "in_business", True),
-                    "cash": self.ledger.agent_money.get(f.name, 0.0),
-                    "profit": getattr(f, "profit", 0.0),
-                    "prices": self.firm_prices_last_step.get(f.name, {}).copy(),
-                    "inventory": dict(self.ledger.agent_inventories.get(f.name, {})),
-                    "sales_by_good": dict(getattr(f, "total_quantity_sold_by_good", {})),
-                    "sales_this_step": dict(
-                        getattr(f, "total_quantity_sold_by_good_this_timestep", {})
-                        .get(self.timestep, {})
-                    ),
-                    "diary": getattr(f, "diary", [])[-1:]
-                    if hasattr(f, "diary")
-                    else [],
-                }
-                for f in self.firms
-            ],
-            "consumers": [
-                {
-                    "name": c.name,
-                    "labor": getattr(c, "l", 0),
-                    "cash": self.ledger.agent_money.get(c.name, 0.0),
-                    "utility": getattr(c, "utility", 0),
-                    "inventory": dict(self.ledger.agent_inventories.get(c.name, {})),
-                    "diary": getattr(c, "diary", [])[-1:]
-                    if hasattr(c, "diary")
-                    else [],
-                }
-                for c in self.consumers
-            ],
+            "firms": self._build_firms_state(money, inventories),
+            "consumers": self._build_consumers_state(money, inventories),
             "total_fees": getattr(self, "total_fees", 0.0),
         }
 
@@ -404,6 +387,63 @@ class BazaarWorld:
 
         with open(filename, "w") as f:
             json.dump(state, f, indent=2)
+
+    def _build_firms_state(self, money: Dict, inventories: Dict) -> List[Dict]:
+        """Build firms list for state: one entry per firm in self.firms, plus any firm_* in ledger not in list. Sorted by name."""
+        by_name = {}
+        for f in self.firms:
+            by_name[f.name] = {
+                "name": f.name,
+                "in_business": getattr(f, "in_business", True),
+                "cash": money.get(f.name, 0.0),
+                "profit": getattr(f, "profit", 0.0),
+                "prices": self.firm_prices_last_step.get(f.name, {}).copy(),
+                "inventory": dict(inventories.get(f.name, {})),
+                "sales_by_good": dict(getattr(f, "total_quantity_sold_by_good", {})),
+                "sales_this_step": dict(
+                    getattr(f, "total_quantity_sold_by_good_this_timestep", {})
+                    .get(self.timestep, {})
+                ),
+                "diary": getattr(f, "diary", [])[-1:] if hasattr(f, "diary") else [],
+            }
+        for key in money:
+            if key.startswith("firm_") and key not in by_name:
+                by_name[key] = {
+                    "name": key,
+                    "in_business": False,
+                    "cash": money.get(key, 0.0),
+                    "profit": 0.0,
+                    "prices": {},
+                    "inventory": dict(inventories.get(key, {})),
+                    "sales_by_good": {},
+                    "sales_this_step": {},
+                    "diary": [],
+                }
+        return [by_name[name] for name in sorted(by_name)]
+
+    def _build_consumers_state(self, money: Dict, inventories: Dict) -> List[Dict]:
+        """Build consumers list for state: one entry per consumer in self.consumers, plus any consumer_* in ledger not in list. Sorted by name."""
+        by_name = {}
+        for c in self.consumers:
+            by_name[c.name] = {
+                "name": c.name,
+                "labor": getattr(c, "l", 0),
+                "cash": money.get(c.name, 0.0),
+                "utility": getattr(c, "utility", 0),
+                "inventory": dict(inventories.get(c.name, {})),
+                "diary": getattr(c, "diary", [])[-1:] if hasattr(c, "diary") else [],
+            }
+        for key in money:
+            if key.startswith("consumer_") and key not in by_name:
+                by_name[key] = {
+                    "name": key,
+                    "labor": 0,
+                    "cash": money.get(key, 0.0),
+                    "utility": 0,
+                    "inventory": dict(inventories.get(key, {})),
+                    "diary": [],
+                }
+        return [by_name[name] for name in sorted(by_name)]
 
     def is_done(self):
         if self.timestep >= self.args.max_timesteps:

@@ -92,7 +92,7 @@ class Market:
         
         Returns:
             tuple: (filled_orders, sales_info) where sales_info is a list of dicts
-                   with keys: firm_id, good, quantity_sold, requested_quantity
+                   with keys: firm_id, good, quantity_sold, requested_quantity, price
         """
         filled_orders = []
         sales_info = []
@@ -101,7 +101,7 @@ class Market:
             order = self.orders.popleft()
             result = self._fill_order(order, ledger)
             if result:
-                filled, quantity_sold = result
+                filled, quantity_sold, price = result
                 if filled:
                     filled_orders.append(order) # Note: Storing duplicate information here between the order and sales_info
                     sales_info.append({
@@ -109,6 +109,7 @@ class Market:
                         'good': order.good,
                         'quantity_sold': quantity_sold,
                         'requested_quantity': order.quantity,
+                        'price': price,  # Actual transaction price from the filled quote
                     })
                 
         return filled_orders, sales_info
@@ -117,7 +118,7 @@ class Market:
         """Try to fill a single order
         
         Returns:
-            tuple: (filled: bool, quantity_sold: float) or None if order couldn't be filled
+            tuple: (filled: bool, quantity_sold: float, price: float) or None if order couldn't be filled
         """
         # Find best matching quote
         best_quote = None
@@ -151,5 +152,5 @@ class Market:
         # Update the quote's available quantity
         best_quote.quantity_available -= quantity
         
-        return (True, quantity)
+        return (True, quantity, best_quote.price)
     

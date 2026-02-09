@@ -57,6 +57,39 @@ class DataFrameBuilder:
             self._states = self._load_states(self._state_files)
         return self._states
 
+    def _all_firm_names(self) -> List[str]:
+        """Union of all firm names from state["firms"] and ledger (firm_*) so charts include every firm."""
+        seen = set()
+        names = []
+        for s in self.states:
+            for f in s.get("firms", []):
+                name = f.get("name")
+                if name and name not in seen:
+                    seen.add(name)
+                    names.append(name)
+            for key in s.get("ledger", {}).get("money", {}):
+                if key.startswith("firm_") and key not in seen:
+                    seen.add(key)
+                    names.append(key)
+        return sorted(names)
+
+    def _all_consumer_names(self) -> List[str]:
+        """Union of all consumer names from state["consumers"] and ledger (consumer_*) so charts include every consumer."""
+        seen = set()
+        names = []
+        for s in self.states:
+            for c in s.get("consumers", []): 
+                name = c.get("name")
+                if name and name not in seen:
+                    seen.add(name)
+                    names.append(name)
+            for key in s.get("ledger", {}).get("money", {}):
+                if key.startswith("consumer_") and key not in seen:
+                    seen.add(key)
+                    names.append(key)
+        
+        return sorted(names)
+
     def metrics_over_time(
         self,
         metrics: Optional[List[str]] = None,
@@ -108,43 +141,44 @@ class DataFrameBuilder:
 
     def profit_per_firm_over_time(self) -> pd.DataFrame:
         """
-        Long format: one row per (timestep, firm). Value is firm["profit"] for each firm
-        in state["firms"]. For charting all firms on the same chart.
+        Long format: one row per (timestep, firm). Value is firm["profit"] for each firm.
+        Uses union of all firm names across states so every firm appears for every timestep.
         """
+        all_firms = self._all_firm_names()
         rows = []
         for s in self.states:
             t = s["timestep"]
-            for f in s.get("firms", []):
-                name = f.get("name", "")
-                rows.append({"timestep": t, "firm": name, "value": f.get("profit", 0)})
+            firm_by_name = {f.get("name"): f for f in s.get("firms", []) if f.get("name")}
+            for name in all_firms:
+                f = firm_by_name.get(name)
+                rows.append({"timestep": t, "firm": name, "value": f.get("profit", 0) if f else 0})
         return pd.DataFrame(rows)
 
     def cash_per_firm_over_time(self) -> pd.DataFrame:
         """
-        Long format: one row per (timestep, firm). Value is cash from ledger.money
-        for each firm name in state["firms"]. For charting all firms on the same chart.
+        Long format: one row per (timestep, firm). Value is cash from ledger.money.
+        Uses union of all firm names across states so every firm appears for every timestep.
         """
+        all_firms = self._all_firm_names()
         rows = []
         for s in self.states:
             t = s["timestep"]
             money = s["ledger"]["money"]
-            for f in s.get("firms", []):
-                name = f.get("name", "")
+            for name in all_firms:
                 rows.append({"timestep": t, "firm": name, "value": money.get(name, 0)})
         return pd.DataFrame(rows)
 
     def cash_per_consumer_over_time(self) -> pd.DataFrame:
         """
-        Long format: one row per (timestep, consumer). Value is cash from ledger.money
-        for agents that are consumers (names in state["consumers"]). For charting all
-        consumers on the same chart.
+        Long format: one row per (timestep, consumer). Value is cash from ledger.money.
+        Uses union of all consumer names across states so every consumer appears for every timestep.
         """
+        all_consumers = self._all_consumer_names()
         rows = []
         for s in self.states:
             t = s["timestep"]
             money = s["ledger"]["money"]
-            consumers = [c["name"] for c in s.get("consumers", [])]
-            for name in consumers:
+            for name in all_consumers:
                 rows.append({"timestep": t, "consumer": name, "value": money.get(name, 0)})
         return pd.DataFrame(rows)
 
@@ -153,14 +187,15 @@ class DataFrameBuilder:
     ) -> pd.DataFrame:
         """
         Long format: one row per (timestep, consumer). Value is inventory of `good`
-        from ledger.inventories for each consumer. For charting all consumers on the same chart.
+        from ledger.inventories. Uses union of all consumer names across states so every
+        consumer appears for every timestep.
         """
+        all_consumers = self._all_consumer_names()
         rows = []
         for s in self.states:
             t = s["timestep"]
             inv = s["ledger"].get("inventories", {})
-            consumers = [c["name"] for c in s.get("consumers", [])]
-            for name in consumers:
+            for name in all_consumers:
                 agent_inv = inv.get(name, {})
                 rows.append({"timestep": t, "consumer": name, "value": agent_inv.get(good, 0)})
         return pd.DataFrame(rows)

@@ -20,6 +20,7 @@ class BaseFirmAgent:
         self.in_business = True
         self.reputation = 1.0  # Start with perfect reputation
         self.fulfillment_history = []  # List of (successful_qty, requested_qty)
+        self.profit = 0.0  # Step-level profit (reset each step, accumulated in update_profit)
 
 
     # update repuation [0.0, 1.0] based on number of orders fully fulfilled
@@ -49,8 +50,10 @@ class BaseFirmAgent:
     def update_profit(
         self, quantity_sold: float, price: float, unit_cost: float
     ) -> float:
-        """Update profit for the current timestep (used for RL rewards)"""
-        self.profit = (price - unit_cost) * quantity_sold
+        """Accumulate profit for the current timestep (used for RL rewards and dashboard).
+        Caller must reset self.profit at the start of each step before any sales."""
+        margin = (price - unit_cost) * quantity_sold
+        self.profit = getattr(self, "profit", 0.0) + margin
         return self.profit
 
     @property
