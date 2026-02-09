@@ -114,9 +114,11 @@ class AltairChartBuilder:
         encoding = {"x": x_enc, "y": y_enc}
 
         if self._color_col is not None:
-            color_scale = None
             if self._color_domain is not None and self._color_range is not None:
                 color_scale = alt.Scale(domain=self._color_domain, range=self._color_range)
+            else:
+                # Explicit scheme so lines are visible when caller doesn't set colors
+                color_scale = alt.Scale(scheme="tableau20")
             color_enc = alt.Color(
                 self._color_col,
                 type="nominal",

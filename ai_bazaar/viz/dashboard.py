@@ -2,25 +2,26 @@
 Streamlit dashboard for inspecting simulation state and metrics over time.
 Expects logs/state_t*.json files (e.g. from bazaar_env runs). Run from project root.
 """
-import streamlit as st
 import json
 import os
+import sys
+
 import pandas as pd
 import numpy as np
 import glob
+import streamlit as st
 
-# Support both package import and running this file directly via streamlit run
-try:
-    from .chart_builder import AltairChartBuilder
-except ImportError:
-    from chart_builder import AltairChartBuilder
+from chart_builder import AltairChartBuilder
+_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, _root)
+from ai_bazaar.utils.dataframe_builder import DataFrameBuilder
 
 st.set_page_config(page_title="Agent Bazaar Dashboard", layout="wide")
 
 st.title("🏛️ Agent Bazaar: Civilization Simulacra Dashboard")
 
 # Discover state snapshots: state_t0.json, state_t1.json, ... (sorted by timestep)
-log_dir = "logs"
+log_dir = "logs" 
 state_files = sorted(
     glob.glob(os.path.join(log_dir, "state_t*.json")),
     key=lambda x: int(os.path.basename(x).replace("state_t", "").replace(".json", "")),
@@ -70,9 +71,8 @@ else:
 
     with tab1:
         st.subheader("Cash by Agent")
-        # Bar chart of ledger.money for the selected timestep
-        cash_df = pd.DataFrame(
-            state["ledger"]["money"].items(), columns=["Agent", "Cash"]
+        cash_df = DataFrameBuilder.value_by_agent(
+            state, ledger_field="money", agent_label="Agent", value_label="Cash"
         )
         st.bar_chart(cash_df, x="Agent", y="Cash")
 
@@ -104,59 +104,100 @@ else:
                 st.info(f"Last Diary Entry: {last_entry}")
                 
     with tab4:
-        # Build one row per timestep with aggregate metrics (used for line chart)
-        def load_all_states(state_files):
-            rows = []
-            for path in state_files:
-                with open(path, "r") as f:
-                    s = json.load(f)
-                t = s["timestep"]
-                cash = sum(s["ledger"]["money"].values())
-                n = len(s["ledger"]["money"].values())
-                vals = sorted(s["ledger"]["money"].values())
-                gini = (np.sum((2 * np.arange(1, n + 1) - n - 1) * vals) / (n * sum(vals))) if cash else 0
-                rows.append({"timestep": t, "total_cash": cash, "gini": gini})
-            return pd.DataFrame(rows)
+        df_builder = DataFrameBuilder(state_files=state_files)
 
-        time_df = load_all_states(state_files)
-        # Long format: one row per (timestep, metric), so Altair can color by metric
-        time_long = time_df.melt(
-            id_vars=["timestep"],
-            value_vars=["total_cash", "gini"],
-            var_name="metric",
-            value_name="value",
+        # ---- Chart 1: Total cash in circulation ----
+        cash_long = df_builder.metrics_over_time_long(
+            value_vars=["total_cash"],
+            renames={"total_cash": "Total cash in circulation"},
         )
-        # Display names in legend; domain for the chart is taken from data so renames don't break lines
-        time_long["metric"] = time_long["metric"].replace(
-            {"total_cash": "Total cash in circulation", "gini": "Gini coefficient"}
-        )
-
-        # Color scale domain = unique metric names in data order; one picker per metric
-        metric_order = time_long["metric"].unique().tolist()
-        default_colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
-
-        st.subheader("Metrics over time")
-        color_cols = st.columns(min(len(metric_order), 5))
-        color_by_metric = {}
-        for i, name in enumerate(metric_order):
-            with color_cols[i % len(color_cols)]:
-                color_by_metric[name] = st.color_picker(
-                    f"{name}", default_colors[i % len(default_colors)], key=f"chart_color_{i}_{name}"
-                )
-        colors_in_order = [color_by_metric[m] for m in metric_order]
-
-        # Builder takes the long-format df; domain/range_ align colors with metric names
-        chart = (
-            AltairChartBuilder(time_long)
+        st.subheader("Total cash in circulation")
+        color_cash = st.color_picker("Line color", "#1f77b4", key="chart_total_cash_color")
+        chart_cash_agg = (
+            AltairChartBuilder(cash_long)
             .x("timestep", title="Timestep")
-            .y("value", title="Value")
+            .y("value", title="Total cash")
             .color(
                 "metric",
-                domain=metric_order,
-                range_=colors_in_order,
+                domain=["Total cash in circulation"],
+                range_=[color_cash],
                 legend_title="Metric",
             )
             .mark_line(strokeWidth=2)
             .build()
         )
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart_cash_agg, use_container_width=True)
+
+        # ---- Chart 2: Gini coefficient ----
+        gini_long = df_builder.metrics_over_time_long(
+            value_vars=["gini"],
+            renames={"gini": "Gini coefficient"},
+        )
+        st.subheader("Gini coefficient")
+        color_gini = st.color_picker("Line color", "#ff7f0e", key="chart_gini_color")
+        chart_gini = (
+            AltairChartBuilder(gini_long)
+            .x("timestep", title="Timestep")
+            .y("value", title="Gini coefficient")
+            .color(
+                "metric",
+                domain=["Gini coefficient"],
+                range_=[color_gini],
+                legend_title="Metric",
+            )
+            .mark_line(strokeWidth=2)
+            .build()
+        )
+        st.altair_chart(chart_gini, use_container_width=True)
+
+        # ---- Chart 3: Profit per firm (all firms on same chart) ----
+        st.subheader("Profit per firm")
+        profit_per_firm = df_builder.profit_per_firm_over_time()
+        chart_profit_firm = (
+            AltairChartBuilder(profit_per_firm)
+            .x("timestep", title="Timestep")
+            .y("value", title="Profit")
+            .color("firm", legend_title="Firm")
+            .mark_line(strokeWidth=2)
+            .build()
+        )
+        st.altair_chart(chart_profit_firm, use_container_width=True)
+
+        # ---- Chart 4: Cash per firm (all firms on same chart) ----
+        st.subheader("Cash per firm")
+        cash_per_firm = df_builder.cash_per_firm_over_time()
+        chart_cash_firm = (
+            AltairChartBuilder(cash_per_firm)
+            .x("timestep", title="Timestep")
+            .y("value", title="Cash")
+            .color("firm", legend_title="Firm")
+            .mark_line(strokeWidth=2)
+            .build()
+        )
+        st.altair_chart(chart_cash_firm, use_container_width=True)
+
+        # ---- Chart 5: Cash per consumer (all consumers on same chart) ----
+        st.subheader("Cash per consumer")
+        cash_per_consumer = df_builder.cash_per_consumer_over_time()
+        chart_cash = (
+            AltairChartBuilder(cash_per_consumer)
+            .x("timestep", title="Timestep")
+            .y("value", title="Cash")
+            .color("consumer", legend_title="Consumer")
+            .mark_line(strokeWidth=2)
+            .build()
+        )
+        st.altair_chart(chart_cash, use_container_width=True)
+
+        # ---- Chart 6: Food inventory per consumer (all consumers on same chart) ----
+        st.subheader("Food inventory per consumer")
+        food_per_consumer = df_builder.food_inventory_per_consumer_over_time()
+        chart_food = (
+            AltairChartBuilder(food_per_consumer)
+            .x("timestep", title="Timestep")
+            .y("value", title="Food inventory")
+            .color("consumer", legend_title="Consumer")
+            .mark_line(strokeWidth=2)
+            .build()
+        )
+        st.altair_chart(chart_food, use_container_width=True)

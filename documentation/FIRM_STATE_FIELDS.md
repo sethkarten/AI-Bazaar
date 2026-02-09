@@ -1,6 +1,6 @@
 # Firm state fields in `state_t*.json`
 
-This document describes how every field in each firm’s state is computed and stored when `BazaarWorld.save_state()` writes `state_t{timestep}.json`. The code that builds the firm state lives in `ai_bazaar/env/bazaar_env.py` in `save_state()`.
+This document describes how every field in each firm’s state is computed and stored when `BazaarWorld.save_state()` writes `state_t{timestep}.json`. The code that builds the firm state lives in `ai_bazaar/env/bazaar_env.py` in `save_state()`. The dashboard (and `DataFrameBuilder.profit_per_firm_over_time()`) reads these JSON files and plots e.g. `firm["profit"]` and `ledger.money`; the **profit chart** uses the `profit` field described below.
 
 ---
 
@@ -55,9 +55,9 @@ The firm state is constructed here:
 
 ### `profit`
 
-- **Source:** `getattr(f, "profit", 0.0)`
-- **Meaning:** Profit attributed to the **current timestep**, used for rewards. Defaults to `0.0` if the attribute is missing (e.g. `FixedFirmAgent` before any sale).
-- **Updated in:** Only when a sale is cleared in `bazaar_env.step()`: for each sale, the matching firm’s `update_profit(quantity_sold, price, unit_cost)` is called. In `BaseFirmAgent.update_profit()`: `self.profit = (price - unit_cost) * quantity_sold`. So **profit is overwritten on each sale in that step**; if a firm has multiple sales in one step, the stored value is the profit from the **last** sale in the loop. It is **not** a running total across timesteps.
+- **Source:** `getattr(f, "profit", 0.0)` in `save_state()`.
+- **Meaning:** Value **displayed on the profit chart** and used for RL rewards. It is **not** economic profit (revenue minus all expenses). It is the result of `update_profit(quantity_sold, price, unit_cost)` during market clearing: `(price - unit_cost) * quantity_sold` for **one** sale—the **last** sale in the step’s sales loop. Defaults to `0.0` if the attribute is missing (e.g. firm had no sales yet).
+- **Updated in:** `bazaar_env.step()` → market-clearing loop: for each sale in `sales_info`, the matching firm’s `update_profit(quantity_sold, price, unit_cost=getattr(self.args, "unit_cost", 2.0))` is called. Each call **overwrites** `f.profit`; there is no accumulation. So the saved value is margin from the last sale only, using a **global unit_cost (default 2.0)**, which is higher than actual supply cost (1.0). See `documentation/PROFIT_REPORT.md` for why this makes the profit chart often negative even when firm cash is growing, and for the separate economic-profit value computed in `FirmAgent.calculate_profit()` (stored in `_timestep_stats` only, not in state).
 
 ---
 
@@ -108,7 +108,7 @@ The firm state is constructed here:
 | `name`           | `f.name`                                                    | Set at creation, never changed.                                |
 | `in_business`    | `getattr(f, "in_business", True)`                           | `mark_out_of_business()` when can’t pay overhead/taxes.        |
 | `cash`          | `self.ledger.agent_money.get(f.name, 0.0)`                  | All ledger credits/debits (supply, sales, overhead, fees).     |
-| `profit`        | `getattr(f, "profit", 0.0)`                                 | `update_profit()` per sale in step (last sale in step wins).    |
+| `profit`        | `getattr(f, "profit", 0.0)`                                 | Market-clearing loop: `update_profit()` per sale (last sale wins); used by dashboard chart and RL. Not economic profit—see PROFIT_REPORT.md. |
 | `prices`        | `self.firm_prices_last_step.get(f.name, {}).copy()`         | End of pricing phase in `step()`; one set per firm per step.    |
 | `inventory`     | `self.ledger.agent_inventories.get(f.name, {})`             | Supply, production, and market clearing.                        |
 | `sales_by_good` | `f.total_quantity_sold_by_good`                             | Incremented in step() market-clearing for each sale.           |
