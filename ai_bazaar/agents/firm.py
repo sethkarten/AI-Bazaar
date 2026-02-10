@@ -16,11 +16,15 @@ class BaseFirmAgent:
     Fixed agents take explicit parameters, while LLM agents decide autonomously.
     """
 
+    EXPENSE_KEYS = ("supply_cost", "overhead_costs", "taxes_paid", "platform_fees")
+
     def __init__(self):
         self.in_business = True
         self.reputation = 1.0  # Start with perfect reputation
         self.fulfillment_history = []  # List of (successful_qty, requested_qty)
         self.profit = 0.0  # Step-level profit (reset each step, accumulated in update_profit)
+        self.expenses_info = {k: 0.0 for k in BaseFirmAgent.EXPENSE_KEYS}
+        self.sales_info = []  # Step-level list of sale records (reset each step, appended in env sales loop)
 
 
     # update repuation [0.0, 1.0] based on number of orders fully fulfilled
@@ -48,13 +52,42 @@ class BaseFirmAgent:
         )
 
     def update_profit(
-        self, quantity_sold: float, price: float, unit_cost: float
+        self, quantity_sold: float, price: float
     ) -> float:
-        """Accumulate profit for the current timestep (used for RL rewards and dashboard).
-        Caller must reset self.profit at the start of each step before any sales."""
-        margin = (price - unit_cost) * quantity_sold
+        """Accumulate sales margin for the current timestep. Caller must reset self.profit at step start.
+        Expenses (supply, overhead, taxes, platform_fee) are then subtracted via apply_expense_to_profit
+        for each entry in expenses_info, so final profit = margins - expenses (economic profit)."""
+        margin = price * quantity_sold
         self.profit = getattr(self, "profit", 0.0) + margin
         return self.profit
+
+    def update_expenses( 
+        self,
+        expense_type: str,
+        amount: float,
+        quantity: Optional[float] = None,
+        unit_price: Optional[float] = None,
+    ) -> None:
+        """Accumulate one expense into step-level expenses_info (called from env loop over expenses_info list).
+        expense_type: one of 'supply', 'overhead', 'taxes', 'platform_fee'."""
+        key = {
+            "supply": "supply_cost",
+            "overhead": "overhead_costs",
+            "taxes": "taxes_paid",
+            "platform_fee": "platform_fees",
+        }.get(expense_type)
+        if key is None:
+            return
+        info = getattr(self, "expenses_info", None)
+        if info is None:
+            self.expenses_info = {k: 0.0 for k in self.EXPENSE_KEYS}
+            info = self.expenses_info
+        info[key] = info.get(key, 0.0) + amount
+
+    def apply_expense_to_profit(self, amount: float) -> None:
+        """Subtract an expense from step-level profit (called for each entry in expenses_info).
+        After all sales margins are accumulated, each expense reduces profit so profit = margins - expenses."""
+        self.profit = getattr(self, "profit", 0.0) - amount
 
     @property
     def cash(self) -> float:

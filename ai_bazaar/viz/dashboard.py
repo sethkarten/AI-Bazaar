@@ -21,11 +21,17 @@ st.set_page_config(page_title="Agent Bazaar Dashboard", layout="wide")
 st.title("🏛️ Agent Bazaar: Civilization Simulacra Dashboard")
 
 # Discover state snapshots: state_t0.json, state_t1.json, ... (sorted by timestep)
-log_dir = "logs" 
+log_dir = "logs"
 state_files = sorted(
     glob.glob(os.path.join(log_dir, "state_t*.json")),
     key=lambda x: int(os.path.basename(x).replace("state_t", "").replace(".json", "")),
 )
+# Consumer attributes from simulation init (optional)
+consumer_attributes_path = os.path.join(log_dir, "consumer_attributes.json")
+consumer_attributes_list = None
+if os.path.isfile(consumer_attributes_path):
+    with open(consumer_attributes_path, "r") as f:
+        consumer_attributes_list = json.load(f)
 
 if not state_files:
     st.warning("No state files found in logs/ directory. Run a simulation first!")
@@ -89,28 +95,80 @@ else:
 
     # CONSUMER TAB: Consumer states and diary entries.
     with tab3:
-        st.subheader("Consumer States")
+        consumer_names = [c["name"] for c in state["consumers"]]
+        selected_consumer = st.selectbox(
+            "Select consumer",
+            consumer_names,
+            key="tab3_consumer_select",
+        )
+
+        st.subheader(f"Consumer: {selected_consumer}")
+
+        # Table of consumer attributes from consumer_attributes.json (matches selected consumer)
+        if consumer_attributes_list is not None:
+            attrs_for_consumer = next(
+                (a for a in consumer_attributes_list if a.get("name") == selected_consumer),
+                None,
+            )
+            if attrs_for_consumer is not None:
+                st.subheader("Consumer attributes (from run init)")
+                # Build two-column table: Attribute | Value (skip "name" to avoid redundancy)
+                attr_rows = []
+                for key, val in attrs_for_consumer.items():
+                    if key == "name":
+                        continue
+                    if isinstance(val, dict):
+                        display_val = json.dumps(val) if val else ""
+                    elif isinstance(val, list):
+                        display_val = ", ".join(str(x) for x in val) if val else "[]"
+                    else:
+                        display_val = val if val is not None else "—"
+                    attr_rows.append({"Attribute": key, "Value": display_val})
+                if attr_rows:
+                    st.table(pd.DataFrame(attr_rows))
+            else:
+                st.caption(f"No attributes on file for {selected_consumer}.")
+        else:
+            st.caption("No consumer_attributes.json found in logs/ (run a simulation to generate it).")
+
+        st.subheader("Consumer state (this timestep)")
         cons_df = pd.DataFrame(state["consumers"])
-        
-        st.table(cons_df.drop(columns=["diary"]))
+        cons_df_filtered = cons_df[cons_df["name"] == selected_consumer]
+        if "diary" in cons_df_filtered.columns:
+            cons_df_filtered = cons_df_filtered.drop(columns=["diary"])
+        st.table(cons_df_filtered)
+
+        # ---- Goods utility vs labor disutility for selected consumer ----
+        st.subheader("Goods utility vs labor disutility")
+        df_builder_consumer = DataFrameBuilder(state_files=state_files)
+        utility_components = df_builder_consumer.consumer_utility_components_over_time(
+            consumer_name=selected_consumer
+        )
+        if not utility_components.empty:
+            chart_utility_components = (
+                AltairChartBuilder(utility_components)
+                .x("timestep", title="Timestep")
+                .y("value", title="Value")
+                .color(
+                    "metric",
+                    domain=["Goods utility", "Labor disutility"],
+                    range_=["#2ca02c", "#d62728"],
+                    legend_title="Metric",
+                )
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_utility_components, use_container_width=True)
 
         # ---- Consumer diary: all entries across all state files ----
         st.subheader("Consumer diary (all timesteps)")
-        with open(state_files[0], "r") as f:
-            first_state = json.load(f)
-        consumer_names = [c["name"] for c in first_state["consumers"]]
-        selected_consumer_t4 = st.selectbox(
-            "Select consumer",
-            consumer_names,
-            key="tab4_consumer_diary",
-        )
         diary_entries_all = []
         for path in state_files:
             with open(path, "r") as f:
                 snap = json.load(f)
             file_ts = snap.get("timestep", 0)
             for c in snap.get("consumers", []):
-                if c["name"] != selected_consumer_t4:
+                if c["name"] != selected_consumer:
                     continue
                 diary = c.get("diary") or []
                 if isinstance(diary, list) and diary:
@@ -127,7 +185,7 @@ else:
         if diary_entries_all:
             st.table(diary_all_df)
         else:
-            st.info(f"No diary entries for {selected_consumer_t4} across the loaded state files.")
+            st.info(f"No diary entries for {selected_consumer} across the loaded state files.")
             
     # CHARTS TAB: Time-series charts across all state files.            
     with tab4:
@@ -228,3 +286,22 @@ else:
             .build()
         )
         st.altair_chart(chart_food, use_container_width=True)
+
+        # ---- Chart 7: Goods utility vs labor disutility (avg across consumers) ----
+        st.subheader("Goods utility vs labor disutility (avg)")
+        utility_components = df_builder.consumer_utility_components_over_time()
+        if not utility_components.empty:
+            chart_utility_components = (
+                AltairChartBuilder(utility_components)
+                .x("timestep", title="Timestep")
+                .y("value", title="Value")
+                .color(
+                    "metric",
+                    domain=["Goods utility (avg)", "Labor disutility (avg)"],
+                    range_=["#2ca02c", "#d62728"],
+                    legend_title="Metric",
+                )
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_utility_components, use_container_width=True)

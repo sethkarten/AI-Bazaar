@@ -100,17 +100,64 @@ class BazaarWorld:
                 )
             self.consumers.append(consumer)
 
+        self._write_consumer_attributes()
+
         # Marketplace platform fees (simulating Amazon/eBay)
         self.platform_fee_rate = 0.10  # 10% on revenue
 
         self.timestep = 0
         self.firm_prices_last_step = {}
 
+    def _write_consumer_attributes(self):
+        """Write unique attributes of all consumer agents to a JSON file (after full initialization)."""
+        def _to_serializable(obj):
+            if isinstance(obj, np.floating):
+                return float(obj)
+            if isinstance(obj, np.integer):
+                return int(obj)
+            if isinstance(obj, dict):
+                return {k: _to_serializable(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_to_serializable(v) for v in obj]
+            return obj
+
+        out = []
+        for c in self.consumers:
+            # skill: CES uses self.v, Fixed does not have it
+            skill = getattr(c, "v", None)
+            entry = {
+                "name": c.name,
+                "ces_params": _to_serializable(getattr(c, "ces_params", None)),
+                "c": _to_serializable(getattr(c, "c", None)),
+                "sigma": _to_serializable(getattr(c, "sigma", None)),
+                "delta": _to_serializable(getattr(c, "delta", None)),
+                "llm_model": getattr(c, "llm_model", None),
+                "skill": _to_serializable(skill),
+                "risk_aversion": _to_serializable(getattr(c, "risk_aversion", None)),
+                "goods": getattr(c, "goods", None),
+            }
+            out.append(entry)
+
+        log_dir = getattr(self.args, "log_dir", "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        path = os.path.join(log_dir, "consumer_attributes.json")
+        with open(path, "w") as f:
+            json.dump(out, f, indent=2)
+        self.logger.info("Wrote consumer attributes to %s", path)
+
     def step(self):
         """Execute one timestep of the bazaar with parallel agent actions"""
         import concurrent.futures
 
         start_ledger = self.ledger.copy()
+
+        # Reset step-level expenses and sales (accumulated from expenses_info / sales_info lists)
+        expenses_info = []
+        for firm in self.firms:
+            if hasattr(firm, "expenses_info"):
+                firm.expenses_info = {k: 0.0 for k in getattr(firm, "EXPENSE_KEYS", ("supply_cost", "overhead_costs", "taxes_paid", "platform_fees"))}
+            if hasattr(firm, "sales_info"):
+                firm.sales_info = []
 
         # 0. Labor Phase: Consumers (Workers) choose labor supply (Parallel)
         with concurrent.futures.ThreadPoolExecutor(
@@ -125,15 +172,23 @@ class BazaarWorld:
             concurrent.futures.wait(futures)
 
         # 1. Supply Phase (Sequential for now as it modifies ledger)
+        supply_unit_price = 1.0
         for firm in self.firms:
             if not getattr(firm, "in_business", True):
                 continue
-            supply_unit_price = 1.0
             if self.args.firm_type == "LLM":
-                firm.purchase_supplies(supply_unit_price, self.timestep)
+                quantity = firm.purchase_supplies(supply_unit_price, self.timestep)
             else:
                 quantity = firm.cash * 0.5 / supply_unit_price
-                firm.purchase_supplies(quantity, supply_unit_price, self.timestep)
+                quantity = firm.purchase_supplies(quantity, supply_unit_price, self.timestep)
+            cost = quantity * supply_unit_price
+            expenses_info.append({
+                "firm_id": firm.name,
+                "expense_type": "supply",
+                "amount": cost,
+                "quantity": quantity,
+                "unit_price": supply_unit_price,
+            })
 
         # 2. Production Phase
         for firm in self.firms:
@@ -268,12 +323,20 @@ class BazaarWorld:
                         good
                     ] += quantity_sold
 
+                    # Per-firm sales_info (like expenses_info): one record per sale
+                    if hasattr(firm, "sales_info"):
+                        firm.sales_info.append({
+                            "good": good,
+                            "quantity_sold": quantity_sold,
+                            "requested_quantity": requested_qty,
+                            "price": price,
+                        })
+
                     # Accumulate profit (margin per sale; unit_cost matches supply cost)
                     if hasattr(firm, "update_profit"):
                         firm.update_profit(
                             quantity_sold,
                             price,
-                            unit_cost=unit_cost,
                         )
                     break
 
@@ -291,7 +354,12 @@ class BazaarWorld:
         for firm in self.firms:
             if not getattr(firm, "in_business", True):
                 continue
-            firm.pay_overhead_costs(self.timestep)
+            amount_paid = firm.pay_overhead_costs(self.timestep)
+            expenses_info.append({
+                "firm_id": firm.name,
+                "expense_type": "overhead",
+                "amount": amount_paid,
+            })
 
         # 8. Platform Fees (Simulating Amazon/eBay)
         total_fees = 0.0
@@ -301,6 +369,28 @@ class BazaarWorld:
             fee = firm.cash * 0.05
             self.ledger.credit(firm.name, -fee)
             total_fees += fee
+            expenses_info.append({
+                "firm_id": firm.name,
+                "expense_type": "platform_fee",
+                "amount": fee,
+            })
+
+        # Consume expenses_info (like sales_info): update each firm's step expenses and apply to profit
+        for expense in expenses_info:
+            firm_id = expense["firm_id"]
+            amount = expense["amount"]
+            for firm in self.firms:
+                if firm.name == firm_id:
+                    if hasattr(firm, "update_expenses"):
+                        firm.update_expenses(
+                            expense["expense_type"],
+                            amount,
+                            quantity=expense.get("quantity"),
+                            unit_price=expense.get("unit_price"),
+                        )
+                    if hasattr(firm, "apply_expense_to_profit"):
+                        firm.apply_expense_to_profit(amount)
+                    break
 
         # 9. Reflection
         for firm in self.firms:
@@ -397,6 +487,8 @@ class BazaarWorld:
                 "in_business": getattr(f, "in_business", True),
                 "cash": money.get(f.name, 0.0),
                 "profit": getattr(f, "profit", 0.0),
+                "expenses_info": dict(getattr(f, "expenses_info", {})),
+                "sales_info": list(getattr(f, "sales_info", [])),
                 "prices": self.firm_prices_last_step.get(f.name, {}).copy(),
                 "inventory": dict(inventories.get(f.name, {})),
                 "sales_by_good": dict(getattr(f, "total_quantity_sold_by_good", {})),
@@ -413,6 +505,8 @@ class BazaarWorld:
                     "in_business": False,
                     "cash": money.get(key, 0.0),
                     "profit": 0.0,
+                    "expenses_info": {"supply_cost": 0.0, "overhead_costs": 0.0, "taxes_paid": 0.0, "platform_fees": 0.0},
+                    "sales_info": [],
                     "prices": {},
                     "inventory": dict(inventories.get(key, {})),
                     "sales_by_good": {},
@@ -425,11 +519,16 @@ class BazaarWorld:
         """Build consumers list for state: one entry per consumer in self.consumers, plus any consumer_* in ledger not in list. Sorted by name."""
         by_name = {}
         for c in self.consumers:
+            labor_disutility = c.compute_labor_disutility() if hasattr(c, "compute_labor_disutility") else 0.0
+            goods_utility = c.compute_goods_utility() if hasattr(c, "compute_goods_utility") else 0.0
             by_name[c.name] = {
                 "name": c.name,
                 "labor": getattr(c, "l", 0),
+                "income": getattr(c, "income", 0.0),
                 "cash": money.get(c.name, 0.0),
                 "utility": getattr(c, "utility", 0),
+                "goods_utility": goods_utility,
+                "labor_disutility": labor_disutility,
                 "inventory": dict(inventories.get(c.name, {})),
                 "diary": getattr(c, "diary", [])[-1:] if hasattr(c, "diary") else [],
             }
@@ -438,8 +537,11 @@ class BazaarWorld:
                 by_name[key] = {
                     "name": key,
                     "labor": 0,
+                    "income": 0.0,
                     "cash": money.get(key, 0.0),
                     "utility": 0,
+                    "goods_utility": 0.0,
+                    "labor_disutility": 0.0,
                     "inventory": dict(inventories.get(key, {})),
                     "diary": [],
                 }

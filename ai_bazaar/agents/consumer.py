@@ -40,6 +40,9 @@ class CESConsumerAgent(LLMAgent):
             llm_instance=llm_instance,
         )
 
+        # Store LLM model name for logging/serialization
+        self.llm_model = llm
+
         # Consumer-specific attributes
         self.sigma = sigma
         self.income = income_stream  # This will now be variable based on labor
@@ -62,7 +65,7 @@ class CESConsumerAgent(LLMAgent):
             self.v = skill
         self.wage = 10.0  # Current market wage
         self.c = 0.0005  # labor disutility coefficient
-        self.delta = 3.5  # labor disutility exponent
+        self.delta = 0.811  # labor disutility exponent
         self.z = self.l * self.v  # pre-tax income from labor
 
         self.prices_dict = {}
@@ -107,17 +110,23 @@ class CESConsumerAgent(LLMAgent):
 
     def compute_utility(self) -> float:
         """Compute total utility (CES utility from goods - disutility of labor)"""
+
+        goods_utility = self.compute_goods_utility()
+        labor_disutility = self.compute_labor_disutility()
+
+        return goods_utility - labor_disutility
+    
+    def compute_labor_disutility(self) -> float:
+        return self.c * np.power(self.l, self.delta)
+    
+    def compute_goods_utility(self) -> float:
         goods_total = 0.0
         inventory = self.inventory
         for good in self.goods:
             quantity = inventory[good]
             alpha = self.ces_params[good]
             goods_total += alpha * (quantity ** ((self.sigma - 1) / self.sigma))
-
-        goods_utility = goods_total ** (self.sigma / (self.sigma - 1))
-        labor_disutility = self.c * np.power(self.l, self.delta)
-
-        return goods_utility - labor_disutility
+        return goods_total ** (self.sigma / (self.sigma - 1))
 
     def choose_labor(self, timestep: int, wage: float) -> float:
         """LLM decides labor supply for the current timestep"""
@@ -577,6 +586,9 @@ class FixedConsumerAgent:
         self.ledger = ledger
         self.market = market
         self.quantity_per_good = quantity_per_good
+        self.goods = goods
+        self.ces_params = ces_params
+        self.risk_aversion = risk_aversion
         # Initialize cash in ledger (starting with 0, will receive income)
         self.ledger.credit(self.name, 0.0)
 
