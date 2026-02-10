@@ -1,5 +1,6 @@
 import logging
 import numpy as np
+import math
 from typing import List, Dict, Any, Optional
 from ai_bazaar.market_core.market_core import Ledger, Market, Order, Quote
 from ..utils.common import PERSONAS, ROLE_MESSAGES
@@ -17,6 +18,9 @@ class CESConsumerAgent(LLMAgent):
         persona: str = None,
         ces_params: Dict[str, float] = None,
         risk_aversion: float = None,
+        epsilon: float = 0.0001,
+        beta: float = 10,
+        use_crra_savings: bool = False,
         goods: List[str] = None,
         llm: str = None,
         port: int = 8000,
@@ -64,9 +68,13 @@ class CESConsumerAgent(LLMAgent):
         else:
             self.v = skill
         self.wage = 10.0  # Current market wage
-        self.c = 0.0005  # labor disutility coefficient
-        self.delta = 0.811  # labor disutility exponent
+        self.c = 0.0006  # labor disutility coefficient
+        self.delta = 3.1  # labor disutility exponent
         self.z = self.l * self.v  # pre-tax income from labor
+        
+        self.epsilon = epsilon
+        self.beta = beta
+        self.use_crra_savings = use_crra_savings
 
         self.prices_dict = {}
         self.prices_prev = {}
@@ -112,9 +120,10 @@ class CESConsumerAgent(LLMAgent):
         """Compute total utility (CES utility from goods - disutility of labor)"""
 
         goods_utility = self.compute_goods_utility()
+        cash_utility = self.compute_cash_utility()
         labor_disutility = self.compute_labor_disutility()
 
-        return goods_utility - labor_disutility
+        return goods_utility + cash_utility - labor_disutility
     
     def compute_labor_disutility(self) -> float:
         return self.c * np.power(self.l, self.delta)
@@ -127,6 +136,13 @@ class CESConsumerAgent(LLMAgent):
             alpha = self.ces_params[good]
             goods_total += alpha * (quantity ** ((self.sigma - 1) / self.sigma))
         return goods_total ** (self.sigma / (self.sigma - 1))
+    
+    #! TODO: Implement CRRA savings
+    def compute_cash_utility(self) -> float:
+        if self.use_crra_savings:
+            return 0.0
+        else:
+            return self.beta * math.log(self.epsilon + self.cash)
 
     def choose_labor(self, timestep: int, wage: float) -> float:
         """LLM decides labor supply for the current timestep"""
@@ -413,6 +429,13 @@ class CESConsumerAgent(LLMAgent):
         self.ledger.credit(self.name, -taxes_paid)
         return taxes_paid
 
+    def consume_inventory(self) -> None:
+        """Zero out all goods in inventory (cash is unchanged). Called after utility is computed."""
+        for good in self.goods:
+            current = self.inventory.get(good, 0.0)
+            if current > 0.0:
+                self.ledger.add_good(self.name, good, -current)
+
     def reflect(self, timestep: int):
         """Reflect on consumption utility and labor choices."""
         if getattr(self.args, "no_diaries", False):
@@ -661,3 +684,10 @@ class FixedConsumerAgent:
         taxes_paid = self.cash * tax_rate
         self.ledger.credit(self.name, -taxes_paid)
         return taxes_paid
+
+    def consume_inventory(self) -> None:
+        """Zero out all goods in inventory (cash is unchanged). Called after utility is computed."""
+        for good in self.goods:
+            current = self.inventory.get(good, 0.0)
+            if current > 0.0:
+                self.ledger.add_good(self.name, good, -current)

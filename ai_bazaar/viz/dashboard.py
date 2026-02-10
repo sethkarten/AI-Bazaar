@@ -138,8 +138,8 @@ else:
             cons_df_filtered = cons_df_filtered.drop(columns=["diary"])
         st.table(cons_df_filtered)
 
-        # ---- Goods utility vs labor disutility for selected consumer ----
-        st.subheader("Goods utility vs labor disutility")
+        # ---- Goods, cash, and labor utility for selected consumer ----
+        st.subheader("Goods, cash, and labor utility")
         df_builder_consumer = DataFrameBuilder(state_files=state_files)
         utility_components = df_builder_consumer.consumer_utility_components_over_time(
             consumer_name=selected_consumer
@@ -151,8 +151,8 @@ else:
                 .y("value", title="Value")
                 .color(
                     "metric",
-                    domain=["Goods utility", "Labor disutility"],
-                    range_=["#2ca02c", "#d62728"],
+                    domain=["Goods utility", "Cash utility", "Labor disutility"],
+                    range_=["#2ca02c", "#1f77b4", "#d62728"],
                     legend_title="Metric",
                 )
                 .mark_line(strokeWidth=2)
@@ -287,8 +287,8 @@ else:
         )
         st.altair_chart(chart_food, use_container_width=True)
 
-        # ---- Chart 7: Goods utility vs labor disutility (avg across consumers) ----
-        st.subheader("Goods utility vs labor disutility (avg)")
+        # ---- Chart 7: Goods, cash, and labor utility (avg across consumers) ----
+        st.subheader("Goods, cash, and labor utility (avg)")
         utility_components = df_builder.consumer_utility_components_over_time()
         if not utility_components.empty:
             chart_utility_components = (
@@ -297,8 +297,8 @@ else:
                 .y("value", title="Value")
                 .color(
                     "metric",
-                    domain=["Goods utility (avg)", "Labor disutility (avg)"],
-                    range_=["#2ca02c", "#d62728"],
+                    domain=["Goods utility (avg)", "Cash utility (avg)", "Labor disutility (avg)"],
+                    range_=["#2ca02c", "#1f77b4", "#d62728"],
                     legend_title="Metric",
                 )
                 .mark_line(strokeWidth=2)

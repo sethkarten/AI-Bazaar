@@ -134,6 +134,8 @@ class BazaarWorld:
                 "llm_model": getattr(c, "llm_model", None),
                 "skill": _to_serializable(skill),
                 "risk_aversion": _to_serializable(getattr(c, "risk_aversion", None)),
+                "epsilon": _to_serializable(getattr(c, "epsilon", None)),
+                "beta": _to_serializable(getattr(c, "beta", None)),
                 "goods": getattr(c, "goods", None),
             }
             out.append(entry)
@@ -447,6 +449,14 @@ class BazaarWorld:
         }
 
         self.save_state()
+
+        # Consumption phase: zero consumer goods (keep cash) after every consumption_interval
+        consumption_interval = getattr(self.args, "consumption_interval", 1)
+        if (self.timestep + 1) % consumption_interval == 0:
+            for consumer in self.consumers:
+                if hasattr(consumer, "consume_inventory"):
+                    consumer.consume_inventory()
+
         self.timestep += 1
         return stats
 
@@ -521,6 +531,7 @@ class BazaarWorld:
         for c in self.consumers:
             labor_disutility = c.compute_labor_disutility() if hasattr(c, "compute_labor_disutility") else 0.0
             goods_utility = c.compute_goods_utility() if hasattr(c, "compute_goods_utility") else 0.0
+            cash_utility = c.compute_cash_utility() if hasattr(c, "compute_cash_utility") else 0.0
             by_name[c.name] = {
                 "name": c.name,
                 "labor": getattr(c, "l", 0),
@@ -528,6 +539,7 @@ class BazaarWorld:
                 "cash": money.get(c.name, 0.0),
                 "utility": getattr(c, "utility", 0),
                 "goods_utility": goods_utility,
+                "cash_utility": cash_utility,
                 "labor_disutility": labor_disutility,
                 "inventory": dict(inventories.get(c.name, {})),
                 "diary": getattr(c, "diary", [])[-1:] if hasattr(c, "diary") else [],
@@ -541,6 +553,7 @@ class BazaarWorld:
                     "cash": money.get(key, 0.0),
                     "utility": 0,
                     "goods_utility": 0.0,
+                    "cash_utility": 0.0,
                     "labor_disutility": 0.0,
                     "inventory": dict(inventories.get(key, {})),
                     "diary": [],

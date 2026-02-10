@@ -62,6 +62,18 @@ python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 1 --num-consumers
 python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 1 --num-consumers 5 --discovery-limit 2 --wandb --name utility_debug_3 --max-timesteps 5 --max-tokens 2000 --consumer-scenario RACE_TO_BOTTOM --prompt-algo cot --llm gemini-2.5-flash
 ```
 
+```bash
+python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 1 --num-consumers 5 --discovery-limit 2 --wandb --name utility_tune_1 --max-timesteps 5 --max-tokens 2000 --consumer-scenario RACE_TO_BOTTOM --prompt-algo cot --llm gemini-2.5-flash
+```
+
+```bash
+python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 5 --num-consumers 20 --discovery-limit 2 --wandb --name utility_tune_2 --max-timesteps 50 --max-tokens 2000 --consumer-scenario RACE_TO_BOTTOM --prompt-algo cot --llm gemini-2.5-flash
+```
+
+```bash
+python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 3 --num-consumers 15 --discovery-limit 2 --wandb --name utility_tune_3 --max-timesteps 30 --max-tokens 2000 --consumer-scenario RACE_TO_BOTTOM --prompt-algo cot --llm gemini-2.5-flash
+```
+
 ---
 
 ## Ablation-style runs

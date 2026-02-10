@@ -340,6 +340,12 @@ def run_marketplace_simulation(args, llm_instance=None):
                 if hasattr(consumer, "reflect"):
                     consumer.reflect(timestep)
 
+            # Consumption phase: zero consumer goods (keep cash) after every consumption_interval
+            if (timestep + 1) % getattr(args, "consumption_interval", 1) == 0:
+                for consumer in consumers:
+                    if hasattr(consumer, "consume_inventory"):
+                        consumer.consume_inventory()
+
             if not any(getattr(firm, "in_business", True) for firm in firms):
                 logger.info("All firms are out of business. Ending simulation early.")
                 break
@@ -427,6 +433,12 @@ def create_argument_parser():
             "BOUNDED_BAZAAR",
         ],
         help="Consumer scenario",
+    )
+    parser.add_argument(
+        "--consumption-interval",
+        type=int,
+        default=1,
+        help="Run consumer inventory consumption (zero goods, keep cash) every N timesteps; 1 = every timestep (default)",
     )
 
     # LLM configuration (for LLM firm agents)
