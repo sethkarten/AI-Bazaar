@@ -19,6 +19,7 @@ from .market_core.market_core import Ledger, Market
 from .agents.firm import FirmAgent, FixedFirmAgent
 from .agents.consumer import CESConsumerAgent, FixedConsumerAgent
 from .agents.llm_agent import TestAgent
+from .env.bazaar_env import BazaarWorld
 
 
 def setup_logging(args):
@@ -48,6 +49,43 @@ def run_marketplace_simulation(args, llm_instance=None):
         except Exception as e:
             logger.error(f"Failed to connect to LLM: {e}")
             sys.exit(1)
+
+    # Optional: run via BazaarWorld (single source of truth; state files in log_dir)
+    if getattr(args, "use_env", False):
+        if args.wandb:
+            wandb.init(
+                project="ai-bazaar-marketplace",
+                entity="princeton-ai",
+                name=args.name if args.name else "marketplace_simulation",
+                config=vars(args),
+            )
+        world = BazaarWorld(args, llm_model=llm_instance)
+        start_time = time.time()
+        try:
+            while not world.is_done():
+                logger.info(f"TIMESTEP {world.timestep}")
+                print(f"TIMESTEP {world.timestep}")
+                stats = world.step()
+                if args.wandb:
+                    wandb.log(stats, step=world.timestep - 1)
+                elapsed = time.time() - start_time
+                print(
+                    f"Completed {world.timestep}/{args.max_timesteps} timesteps in {elapsed:.2f}s"
+                )
+                logger.info(
+                    f"Timestep {world.timestep}/{args.max_timesteps} completed"
+                )
+        except Exception as e:
+            logger.error(f"Error in simulation: {e}")
+            import traceback
+
+            traceback.print_exc()
+        finally:
+            if args.wandb:
+                wandb.finish()
+        logger.info("Marketplace simulation completed successfully!")
+        print("Simulation completed!")
+        return
 
     # Initialize market infrastructure
     ledger = Ledger()
@@ -450,6 +488,11 @@ def create_argument_parser():
         "--no-diaries",
         action="store_true",
         help="Disable strategic diary entries for agents",
+    )
+    parser.add_argument(
+        "--use-env",
+        action="store_true",
+        help="Run simulation via BazaarWorld (env) instead of inline loop; state files written to log_dir.",
     )
 
     return parser

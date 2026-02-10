@@ -69,6 +69,7 @@ else:
     # Tab 1–3: single-timestep view. Tab 4: time-series charts across all state files.
     tab1, tab2, tab3, tab4 = st.tabs(["💰 Wealth Distribution", "🏢 Firms", "👥 Consumers", "📊 Charts"])
 
+    # WEALTH DISTRIBUTION TAB: Cash by agent.
     with tab1:
         st.subheader("Cash by Agent")
         cash_df = DataFrameBuilder.value_by_agent(
@@ -76,6 +77,7 @@ else:
         )
         st.bar_chart(cash_df, x="Agent", y="Cash")
 
+    # FIRM TAB: Firm states and diary entries.
     with tab2:
         st.subheader("Firm States")
         firms_df = pd.DataFrame(state["firms"])
@@ -85,24 +87,49 @@ else:
                 firms_df = firms_df.drop(columns=[col])
         st.table(firms_df)
 
+    # CONSUMER TAB: Consumer states and diary entries.
     with tab3:
         st.subheader("Consumer States")
         cons_df = pd.DataFrame(state["consumers"])
+        
         st.table(cons_df.drop(columns=["diary"]))
 
-        # Diary is stored as list of [timestep, "entry text"]; show last entry as text
-        selected_consumer = st.selectbox(
-            "Select Consumer for Diary", [c["name"] for c in state["consumers"]]
+        # ---- Consumer diary: all entries across all state files ----
+        st.subheader("Consumer diary (all timesteps)")
+        with open(state_files[0], "r") as f:
+            first_state = json.load(f)
+        consumer_names = [c["name"] for c in first_state["consumers"]]
+        selected_consumer_t4 = st.selectbox(
+            "Select consumer",
+            consumer_names,
+            key="tab4_consumer_diary",
         )
-        for c in state["consumers"]:
-            if c["name"] == selected_consumer:
+        diary_entries_all = []
+        for path in state_files:
+            with open(path, "r") as f:
+                snap = json.load(f)
+            file_ts = snap.get("timestep", 0)
+            for c in snap.get("consumers", []):
+                if c["name"] != selected_consumer_t4:
+                    continue
                 diary = c.get("diary") or []
-                if isinstance(diary, list) and diary and isinstance(diary[-1], (list, tuple)):
-                    last_entry = diary[-1][-1] if len(diary[-1]) > 1 else str(diary[-1])
-                else:
-                    last_entry = diary if isinstance(diary, str) else (diary[-1] if diary else "—")
-                st.info(f"Last Diary Entry: {last_entry}")
-                
+                if isinstance(diary, list) and diary:
+                    for entry in diary:
+                        if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                            ts, text = entry[0], entry[1]
+                            diary_entries_all.append({"Timestep": ts, "Entry": text})
+                        else:
+                            diary_entries_all.append({"Timestep": file_ts, "Entry": str(entry)})
+                elif isinstance(diary, str):
+                    diary_entries_all.append({"Timestep": file_ts, "Entry": diary})
+                break
+        diary_all_df = pd.DataFrame(diary_entries_all)
+        if diary_entries_all:
+            st.table(diary_all_df)
+        else:
+            st.info(f"No diary entries for {selected_consumer_t4} across the loaded state files.")
+            
+    # CHARTS TAB: Time-series charts across all state files.            
     with tab4:
         df_builder = DataFrameBuilder(state_files=state_files)
 
