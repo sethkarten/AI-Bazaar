@@ -53,8 +53,6 @@ class CESConsumerAgent(LLMAgent):
         self.base_income = income_stream  # Fixed endowment if any
         self.ces_params = ces_params
         self.risk_aversion = risk_aversion
-        self.previous_cost_of_living = None
-        self.cost_of_living = 0.0
         self.persona = persona
         self.ledger = ledger
         self.market = market
@@ -75,6 +73,12 @@ class CESConsumerAgent(LLMAgent):
         self.epsilon = epsilon
         self.beta = beta
         self.use_crra_savings = use_crra_savings
+
+        # Cost of living per timestep: self.P[t] = cost of living at timestep t (None if not yet computed)
+        self.P = []
+
+        # Willingness to pay per good, keyed by timestep; only last 3 timesteps kept
+        self.willingness_to_pay: Dict[int, Dict[str, float]] = {}
 
         self.prices_dict = {}
         self.prices_prev = {}
@@ -180,14 +184,13 @@ class CESConsumerAgent(LLMAgent):
         self.income = total_income  # Set for compute_demand
         self.ledger.credit(self.name, total_income)
 
-    def compute_cost_of_living(self) -> float:
-        """Compute cost of living & store average prices for each good"""
-        # save previous values
-        self.previous_cost_of_living = (
-            self.cost_of_living
-            if self.cost_of_living > 0.0
-            else self.previous_cost_of_living
-        )
+    def compute_cost_of_living(self, timestep: int) -> float:
+        """Compute cost of living for the given timestep & store in self.P[t]. Returns cached value if already computed."""
+        while len(self.P) <= timestep:
+            self.P.append(None)
+        if self.P[timestep] is not None:
+            return self.P[timestep]
+        # Save previous price values for fallback when no quotes
         for good in self.goods:
             self.prices_prev[good] = (
                 self.prices_dict[good]
@@ -227,18 +230,17 @@ class CESConsumerAgent(LLMAgent):
                 )
 
         if total == 0.0:
+            self.P[timestep] = 0.0
             return 0.0
         cost_of_living = total ** (1 / (1 - self.sigma))
+        self.P[timestep] = cost_of_living
+        return cost_of_living
 
-        self.cost_of_living = cost_of_living
-
-        return self.cost_of_living
-
-    def compute_demand(self) -> Dict[str, float]:
+    def compute_demand(self, timestep: int) -> Dict[str, float]:
         """Compute demand for each good"""
-        P = self.compute_cost_of_living()
-        if P <= 0.0:
-            P = self.previous_cost_of_living
+        P = self.compute_cost_of_living(timestep)
+        if P <= 0.0 and timestep > 0:
+            P = self.compute_cost_of_living(timestep - 1)
         demand = {}
         for good in self.goods:
             # get alpha for good
@@ -256,6 +258,25 @@ class CESConsumerAgent(LLMAgent):
             else:
                 demand[good] = (self.income / P) * alpha * (price / P) ** (-self.sigma)
         return demand
+    
+    def compute_willingness_to_pay(self, timestep: int) -> Dict[str, float]:
+        """Compute willingness to pay for each good. Cached per timestep; only last 3 timesteps kept."""
+        if timestep in self.willingness_to_pay:
+            return self.willingness_to_pay[timestep]
+        P = self.compute_cost_of_living(timestep)
+        if P <= 0.0 and timestep > 0:
+            P = self.compute_cost_of_living(timestep - 1)
+        wtp = {}
+        for good in self.goods:
+            alpha = self.ces_params[good]
+            # compute willingness to pay for 1 unit of good (inverse of demand)
+            wtp[good] = P * ((self.income / P) * alpha) ** (1 / self.sigma)
+        self.willingness_to_pay[timestep] = wtp
+        # Keep only last 3 timesteps
+        for t in list(self.willingness_to_pay.keys()):
+            if t < timestep - 2:
+                del self.willingness_to_pay[t]
+        return wtp
 
     @property
     def cash(self) -> float:
@@ -295,7 +316,7 @@ class CESConsumerAgent(LLMAgent):
         "Make fixed list of orders (returns orders without submitting)"
         import random
 
-        demand = self.compute_demand()
+        demand = self.compute_demand(timestep)
         all_quotes = self.market.quotes
         orders = []
 
@@ -368,21 +389,21 @@ class CESConsumerAgent(LLMAgent):
                     )
         elif scenario == "PRICE_DISCRIMINATION":
             # compute willingness to pay for each good and submit an order without firm discrimination
+            wtp = self.compute_willingness_to_pay(timestep)
             for good in self.goods:
                 good_str = str(good).strip()
                 good_quotes = [
                     q for q in visible_quotes if str(q.good).strip() == good_str
                 ]
                 if good_quotes:
-                    avg_price = sum(q.price for q in good_quotes) / len(good_quotes)
-                    # Willingness to pay varies by consumer (simulated with random factor)
-                    wtp = avg_price * (1.0 + random.uniform(0.0, 0.5))
-                    affordable_quotes = [q for q in good_quotes if q.price <= wtp]
+                    # Willingness to pay varies by consumer (CES-based)
+                    affordable_quotes = [q for q in good_quotes if q.price <= wtp[good]]
                     if affordable_quotes:
-                        chosen_quote = random.choice(affordable_quotes)
+                        # Choose the quote with price closest to wtp[good] but not exceeding it
+                        chosen_quote = max(affordable_quotes, key=lambda q: q.price)
                         orders.append(
                             self.create_order(
-                                chosen_quote.firm_id, good, demand[good], wtp
+                                chosen_quote.firm_id, good, demand[good], wtp[good]
                             )
                         )
         elif scenario == "RATIONAL_BAZAAR":

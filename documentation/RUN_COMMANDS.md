@@ -12,7 +12,7 @@ Run from project root. Use **`python -m ai_bazaar.main`** (works without install
 
 ## Visualization dashboard
 
-Run the Streamlit dashboard to inspect simulation state (requires `logs/state_t*.json` from a run that saves state, e.g. via `bazaar_env`):
+Run the Streamlit dashboard to inspect simulation state (requires state files from a run that saves state, e.g. via `bazaar_env`). State files are stored under `logs/<run_name>/state_t*.json` (e.g. `logs/rep_disc_test_1/state_t0.json`). The dashboard lists runs and lets you pick one.
 
 ```bash
 streamlit run ai_bazaar/viz/dashboard.py
@@ -73,6 +73,19 @@ python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 5 --num-consumers
 ```bash
 python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 3 --num-consumers 15 --discovery-limit 2 --wandb --name utility_tune_3 --max-timesteps 30 --max-tokens 2000 --consumer-scenario RACE_TO_BOTTOM --prompt-algo cot --llm gemini-2.5-flash
 ```
+
+```bash
+python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 3 --num-consumers 15 --discovery-limit 2 --wandb --name utility_tune_4 --max-timesteps 30 --max-tokens 2000 --consumer-scenario EARLY_BIRD --prompt-algo cot --llm gemini-2.5-flash
+```
+
+```bash
+python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 1 --num-consumers 3 --wandb --name mini_test_2 --max-timesteps 2 --max-tokens 2000 --consumer-scenario RACE_TO_BOTTOM --prompt-algo cot --llm gemini-2.5-flash
+```
+
+```bash
+python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 1 --num-consumers 3 --wandb --name price_disc_mini_1 --max-timesteps 2 --max-tokens 2000 --consumer-scenario PRICE_DISCRIMINATION --prompt-algo cot --llm gemini-2.5-flash
+```
+
 
 ---
 

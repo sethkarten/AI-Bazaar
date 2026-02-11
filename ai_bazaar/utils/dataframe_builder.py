@@ -168,6 +168,21 @@ class DataFrameBuilder:
                 rows.append({"timestep": t, "firm": name, "value": money.get(name, 0)})
         return pd.DataFrame(rows)
 
+    def reputation_per_firm_over_time(self) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, firm). Value is firm["reputation"] for each firm.
+        Uses union of all firm names across states. Default reputation 1.0 if missing from state.
+        """
+        all_firms = self._all_firm_names()
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            firm_by_name = {f.get("name"): f for f in s.get("firms", []) if f.get("name")}
+            for name in all_firms:
+                f = firm_by_name.get(name)
+                rows.append({"timestep": t, "firm": name, "value": f.get("reputation", 1.0) if f else 1.0})
+        return pd.DataFrame(rows)
+
     def cash_per_consumer_over_time(self) -> pd.DataFrame:
         """
         Long format: one row per (timestep, consumer). Value is cash from ledger.money.
@@ -204,8 +219,8 @@ class DataFrameBuilder:
         self, consumer_name: Optional[str] = None
     ) -> pd.DataFrame:
         """
-        Long format: one row per (timestep, metric). Value is goods_utility, cash_utility, or labor_disutility.
-        Columns: timestep, metric, value.
+        Long format: one row per (timestep, metric). Value is goods_utility, cash_utility,
+        labor_disutility, or total utility. Columns: timestep, metric, value.
         If consumer_name is None: value is mean across consumers; metrics include "(avg)" suffix.
         If consumer_name is set: value is that consumer's series.
         """
@@ -218,24 +233,29 @@ class DataFrameBuilder:
                     rows.append({"timestep": t, "metric": "Goods utility (avg)", "value": 0.0})
                     rows.append({"timestep": t, "metric": "Cash utility (avg)", "value": 0.0})
                     rows.append({"timestep": t, "metric": "Labor disutility (avg)", "value": 0.0})
+                    rows.append({"timestep": t, "metric": "Total utility (avg)", "value": 0.0})
                 else:
                     rows.append({"timestep": t, "metric": "Goods utility", "value": 0.0})
                     rows.append({"timestep": t, "metric": "Cash utility", "value": 0.0})
                     rows.append({"timestep": t, "metric": "Labor disutility", "value": 0.0})
+                    rows.append({"timestep": t, "metric": "Total utility", "value": 0.0})
                 continue
             if consumer_name is None:
                 mean_goods = np.mean([c.get("goods_utility", 0.0) for c in consumers])
                 mean_cash = np.mean([c.get("cash_utility", 0.0) for c in consumers])
                 mean_labor = np.mean([c.get("labor_disutility", 0.0) for c in consumers])
+                mean_total = np.mean([c.get("utility", 0.0) for c in consumers])
                 rows.append({"timestep": t, "metric": "Goods utility (avg)", "value": mean_goods})
                 rows.append({"timestep": t, "metric": "Cash utility (avg)", "value": mean_cash})
                 rows.append({"timestep": t, "metric": "Labor disutility (avg)", "value": mean_labor})
+                rows.append({"timestep": t, "metric": "Total utility (avg)", "value": mean_total})
             else:
                 c_by_name = {c.get("name"): c for c in consumers if c.get("name")}
                 c = c_by_name.get(consumer_name, {})
                 rows.append({"timestep": t, "metric": "Goods utility", "value": c.get("goods_utility", 0.0)})
                 rows.append({"timestep": t, "metric": "Cash utility", "value": c.get("cash_utility", 0.0)})
                 rows.append({"timestep": t, "metric": "Labor disutility", "value": c.get("labor_disutility", 0.0)})
+                rows.append({"timestep": t, "metric": "Total utility", "value": c.get("utility", 0.0)})
         return pd.DataFrame(rows)
 
     @staticmethod

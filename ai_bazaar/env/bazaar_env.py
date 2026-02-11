@@ -141,8 +141,10 @@ class BazaarWorld:
             out.append(entry)
 
         log_dir = getattr(self.args, "log_dir", "logs")
-        os.makedirs(log_dir, exist_ok=True)
-        path = os.path.join(log_dir, "consumer_attributes.json")
+        run_name = getattr(self.args, "name", None) or "simulation"
+        run_dir = os.path.join(log_dir, run_name)
+        os.makedirs(run_dir, exist_ok=True)
+        path = os.path.join(run_dir, "consumer_attributes.json")
         with open(path, "w") as f:
             json.dump(out, f, indent=2)
         self.logger.info("Wrote consumer attributes to %s", path)
@@ -296,6 +298,22 @@ class BazaarWorld:
         # 6. Market Clearing
         filled_orders, sales_info = self.market.clear(self.ledger)
         self.logger.info(f"Filled {len(filled_orders)} orders")
+
+        # CES-based consumer surplus this timestep (per consumer, for state file)
+        consumers_by_name = {c.name: c for c in self.consumers}
+        self.consumer_surplus_this_step = {}
+        for order, sale in zip(filled_orders, sales_info):
+            consumer = consumers_by_name.get(order.consumer_id)
+            if consumer is not None and hasattr(consumer, "compute_willingness_to_pay"):
+                wtp = consumer.compute_willingness_to_pay(self.timestep).get(order.good, 0.0)
+                price = sale.get("price", 0.0)
+                qty = sale.get("quantity_sold", 0.0)
+                surplus = max(0.0, (wtp - price) * qty)
+            else:
+                surplus = 0.0
+            self.consumer_surplus_this_step[order.consumer_id] = (
+                self.consumer_surplus_this_step.get(order.consumer_id, 0.0) + surplus
+            )
 
         # Reset step-level profit before accumulating (unit_cost 1.0 matches supply_unit_price)
         supply_unit_price = 1.0
@@ -479,10 +497,10 @@ class BazaarWorld:
         }
 
         log_dir = getattr(self.args, "log_dir", "logs")
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-
-        filename = os.path.join(log_dir, f"state_t{self.timestep}.json")
+        run_name = getattr(self.args, "name", None) or "simulation"
+        run_dir = os.path.join(log_dir, run_name)
+        os.makedirs(run_dir, exist_ok=True)
+        filename = os.path.join(run_dir, f"state_t{self.timestep}.json")
         import json
 
         with open(filename, "w") as f:
@@ -497,6 +515,7 @@ class BazaarWorld:
                 "in_business": getattr(f, "in_business", True),
                 "cash": money.get(f.name, 0.0),
                 "profit": getattr(f, "profit", 0.0),
+                "reputation": getattr(f, "reputation", 1.0),
                 "expenses_info": dict(getattr(f, "expenses_info", {})),
                 "sales_info": list(getattr(f, "sales_info", [])),
                 "prices": self.firm_prices_last_step.get(f.name, {}).copy(),
@@ -515,6 +534,7 @@ class BazaarWorld:
                     "in_business": False,
                     "cash": money.get(key, 0.0),
                     "profit": 0.0,
+                    "reputation": 1.0,
                     "expenses_info": {"supply_cost": 0.0, "overhead_costs": 0.0, "taxes_paid": 0.0, "platform_fees": 0.0},
                     "sales_info": [],
                     "prices": {},
@@ -532,6 +552,7 @@ class BazaarWorld:
             labor_disutility = c.compute_labor_disutility() if hasattr(c, "compute_labor_disutility") else 0.0
             goods_utility = c.compute_goods_utility() if hasattr(c, "compute_goods_utility") else 0.0
             cash_utility = c.compute_cash_utility() if hasattr(c, "compute_cash_utility") else 0.0
+            wtp = c.compute_willingness_to_pay(self.timestep) if hasattr(c, "compute_willingness_to_pay") else {}
             by_name[c.name] = {
                 "name": c.name,
                 "labor": getattr(c, "l", 0),
@@ -542,6 +563,8 @@ class BazaarWorld:
                 "cash_utility": cash_utility,
                 "labor_disutility": labor_disutility,
                 "inventory": dict(inventories.get(c.name, {})),
+                "willingness_to_pay": dict(wtp),
+                "consumer_surplus": getattr(self, "consumer_surplus_this_step", {}).get(c.name, 0.0),
                 "diary": getattr(c, "diary", [])[-1:] if hasattr(c, "diary") else [],
             }
         for key in money:
@@ -556,6 +579,8 @@ class BazaarWorld:
                     "cash_utility": 0.0,
                     "labor_disutility": 0.0,
                     "inventory": dict(inventories.get(key, {})),
+                    "willingness_to_pay": {},
+                    "consumer_surplus": getattr(self, "consumer_surplus_this_step", {}).get(key, 0.0),
                     "diary": [],
                 }
         return [by_name[name] for name in sorted(by_name)]
