@@ -289,6 +289,85 @@ else:
             )
             st.altair_chart(chart_reputation_firm, use_container_width=True)
 
+        # ---- Chart 4c: Sales per firm (all firms on same chart) ----
+        st.subheader("Sales per firm")
+        sales_per_firm = df_builder.sales_per_firm_over_time()
+        chart_sales_firm = (
+            AltairChartBuilder(sales_per_firm)
+            .x("timestep", title="Timestep")
+            .y("value", title="Sales (quantity sold)")
+            .color("firm", legend_title="Firm")
+            .mark_line(strokeWidth=2)
+            .build()
+        )
+        st.altair_chart(chart_sales_firm, use_container_width=True)
+
+        # ---- Chart 4d: Price per firm for a good (good selectable) ----
+        st.subheader("Price per firm (by good)")
+        good_names = df_builder._all_good_names()
+        if good_names:
+            selected_good = st.selectbox(
+                "Good",
+                good_names,
+                key="chart_price_good_select",
+            )
+            price_per_firm = df_builder.price_per_firm_over_time(selected_good)
+            chart_price_firm = (
+                AltairChartBuilder(price_per_firm)
+                .x("timestep", title="Timestep")
+                .y("value", title=f"Price ({selected_good})")
+                .color("firm", legend_title="Firm")
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_price_firm, use_container_width=True)
+        else:
+            st.caption("No goods found in firm prices.")
+
+        # ---- Chart 4e: Sales this step per firm (good selectable) ----
+        st.subheader("Sales this step per firm (by good)")
+        good_names_sales = df_builder._all_good_names()
+        if good_names_sales:
+            selected_good_sales = st.selectbox(
+                "Good (sales this step)",
+                good_names_sales,
+                key="chart_sales_this_step_good_select",
+            )
+            sales_this_step_per_firm = df_builder.sales_this_step_per_firm_over_time(selected_good_sales)
+            chart_sales_this_step = (
+                AltairChartBuilder(sales_this_step_per_firm)
+                .x("timestep", title="Timestep")
+                .y("value", title=f"Sales this step ({selected_good_sales})")
+                .color("firm", legend_title="Firm")
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_sales_this_step, use_container_width=True)
+        else:
+            st.caption("No goods found for sales this step.")
+
+        # ---- Chart 4f: Inventory per firm (good selectable; excludes cash) ----
+        st.subheader("Inventory per firm (by good)")
+        inventory_good_names = df_builder._all_inventory_good_names()
+        if inventory_good_names:
+            selected_good_inv = st.selectbox(
+                "Good (inventory)",
+                inventory_good_names,
+                key="chart_inventory_firm_good_select",
+            )
+            inventory_per_firm = df_builder.inventory_per_firm_over_time(selected_good_inv)
+            chart_inventory_firm = (
+                AltairChartBuilder(inventory_per_firm)
+                .x("timestep", title="Timestep")
+                .y("value", title=f"Inventory ({selected_good_inv})")
+                .color("firm", legend_title="Firm")
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_inventory_firm, use_container_width=True)
+        else:
+            st.caption("No inventory goods found for firms.")
+
         # ---- Chart 5: Cash per consumer (all consumers on same chart) ----
         st.subheader("Cash per consumer")
         cash_per_consumer = df_builder.cash_per_consumer_over_time()
@@ -301,6 +380,20 @@ else:
             .build()
         )
         st.altair_chart(chart_cash, use_container_width=True)
+
+        # ---- Chart 5b: Consumer surplus per consumer (all consumers on same chart) ----
+        st.subheader("Consumer surplus per consumer")
+        surplus_per_consumer = df_builder.consumer_surplus_per_consumer_over_time()
+        if not surplus_per_consumer.empty:
+            chart_surplus = (
+                AltairChartBuilder(surplus_per_consumer)
+                .x("timestep", title="Timestep")
+                .y("value", title="Consumer surplus")
+                .color("consumer", legend_title="Consumer")
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_surplus, use_container_width=True)
 
         # ---- Chart 6: Food inventory per consumer (all consumers on same chart) ----
         st.subheader("Food inventory per consumer")

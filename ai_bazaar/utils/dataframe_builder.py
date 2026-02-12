@@ -90,6 +90,26 @@ class DataFrameBuilder:
         
         return sorted(names)
 
+    def _all_good_names(self) -> List[str]:
+        """Union of all good names from firm["prices"] across states (e.g. food, supply)."""
+        seen = set()
+        for s in self.states:
+            for f in s.get("firms", []):
+                for g in (f.get("prices") or {}).keys():
+                    if g and g not in seen:
+                        seen.add(g)
+        return sorted(seen)
+
+    def _all_inventory_good_names(self) -> List[str]:
+        """Union of all good names from firm["inventory"] across states (e.g. food, supply)."""
+        seen = set()
+        for s in self.states:
+            for f in s.get("firms", []):
+                for g in (f.get("inventory") or {}).keys():
+                    if g and g not in seen:
+                        seen.add(g)
+        return sorted(seen)
+
     def metrics_over_time(
         self,
         metrics: Optional[List[str]] = None,
@@ -183,6 +203,97 @@ class DataFrameBuilder:
                 rows.append({"timestep": t, "firm": name, "value": f.get("reputation", 1.0) if f else 1.0})
         return pd.DataFrame(rows)
 
+    def sales_per_firm_over_time(self) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, firm). Value is total quantity sold (sum of
+        firm["sales_by_good"] across all goods). Uses union of all firm names across states.
+        """
+        all_firms = self._all_firm_names()
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            firm_by_name = {f.get("name"): f for f in s.get("firms", []) if f.get("name")}
+            for name in all_firms:
+                f = firm_by_name.get(name)
+                if f:
+                    sales_by_good = f.get("sales_by_good") or {}
+                    total_sales = sum(
+                        v for v in sales_by_good.values()
+                        if isinstance(v, (int, float))
+                    )
+                else:
+                    total_sales = 0
+                rows.append({"timestep": t, "firm": name, "value": total_sales})
+        return pd.DataFrame(rows)
+
+    def price_per_firm_over_time(self, good: str) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, firm). Value is firm["prices"].get(good) for that good.
+        Uses union of all firm names across states. Missing price is 0.
+        """
+        all_firms = self._all_firm_names()
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            firm_by_name = {f.get("name"): f for f in s.get("firms", []) if f.get("name")}
+            for name in all_firms:
+                f = firm_by_name.get(name)
+                if f:
+                    prices = f.get("prices") or {}
+                    price = prices.get(good, 0)
+                    if isinstance(price, (int, float)):
+                        pass
+                    else:
+                        price = 0
+                else:
+                    price = 0
+                rows.append({"timestep": t, "firm": name, "value": price})
+        return pd.DataFrame(rows)
+
+    def sales_this_step_per_firm_over_time(self, good: str) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, firm). Value is quantity sold this step for the given
+        good: firm["sales_this_step"].get(good, 0). Uses union of all firm names across states.
+        """
+        all_firms = self._all_firm_names()
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            firm_by_name = {f.get("name"): f for f in s.get("firms", []) if f.get("name")}
+            for name in all_firms:
+                f = firm_by_name.get(name)
+                if f:
+                    sales_this_step = f.get("sales_this_step") or {}
+                    qty = sales_this_step.get(good, 0)
+                    if not isinstance(qty, (int, float)):
+                        qty = 0
+                else:
+                    qty = 0
+                rows.append({"timestep": t, "firm": name, "value": qty})
+        return pd.DataFrame(rows)
+
+    def inventory_per_firm_over_time(self, good: str) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, firm). Value is firm["inventory"].get(good, 0) for
+        that good (quantity in stock, excluding cash). Uses union of all firm names across states.
+        """
+        all_firms = self._all_firm_names()
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            firm_by_name = {f.get("name"): f for f in s.get("firms", []) if f.get("name")}
+            for name in all_firms:
+                f = firm_by_name.get(name)
+                if f:
+                    inv = f.get("inventory") or {}
+                    qty = inv.get(good, 0)
+                    if not isinstance(qty, (int, float)):
+                        qty = 0
+                else:
+                    qty = 0
+                rows.append({"timestep": t, "firm": name, "value": qty})
+        return pd.DataFrame(rows)
+
     def cash_per_consumer_over_time(self) -> pd.DataFrame:
         """
         Long format: one row per (timestep, consumer). Value is cash from ledger.money.
@@ -195,6 +306,21 @@ class DataFrameBuilder:
             money = s["ledger"]["money"]
             for name in all_consumers:
                 rows.append({"timestep": t, "consumer": name, "value": money.get(name, 0)})
+        return pd.DataFrame(rows)
+
+    def consumer_surplus_per_consumer_over_time(self) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, consumer). Value is consumer_surplus from state["consumers"].
+        Uses union of all consumer names across states so every consumer appears for every timestep.
+        """
+        all_consumers = self._all_consumer_names()
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            consumer_by_name = {c.get("name"): c for c in s.get("consumers", []) if c.get("name")}
+            for name in all_consumers:
+                c = consumer_by_name.get(name)
+                rows.append({"timestep": t, "consumer": name, "value": c.get("consumer_surplus", 0) if c else 0})
         return pd.DataFrame(rows)
 
     def food_inventory_per_consumer_over_time(
