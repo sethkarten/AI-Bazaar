@@ -210,6 +210,7 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         market: Market = None,
         args=None,
         llm_instance=None,
+        supply_unit_costs: Dict[str, float] = None,
     ) -> None:
         BaseFirmAgent.__init__(self)
         super().__init__(
@@ -227,7 +228,10 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         self.goods = goods
         self.ledger = ledger
         self.market = market
-        self.supply_unit_costs = {good: DEFAULT_SUPPLY_UNIT_COSTS.get(good) * np.random.uniform(1.0, args.max_supply_unit_cost) for good in goods}
+        if supply_unit_costs is not None:
+            self.supply_unit_costs = dict(supply_unit_costs)
+        else:
+            self.supply_unit_costs = {good: DEFAULT_SUPPLY_UNIT_COSTS.get(good) * np.random.uniform(1.0, args.max_supply_unit_cost) for good in goods}
 
         # Initialize ledger with cash
         self.ledger.credit(self.name, initial_cash)
@@ -735,13 +739,9 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
 
             if self.prompt_algo == "cot" or self.prompt_algo == "sc":
                 price_format = (
-                    "{"
-                    + ", ".join(
-                        [
-                            f'"thought":"<thinking>", "price_{good}":"X"'
-                            for good in self.goods
-                        ]
-                    )
+                    '{'
+                    + '"thought":"<one short reasoning sentence>", '
+                    + ", ".join([f'"price_{good}":"X"' for good in self.goods])
                     + "}"
                 )
             else:
@@ -754,6 +754,15 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             self.message_history[timestep]["user_prompt"] += (
                 f"Decide the price for each good: {goods_list}. "
             )
+            if len(self.goods) > 1:
+                price_keys_list = ", ".join([f"price_{g}" for g in self.goods])
+                self.message_history[timestep]["user_prompt"] += (
+                    f"You must include exactly these keys: {price_keys_list}. "
+                )
+            if self.prompt_algo == "cot" or self.prompt_algo == "sc":
+                self.message_history[timestep]["user_prompt"] += (
+                    "Keep the thought value to one short sentence; do not use quotes or newlines inside it. "
+                )
             self.message_history[timestep]["user_prompt"] += (
                 f"Exactly use the JSON format: {price_format}\n"
             )
@@ -781,11 +790,9 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             supply_keys = [f"supply_quantity_{good}" for good in self.goods]
             if self.prompt_algo == "cot" or self.prompt_algo == "sc":
                 supply_format = (
-                    "{"
-                    + ", ".join(
-                        [f'"thought":"<thinking>"']
-                        + [f'"{k}":"X"' for k in supply_keys]
-                    )
+                    '{'
+                    + '"thought":"<one short reasoning sentence>", '
+                    + ", ".join([f'"{k}":"X"' for k in supply_keys])
                     + "}"
                 )
             else:
@@ -793,6 +800,14 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             self.message_history[timestep]["user_prompt"] += (
                 "Decide how much supply to purchase for each good (quantity per good). "
             )
+            if len(self.goods) > 1:
+                self.message_history[timestep]["user_prompt"] += (
+                    f"You must include exactly these keys: {', '.join(supply_keys)}. "
+                )
+            if self.prompt_algo == "cot" or self.prompt_algo == "sc":
+                self.message_history[timestep]["user_prompt"] += (
+                    "Keep the thought value to one short sentence; do not use quotes or newlines inside it. "
+                )
             self.message_history[timestep]["user_prompt"] += (
                 f"Use the JSON format: {supply_format}\n"
             )
@@ -816,13 +831,9 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
 
             if self.prompt_algo == "cot" or self.prompt_algo == "sc":
                 prod_format = (
-                    "{"
-                    + ", ".join(
-                        [
-                            f'"thought":"<thinking>", "produce_{good}":"X%"'
-                            for good in self.goods
-                        ]
-                    )
+                    '{'
+                    + '"thought":"<one short reasoning sentence>", '
+                    + ", ".join([f'"produce_{good}":"X%"' for good in self.goods])
                     + "}"
                 )
             else:
@@ -835,6 +846,15 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             self.message_history[timestep]["user_prompt"] += (
                 f"Decide what percentage of supply to allocate to all of these goods: {goods_list}."
             )
+            if len(self.goods) > 1:
+                prod_keys_list = ", ".join([f"produce_{g}" for g in self.goods])
+                self.message_history[timestep]["user_prompt"] += (
+                    f"You must include exactly these keys: {prod_keys_list}. "
+                )
+            if self.prompt_algo == "cot" or self.prompt_algo == "sc":
+                self.message_history[timestep]["user_prompt"] += (
+                    "Keep the thought value to one short sentence; do not use quotes or newlines inside it. "
+                )
             self.message_history[timestep]["user_prompt"] += (
                 f'By replacing the "X%"s in this JSON string: {prod_format}\n'
             )

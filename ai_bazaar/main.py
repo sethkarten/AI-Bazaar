@@ -451,6 +451,11 @@ def create_argument_parser():
         action="store_true",
         help="Generate CES parameters via LLM for consumers (otherwise use passed-in/default ces_params)",
     )
+    parser.add_argument(
+        "--use-cost-pref-gen",
+        action="store_true",
+        help="Use heterogeneity module to generate supply_unit_costs per firm and CES preferences per consumer; if disabled, firms get random supply costs and consumers share necessity-weights.",
+    )
 
     # LLM configuration (for LLM firm agents)
     parser.add_argument(

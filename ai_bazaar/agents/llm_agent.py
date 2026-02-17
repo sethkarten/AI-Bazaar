@@ -1,4 +1,5 @@
 import logging
+import re
 from time import sleep
 from typing import Optional
 from ..utils.common import Message
@@ -315,6 +316,78 @@ class LLMAgent:
 
         return result
 
+    def _extract_first_json_object(self, s: str) -> str:
+        """Extract the first complete {...} object using brace matching.
+        Skips text before the first { and after the matching }.
+        """
+        start = s.find("{")
+        if start == -1:
+            return s.strip()
+        depth = 0
+        i = start
+        in_double = False
+        in_single = False
+        escape = False
+        quote_char = None
+        n = len(s)
+        while i < n:
+            c = s[i]
+            if escape:
+                escape = False
+                i += 1
+                continue
+            if c == "\\" and (in_double or in_single):
+                escape = True
+                i += 1
+                continue
+            if in_double or in_single:
+                if c == quote_char:
+                    in_double = False
+                    in_single = False
+                i += 1
+                continue
+            if c == '"':
+                in_double = True
+                quote_char = '"'
+                i += 1
+                continue
+            if c == "'":
+                in_single = True
+                quote_char = "'"
+                i += 1
+                continue
+            if c == "{":
+                depth += 1
+                i += 1
+                continue
+            if c == "}":
+                depth -= 1
+                if depth == 0:
+                    return s[start : i + 1]
+                i += 1
+                continue
+            i += 1
+        return s[start:].strip()
+
+    def _relax_json_syntax(self, s: str) -> str:
+        """Convert common LLM JSON mistakes to valid JSON: single-quoted keys, trailing commas."""
+        # Single-quoted key names: 'key': -> "key":
+        s = re.sub(r"'([^']+)'\s*:", r'"\1":', s)
+        # Trailing commas before } or ]
+        s = re.sub(r",(\s*[}\]])", r"\1", s)
+        return s
+
+    def _preprocess_json_for_parse(self, raw: str) -> str:
+        """Extract first JSON object and relax syntax before json.loads.
+        Use before the first parse attempt and on parsing-agent output.
+        """
+        # Remove markdown code blocks
+        raw = re.sub(r"```(?:json)?\s*", "", raw)
+        raw = re.sub(r"```\s*", "", raw)
+        raw = raw.strip()
+        extracted = self._extract_first_json_object(raw)
+        return self._relax_json_syntax(extracted)
+
     def _call_parsing_agent(
         self, malformed_json: str, expected_format: str, keys: list[str]
     ) -> Optional[str]:
@@ -357,9 +430,9 @@ If values are in different formats (e.g., percentages vs numbers), convert them 
 Expected JSON format:
 {expected_format}
 
-Expected keys: {", ".join(keys)}
+Required keys (output MUST contain exactly these keys): {", ".join(keys)}
 
-Please reformat the malformed JSON to match the expected format exactly. Return ONLY the cleaned JSON object, with no markdown, no code blocks, and no explanatory text."""
+Reformat the malformed JSON to match the expected format. Output must contain every required key above. Return ONLY valid JSON with double-quoted keys, no markdown, no code blocks, and no explanatory text."""
 
             self.logger.info(
                 f"[PARSING AGENT] Sending malformed JSON to parsing agent for {self.name}"
@@ -371,15 +444,8 @@ Please reformat the malformed JSON to match the expected format exactly. Return 
                 f"[PARSING AGENT] Replied with cleaned JSON: {cleaned_output}"
             )
 
-            # Clean up the response (remove markdown if present)
-            cleaned_output = cleaned_output.strip()
-            if cleaned_output.startswith("```"):
-                # Remove markdown code blocks
-                import re
-
-                cleaned_output = re.sub(r"```(?:json)?\s*", "", cleaned_output)
-                cleaned_output = re.sub(r"```\s*", "", cleaned_output)
-                cleaned_output = cleaned_output.strip()
+            # Preprocess parsing-agent output same as main LLM output
+            cleaned_output = self._preprocess_json_for_parse(cleaned_output)
 
             self.logger.info(
                 f"[PARSING AGENT] Received cleaned JSON: {cleaned_output[:200]}..."
@@ -450,6 +516,9 @@ Please reformat the malformed JSON to match the expected format exactly. Return 
                 "reward": None,  # To be filled by environment
             }
         )
+
+        # Preprocess once: extract first JSON object and relax key syntax / trailing commas
+        llm_output = self._preprocess_json_for_parse(llm_output)
 
         try:
             self.logger.info(f"LLM OUTPUT RECURSE {depth}\t{llm_output.strip()}")
@@ -562,9 +631,6 @@ Please reformat the malformed JSON to match the expected format exactly. Return 
 
     def _clean_json_output(self, output: str, keys: list[str]) -> str:
         """Try to clean up malformed JSON output from LLM."""
-        import re
-        import json
-
         # Remove markdown code blocks if present
         output = re.sub(r"```(?:json)?\s*", "", output)
         output = re.sub(r"```\s*", "", output)
@@ -648,13 +714,9 @@ Please reformat the malformed JSON to match the expected format exactly. Return 
         # Remove trailing commas before closing braces
         output = re.sub(r",(\s*[}])", r"\1", output)
 
-        # Try to extract just the JSON part if there's extra text
-        json_match = re.search(r"\{.*\}", output, re.DOTALL)
-        if json_match:
-            output = json_match.group(0)
-
-        # Final cleanup: remove any text after the last }
-        output = re.sub(r"}[^}]*$", "}", output)
+        # Extract first complete JSON object (brace-matched) instead of greedy match
+        output = self._extract_first_json_object(output)
+        output = self._relax_json_syntax(output)
 
         return output
 

@@ -11,12 +11,20 @@ from ..agents.consumer import CESConsumerAgent, FixedConsumerAgent
 
 
 from ..agents.planner import TaxPlanner, FixedTaxPlanner
+from ..utils.heterogeneity import create_heterogeneity
 
 DEFAULT_SUPPLY_UNIT_COSTS = {
     "food": 1.0,
     "clothing": 1.0,
     "electronics": 1.0,
     "furniture": 1.0,
+}
+
+DEFAULT_PREFERENCES = {
+    "food": 0.6,
+    "clothing": 0.2,
+    "electronics": 0.1,
+    "furniture": 0.1,
 }
 
 class BazaarWorld:
@@ -30,32 +38,42 @@ class BazaarWorld:
         # default supply unit costs
         self.supply_unit_costs = {good: DEFAULT_SUPPLY_UNIT_COSTS.get(good) for good in self.goods}
 
-        # Necessity mapping
-        self.necessity_weights = {
-            "food": 0.6,
-            "clothing": 0.2,
-            "electronics": 0.1,
-            "furniture": 0.1,
-        }
+        use_cost_pref_gen = getattr(args, "use_cost_pref_gen", False)
+        if use_cost_pref_gen:
+            self.supply_unit_costs_by_firm, self.consumer_preferences = create_heterogeneity(
+                args, goods=self.goods
+            )
+        else:
+            # Create default structure for costs and preferences to match create_heterogeneity outputs
+            self.supply_unit_costs_by_firm = [
+                {good: DEFAULT_SUPPLY_UNIT_COSTS.get(good, 1.0) for good in self.goods}
+                for _ in range(args.num_firms)
+            ]
+            self.consumer_preferences = [
+                {good: DEFAULT_PREFERENCES.get(good, 0.1) for good in self.goods}
+                for _ in range(args.num_consumers)
+            ]
 
         self.firms = []
         for i in range(args.num_firms):
             name = f"firm_{i}"
             if args.firm_type == "LLM":
-                firm = FirmAgent(
-                    llm=args.llm,
-                    port=args.port,
-                    name=name,
-                    goods=self.goods,
-                    initial_cash=args.firm_initial_cash,
-                    ledger=self.ledger,
-                    market=self.market,
-                    prompt_algo=getattr(args, "prompt_algo", "io"),
-                    history_len=getattr(args, "history_len", 10),
-                    timeout=getattr(args, "timeout", 30),
-                    args=args,
-                    llm_instance=llm_model,
-                )
+                firm_kw = {
+                    "llm": args.llm,
+                    "port": args.port,
+                    "name": name,
+                    "goods": self.goods,
+                    "initial_cash": args.firm_initial_cash,
+                    "ledger": self.ledger,
+                    "market": self.market,
+                    "prompt_algo": getattr(args, "prompt_algo", "io"),
+                    "history_len": getattr(args, "history_len", 10),
+                    "timeout": getattr(args, "timeout", 30),
+                    "args": args,
+                    "llm_instance": llm_model,
+                }
+                firm_kw["supply_unit_costs"] = self.supply_unit_costs_by_firm[i]
+                firm = FirmAgent(**firm_kw)
             else:
                 firm = FixedFirmAgent(
                     name=name,
@@ -76,14 +94,7 @@ class BazaarWorld:
             income = np.random.uniform(50, 200)
             if args.consumer_type == "CES":
                 if args.use_gen_ces is False:
-                    # Use necessity weights for CES params if not provided by LLM
-                    ces_params = {
-                        good: self.necessity_weights.get(good, 0.1) for good in self.goods
-                    }
-                    # Normalize
-                    total_w = sum(ces_params.values())
-                    ces_params = {k: v / total_w for k, v in ces_params.items()}
-
+                    ces_params = self.consumer_preferences[i]
                     consumer = CESConsumerAgent(
                         name=name,
                         income_stream=income,
@@ -94,7 +105,7 @@ class BazaarWorld:
                         llm=args.llm,
                         port=args.port,
                         args=args,
-                        ces_params=ces_params,  # Use default necessity weights
+                        ces_params=ces_params,
                         risk_aversion=getattr(args, "risk_aversion", None),
                         llm_instance=llm_model,
                     )

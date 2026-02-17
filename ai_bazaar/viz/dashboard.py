@@ -198,6 +198,35 @@ else:
 
     # CONSUMER TAB: Consumer states and diary entries.
     with tab3:
+        st.subheader("Consumer CES params")
+        if consumer_attributes_list is not None:
+            # Collect all goods across consumers for column headers
+            all_goods_ces = []
+            for ca in consumer_attributes_list:
+                params = ca.get("ces_params") or {}
+                if isinstance(params, dict):
+                    for g in params:
+                        if g not in all_goods_ces:
+                            all_goods_ces.append(g)
+            all_goods_ces = sorted(all_goods_ces)
+            # Build table: Consumer | good1 | good2 | ...
+            rows_ces = []
+            for ca in consumer_attributes_list:
+                row = {"Consumer": ca.get("name", "")}
+                params = ca.get("ces_params") or {}
+                if not isinstance(params, dict):
+                    params = {}
+                for good in all_goods_ces:
+                    val = params.get(good)
+                    row[good] = f"{val:.2f}" if isinstance(val, (int, float)) else "—"
+                rows_ces.append(row)
+            if rows_ces:
+                st.table(pd.DataFrame(rows_ces))
+            else:
+                st.caption("No consumer CES params in this run.")
+        else:
+            st.caption("No consumer_attributes.json found in this run. Run a simulation with --use-env to generate it.")
+
         consumer_names = [c["name"] for c in state["consumers"]]
         selected_consumer = st.selectbox(
             "Select consumer",
