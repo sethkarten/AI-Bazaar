@@ -237,15 +237,20 @@ class LLMAgent:
         supply_purchase_keys = ["supply_purchases", "purchase_supplies", "buy_supplies"]
         for supply_key in supply_purchase_keys:
             if supply_key in d and isinstance(d[supply_key], dict):
-                # Convert supply_purchases: {"supply": 30.0} to supply_quantity: 30.0
-                # Extract the value from the nested dict (usually keyed by "supply")
-                if "supply_quantity" in keys and d[supply_key]:
-                    # Prefer "supply" key if it exists, otherwise take the first value
-                    if "supply" in d[supply_key]:
-                        result["supply_quantity"] = d[supply_key]["supply"]
+                nested = d[supply_key]
+                # Per-good: supply_purchases: {"food": 10, "clothing": 5} -> supply_quantity_food, etc.
+                supply_quantity_keys = [k for k in keys if k.startswith("supply_quantity_")]
+                if supply_quantity_keys and nested:
+                    for good_key, val in nested.items():
+                        key = f"supply_quantity_{good_key}"
+                        if key in keys:
+                            result[key] = val
+                # Single aggregate: supply_purchases: {"supply": 30.0} -> supply_quantity
+                elif "supply_quantity" in keys and nested:
+                    if "supply" in nested:
+                        result["supply_quantity"] = nested["supply"]
                     else:
-                        # Take the first value from the nested dict
-                        result["supply_quantity"] = next(iter(d[supply_key].values()))
+                        result["supply_quantity"] = next(iter(nested.values()))
                 break  # Only process the first matching key
 
         # Handle nested structures for production_allocations/production and set_prices/pricing

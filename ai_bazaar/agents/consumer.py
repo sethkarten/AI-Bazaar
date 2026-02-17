@@ -1,6 +1,7 @@
 import logging
 import numpy as np
 import math
+import random
 from typing import List, Dict, Any, Optional
 from ai_bazaar.market_core.market_core import Ledger, Market, Order, Quote
 from ..utils.common import PERSONAS, ROLE_MESSAGES
@@ -96,11 +97,9 @@ class CESConsumerAgent(LLMAgent):
         # Reference the ledger's inventory directly - no separate copy
         self.inventory = self.ledger.agent_inventories[self.name]
 
-        # Generate CES parameters using personas if not provided
-        if self.persona is not None and self.llm is not None:
-            self.ces_params = self.generate_ces_params(self.goods)
-            # self.risk_aversion = self.generate_risk_aversion()
-        elif self.ces_params is not None:
+        # CES params: use passed-in if provided (no LLM call), else generate via LLM
+        if self.ces_params is not None:
+            # Use passed-in params, no LLM call
             if len(self.ces_params) != len(self.goods):
                 raise ValueError(
                     f"CES parameters must be provided for all goods. Got {len(self.ces_params)} parameters for {len(self.goods)} goods."
@@ -109,16 +108,9 @@ class CESConsumerAgent(LLMAgent):
                 raise ValueError(
                     f"CES parameters must be positive. Got {self.ces_params}"
                 )
-        elif self.risk_aversion is not None:
-            if self.risk_aversion <= 0:
-                raise ValueError(
-                    f"Risk aversion must be positive. Got {self.risk_aversion}"
-                )
-
         else:
-            raise ValueError(
-                f"CES parameters, risk aversion, or persona must be provided. Got {self.ces_params}, {self.risk_aversion}, and {self.persona}"
-            )
+            # Generate via LLM
+            self.ces_params = self.generate_ces_params(self.goods)
 
     def compute_utility(self) -> float:
         """Compute total utility (CES utility from goods - disutility of labor)"""
@@ -314,7 +306,6 @@ class CESConsumerAgent(LLMAgent):
         firm_reputations: Dict[str, float] = None,
     ) -> List[Order]:
         "Make fixed list of orders (returns orders without submitting)"
-        import random
 
         demand = self.compute_demand(timestep)
         all_quotes = self.market.quotes

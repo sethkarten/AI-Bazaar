@@ -83,7 +83,20 @@ python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 1 --num-consumers
 ```
 
 ```bash
-python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 1 --num-consumers 3 --wandb --name price_disc_mini_1 --max-timesteps 2 --max-tokens 2000 --consumer-scenario PRICE_DISCRIMINATION --prompt-algo cot --llm gemini-2.5-flash
+python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 1 --num-consumers 3 --wandb --name price_disc_mini_1 --max-timesteps 2 --max-tokens 2000 --consumer-scenario PRICE_DISCRIMINATION --prompt-algo cot --llm gemini-2.5-flash --no-diaries 
+```
+
+# Testing heterogenous supply unit cost implementation
+```bash
+python -m ai_bazaar.main --use-env --firm-type LLM --num-firms 1 --num-consumers 3 --wandb --name hetero_supply_1 --max-timesteps 2 --max-tokens 2000 --consumer-scenario BOUNDED_BAZAAR --prompt-algo cot --llm gemini-2.5-flash --no-diaries --seed 8
+```
+
+```bash
+python -m ai_bazaar.main --use-env --firm-type LLM --num-goods 4 --num-firms 1 --num-consumers 3 --name hetero_supply_2 --max-timesteps 2 --max-tokens 2000 --consumer-scenario BOUNDED_BAZAAR --prompt-algo cot --llm gemini-2.5-flash --no-diaries --seed 8
+```
+
+```bash
+python -m ai_bazaar.main --use-env --firm-type LLM --num-goods 4 --num-firms 2 --consumer-type CES --num-consumers 10 --name hetero_supply_4 --max-timesteps 10 --firm-initial-cash 5000 --consumer-scenario BOUNDED_BAZAAR --llm gemini-2.5-flash --discovery-limit 1 --max-tokens 2000 --prompt-algo cot  --no-diaries --use-parsing-agent --seed 8
 ```
 
 

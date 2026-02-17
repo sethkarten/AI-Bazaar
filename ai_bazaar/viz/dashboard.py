@@ -47,6 +47,20 @@ if consumer_attributes_path and os.path.isfile(consumer_attributes_path):
     with open(consumer_attributes_path, "r") as f:
         consumer_attributes_list = json.load(f)
 
+# Experiment arguments from the selected run folder (optional)
+experiment_args_path = os.path.join(run_dir, "experiment_args.json") if run_dir else None
+experiment_args_dict = None
+if experiment_args_path and os.path.isfile(experiment_args_path):
+    with open(experiment_args_path, "r") as f:
+        experiment_args_dict = json.load(f)
+
+# Firm attributes from the selected run folder (optional)
+firm_attributes_path = os.path.join(run_dir, "firm_attributes.json") if run_dir else None
+firm_attributes_list = None
+if firm_attributes_path and os.path.isfile(firm_attributes_path):
+    with open(firm_attributes_path, "r") as f:
+        firm_attributes_list = json.load(f)
+
 if not state_files:
     st.warning("No state files found in logs/ (or in any logs/<run_name>/ folder). Run a simulation first!")
 else:
@@ -86,8 +100,29 @@ else:
         f"{pd.DataFrame(state['consumers'])['utility'].mean():.2f}",
     )
 
-    # Tab 1–3: single-timestep view. Tab 4: time-series charts across all state files.
-    tab1, tab2, tab3, tab4 = st.tabs(["💰 Wealth Distribution", "🏢 Firms", "👥 Consumers", "📊 Charts"])
+    # Tab 0: General (experiment args). Tab 1–3: single-timestep view. Tab 4: time-series charts.
+    tab0, tab1, tab2, tab3, tab4 = st.tabs(["📋 General", "💰 Wealth Distribution", "🏢 Firms", "👥 Consumers", "📊 Charts"])
+
+    # GENERAL TAB: Experiment arguments.
+    with tab0:
+        st.subheader("Experiment arguments")
+        if experiment_args_dict is not None:
+            # Key/value table (flat; nested dicts shown as JSON string)
+            rows = []
+            for key, val in sorted(experiment_args_dict.items()):
+                if isinstance(val, dict):
+                    display_val = json.dumps(val)
+                elif isinstance(val, list):
+                    display_val = json.dumps(val) if val else "[]"
+                else:
+                    display_val = val if val is not None else "—"
+                rows.append({"Argument": key, "Value": str(display_val)})
+            if rows:
+                st.table(pd.DataFrame(rows))
+            with st.expander("Raw JSON"):
+                st.code(json.dumps(experiment_args_dict, indent=2), language="json")
+        else:
+            st.caption("No experiment_args.json found in this run. Run a simulation with --use-env to generate it.")
 
     # WEALTH DISTRIBUTION TAB: Cash by agent.
     with tab1:
@@ -97,7 +132,7 @@ else:
         )
         st.bar_chart(cash_df, x="Agent", y="Cash")
 
-    # FIRM TAB: Firm states and diary entries.
+    # FIRM TAB: Firm states, firm attributes (supply unit costs), supply-by-good chart.
     with tab2:
         st.subheader("Firm States")
         firms_df = pd.DataFrame(state["firms"])
@@ -106,6 +141,60 @@ else:
             if col in firms_df.columns:
                 firms_df = firms_df.drop(columns=[col])
         st.table(firms_df)
+
+        st.subheader("Firm attributes (supply unit costs)")
+        if firm_attributes_list is not None:
+            # Collect all goods across firms for column headers
+            all_goods = []
+            for fa in firm_attributes_list:
+                costs = fa.get("supply_unit_costs") or {}
+                if isinstance(costs, dict):
+                    for g in costs:
+                        if g not in all_goods:
+                            all_goods.append(g)
+                for g in fa.get("goods") or []:
+                    if g not in all_goods:
+                        all_goods.append(g)
+            all_goods = sorted(all_goods)
+            # Build table: Firm | good1 | good2 | ...
+            rows = []
+            for fa in firm_attributes_list:
+                row = {"Firm": fa.get("name", "")}
+                costs = fa.get("supply_unit_costs") or {}
+                if not isinstance(costs, dict):
+                    costs = {}
+                for good in all_goods:
+                    val = costs.get(good)
+                    row[good] = f"{val:.2f}" if isinstance(val, (int, float)) else "—"
+                rows.append(row)
+            if rows:
+                st.table(pd.DataFrame(rows))
+            else:
+                st.caption("No firm attributes in this run.")
+        else:
+            st.caption("No firm_attributes.json found in this run. Run a simulation with --use-env to generate it.")
+
+        st.subheader("Supply purchases by good (selected firm)")
+        firm_names = [f["name"] for f in state["firms"]]
+        selected_firm = st.selectbox(
+            "Select firm",
+            firm_names,
+            key="tab2_firm_select",
+        )
+        df_builder_firm = DataFrameBuilder(state_files=state_files)
+        supply_by_good_df = df_builder_firm.supply_purchases_by_good_over_time(selected_firm)
+        if not supply_by_good_df.empty:
+            chart_supply_by_good = (
+                AltairChartBuilder(supply_by_good_df)
+                .x("timestep", title="Timestep")
+                .y("value", title="Total cost")
+                .color("good", legend_title="Good")
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_supply_by_good, use_container_width=True)
+        else:
+            st.caption(f"No supply_by_good data for {selected_firm} in this run.")
 
     # CONSUMER TAB: Consumer states and diary entries.
     with tab3:

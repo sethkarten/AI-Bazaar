@@ -9,6 +9,29 @@ import altair as alt
 import pandas as pd
 
 
+def _to_arrow_compatible(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Return a copy of the DataFrame with dtypes that Streamlit/PyArrow can serialize
+    (avoids "Serialization of dataframe to Arrow table was unsuccessful").
+    """
+    if df.empty:
+        return df.copy()
+    out = df.copy()
+    for col in out.columns:
+        s = out[col]
+        if pd.api.types.is_integer_dtype(s):
+            # Use float64 so NaN is representable; Arrow serializes cleanly
+            out[col] = pd.to_numeric(s, errors="coerce").astype("float64")
+        elif pd.api.types.is_float_dtype(s) or (hasattr(s.dtype, "kind") and s.dtype.kind in "fc"):
+            out[col] = pd.to_numeric(s, errors="coerce").astype("float64")
+        elif pd.api.types.is_numeric_dtype(s):
+            out[col] = pd.to_numeric(s, errors="coerce").astype("float64")
+        else:
+            # nominal/string columns: ensure plain str, no mixed types
+            out[col] = s.astype(str).replace("<NA>", "").replace("nan", "")
+    return out
+
+
 class AltairChartBuilder:
     """
     Builds an Altair chart from a pre-prepared DataFrame.
@@ -16,8 +39,8 @@ class AltairChartBuilder:
     """
 
     def __init__(self, df: pd.DataFrame):
-        """Store the DataFrame to chart. No copying or reshaping is done here."""
-        self._df = df
+        """Store the DataFrame to chart. Converts to Arrow-compatible dtypes for Streamlit."""
+        self._df = _to_arrow_compatible(df)
         self._x_col: Optional[str] = None
         self._y_col: Optional[str] = None
         self._color_col: Optional[str] = None

@@ -12,6 +12,12 @@ from ..agents.consumer import CESConsumerAgent, FixedConsumerAgent
 
 from ..agents.planner import TaxPlanner, FixedTaxPlanner
 
+DEFAULT_SUPPLY_UNIT_COSTS = {
+    "food": 1.0,
+    "clothing": 1.0,
+    "electronics": 1.0,
+    "furniture": 1.0,
+}
 
 class BazaarWorld:
     def __init__(self, args, llm_model=None):
@@ -21,6 +27,8 @@ class BazaarWorld:
         self.market = Market()
         self.goods_list = ["food", "clothing", "electronics", "furniture"]
         self.goods = self.goods_list[: args.num_goods]
+        # default supply unit costs
+        self.supply_unit_costs = {good: DEFAULT_SUPPLY_UNIT_COSTS.get(good) for good in self.goods}
 
         # Necessity mapping
         self.necessity_weights = {
@@ -67,28 +75,44 @@ class BazaarWorld:
             name = f"consumer_{i}"
             income = np.random.uniform(50, 200)
             if args.consumer_type == "CES":
-                # Use necessity weights for CES params if not provided by LLM
-                ces_params = {
-                    good: self.necessity_weights.get(good, 0.1) for good in self.goods
-                }
-                # Normalize
-                total_w = sum(ces_params.values())
-                ces_params = {k: v / total_w for k, v in ces_params.items()}
+                if args.use_gen_ces is False:
+                    # Use necessity weights for CES params if not provided by LLM
+                    ces_params = {
+                        good: self.necessity_weights.get(good, 0.1) for good in self.goods
+                    }
+                    # Normalize
+                    total_w = sum(ces_params.values())
+                    ces_params = {k: v / total_w for k, v in ces_params.items()}
 
-                consumer = CESConsumerAgent(
-                    name=name,
-                    income_stream=income,
-                    ledger=self.ledger,
-                    market=self.market,
-                    persona=personas[i],
-                    goods=self.goods,
-                    llm=args.llm,
-                    port=args.port,
-                    args=args,
-                    ces_params=ces_params,  # Use default necessity weights
-                    risk_aversion=getattr(args, "risk_aversion", None),
-                    llm_instance=llm_model,
-                )
+                    consumer = CESConsumerAgent(
+                        name=name,
+                        income_stream=income,
+                        ledger=self.ledger,
+                        market=self.market,
+                        persona=personas[i],
+                        goods=self.goods,
+                        llm=args.llm,
+                        port=args.port,
+                        args=args,
+                        ces_params=ces_params,  # Use default necessity weights
+                        risk_aversion=getattr(args, "risk_aversion", None),
+                        llm_instance=llm_model,
+                    )
+                else:
+                    consumer = CESConsumerAgent(
+                        name=name,
+                        income_stream=income,
+                        ledger=self.ledger,
+                        market=self.market,
+                        persona=personas[i],
+                        goods=self.goods,
+                        llm=args.llm,
+                        port=args.port,
+                        args=args,
+                        ces_params=None,  # Use default necessity weights
+                        risk_aversion=getattr(args, "risk_aversion", None),
+                        llm_instance=llm_model,
+                    )
             else:
                 consumer = FixedConsumerAgent(
                     name=name,
@@ -101,6 +125,8 @@ class BazaarWorld:
             self.consumers.append(consumer)
 
         self._write_consumer_attributes()
+        self._write_firm_attributes()
+        self._write_experiment_args()
 
         # Marketplace platform fees (simulating Amazon/eBay)
         self.platform_fee_rate = 0.10  # 10% on revenue
@@ -149,6 +175,68 @@ class BazaarWorld:
             json.dump(out, f, indent=2)
         self.logger.info("Wrote consumer attributes to %s", path)
 
+    def _write_firm_attributes(self):
+        """Write firm attributes (e.g. supply unit costs) to a JSON file for the viz Firms tab."""
+        def _to_serializable(obj):
+            if isinstance(obj, np.floating):
+                return float(obj)
+            if isinstance(obj, np.integer):
+                return int(obj)
+            if isinstance(obj, dict):
+                return {k: _to_serializable(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_to_serializable(v) for v in obj]
+            return obj
+
+        out = []
+        for f in self.firms:
+            entry = {
+                "name": f.name,
+                "goods": getattr(f, "goods", None),
+                "supply_unit_costs": _to_serializable(getattr(f, "supply_unit_costs", None)),
+            }
+            out.append(entry)
+
+        log_dir = getattr(self.args, "log_dir", "logs")
+        run_name = getattr(self.args, "name", None) or "simulation"
+        run_dir = os.path.join(log_dir, run_name)
+        os.makedirs(run_dir, exist_ok=True)
+        path = os.path.join(run_dir, "firm_attributes.json")
+        with open(path, "w") as fp:
+            json.dump(out, fp, indent=2)
+        self.logger.info("Wrote firm attributes to %s", path)
+
+    def _write_experiment_args(self):
+        """Write experiment arguments to a JSON file in the run directory for the viz General tab."""
+        def _to_serializable(obj):
+            if obj is None or isinstance(obj, (bool, str, int, float)):
+                return obj
+            if isinstance(obj, (np.floating, np.float32, np.float64)):
+                return float(obj)
+            if isinstance(obj, (np.integer, np.int32, np.int64)):
+                return int(obj)
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            if isinstance(obj, dict):
+                return {k: _to_serializable(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)):
+                return [_to_serializable(v) for v in obj]
+            try:
+                json.dumps(obj)
+                return obj
+            except (TypeError, ValueError):
+                return str(obj)
+
+        d = _to_serializable(vars(self.args))
+        log_dir = getattr(self.args, "log_dir", "logs")
+        run_name = getattr(self.args, "name", None) or "simulation"
+        run_dir = os.path.join(log_dir, run_name)
+        os.makedirs(run_dir, exist_ok=True)
+        path = os.path.join(run_dir, "experiment_args.json")
+        with open(path, "w") as f:
+            json.dump(d, f, indent=2)
+        self.logger.info("Wrote experiment args to %s", path)
+
     def step(self):
         """Execute one timestep of the bazaar with parallel agent actions"""
         import concurrent.futures
@@ -160,6 +248,7 @@ class BazaarWorld:
         for firm in self.firms:
             if hasattr(firm, "expenses_info"):
                 firm.expenses_info = {k: 0.0 for k in getattr(firm, "EXPENSE_KEYS", ("supply_cost", "overhead_costs", "taxes_paid", "platform_fees"))}
+                firm.expenses_info["supply_by_good"] = []
             if hasattr(firm, "sales_info"):
                 firm.sales_info = []
 
@@ -181,18 +270,33 @@ class BazaarWorld:
             if not getattr(firm, "in_business", True):
                 continue
             if self.args.firm_type == "LLM":
-                quantity = firm.purchase_supplies(supply_unit_price, self.timestep)
+                firm.purchase_supplies(self.timestep)
+                supply_stats = getattr(firm, "_timestep_stats", {}).get(self.timestep, {}).get("supply", {})
+                by_good = supply_stats.get("by_good", {})
+                for good, bg in by_good.items():
+                    cost = bg.get("cost", 0.0)
+                    if cost <= 0:
+                        continue
+                    expenses_info.append({
+                        "firm_id": firm.name,
+                        "expense_type": "supply",
+                        "good": good,
+                        "amount": cost,
+                        "quantity": bg.get("quantity", 0.0),
+                        "unit_price": bg.get("unit_price", 0.0),
+                    })
             else:
                 quantity = firm.cash * 0.5 / supply_unit_price
                 quantity = firm.purchase_supplies(quantity, supply_unit_price, self.timestep)
-            cost = quantity * supply_unit_price
-            expenses_info.append({
-                "firm_id": firm.name,
-                "expense_type": "supply",
-                "amount": cost,
-                "quantity": quantity,
-                "unit_price": supply_unit_price,
-            })
+                cost = quantity * supply_unit_price
+                expenses_info.append({
+                    "firm_id": firm.name,
+                    "expense_type": "supply",
+                    "good": "supply",
+                    "amount": cost,
+                    "quantity": quantity,
+                    "unit_price": supply_unit_price,
+                })
 
         # 2. Production Phase
         for firm in self.firms:
@@ -407,6 +511,7 @@ class BazaarWorld:
                             amount,
                             quantity=expense.get("quantity"),
                             unit_price=expense.get("unit_price"),
+                            good=expense.get("good"),
                         )
                     if hasattr(firm, "apply_expense_to_profit"):
                         firm.apply_expense_to_profit(amount)
@@ -510,13 +615,41 @@ class BazaarWorld:
         """Build firms list for state: one entry per firm in self.firms, plus any firm_* in ledger not in list. Sorted by name."""
         by_name = {}
         for f in self.firms:
+            exp_info = dict(getattr(f, "expenses_info", {}))
+            # Ensure supply_by_good is populated: use firm's value, or fallback to _timestep_stats (LLM) / supply_cost (Fixed)
+            supply_by_good = exp_info.get("supply_by_good")
+            if not supply_by_good or (isinstance(supply_by_good, list) and len(supply_by_good) == 0):
+                supply_by_good = []
+                supply_stats = getattr(f, "_timestep_stats", {}).get(self.timestep, {}).get("supply", {})
+                by_good = supply_stats.get("by_good", {})
+                if by_good:
+                    for good, bg in by_good.items():
+                        cost = bg.get("cost", 0.0)
+                        if cost > 0:
+                            supply_by_good.append({
+                                "good": good,
+                                "quantity": bg.get("quantity", 0.0),
+                                "unit_cost": bg.get("unit_price", 0.0),
+                                "total_cost": cost,
+                            })
+                else:
+                    # Fixed firms: one aggregate supply entry
+                    supply_cost = exp_info.get("supply_cost", 0.0)
+                    if supply_cost > 0:
+                        supply_by_good.append({
+                            "good": "supply",
+                            "quantity": 0.0,
+                            "unit_cost": 0.0,
+                            "total_cost": supply_cost,
+                        })
+                exp_info["supply_by_good"] = supply_by_good
             by_name[f.name] = {
                 "name": f.name,
                 "in_business": getattr(f, "in_business", True),
                 "cash": money.get(f.name, 0.0),
                 "profit": getattr(f, "profit", 0.0),
                 "reputation": getattr(f, "reputation", 1.0),
-                "expenses_info": dict(getattr(f, "expenses_info", {})),
+                "expenses_info": exp_info,
                 "sales_info": list(getattr(f, "sales_info", [])),
                 "prices": self.firm_prices_last_step.get(f.name, {}).copy(),
                 "inventory": dict(inventories.get(f.name, {})),
@@ -535,7 +668,7 @@ class BazaarWorld:
                     "cash": money.get(key, 0.0),
                     "profit": 0.0,
                     "reputation": 1.0,
-                    "expenses_info": {"supply_cost": 0.0, "overhead_costs": 0.0, "taxes_paid": 0.0, "platform_fees": 0.0},
+                    "expenses_info": {"supply_cost": 0.0, "overhead_costs": 0.0, "taxes_paid": 0.0, "platform_fees": 0.0, "supply_by_good": []},
                     "sales_info": [],
                     "prices": {},
                     "inventory": dict(inventories.get(key, {})),

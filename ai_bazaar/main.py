@@ -200,7 +200,7 @@ def run_marketplace_simulation(args, llm_instance=None):
                     continue
                 supply_unit_price = 1.0
                 if args.firm_type == "LLM":
-                    firm.purchase_supplies(supply_unit_price, timestep)
+                    firm.purchase_supplies(timestep)
                 else:
                     quantity = firm.cash * 0.5 / supply_unit_price
                     firm.purchase_supplies(quantity, supply_unit_price, timestep)
@@ -392,6 +392,12 @@ def create_argument_parser():
         "--unit-cost", type=float, default=2.0, help="Unit cost of production for firms"
     )
     parser.add_argument(
+        "--max-supply-unit-cost",
+        type=float,
+        default=10.0,
+        help="Max supply unit cost per good (firm-specific costs are uniform in [1.0, max])",
+    )
+    parser.add_argument(
         "--reward-type",
         default="PROFIT",
         choices=["PROFIT", "REVENUE"],
@@ -439,6 +445,11 @@ def create_argument_parser():
         type=int,
         default=1,
         help="Run consumer inventory consumption (zero goods, keep cash) every N timesteps; 1 = every timestep (default)",
+    )
+    parser.add_argument(
+        "--use-gen-ces",
+        action="store_true",
+        help="Generate CES parameters via LLM for consumers (otherwise use passed-in/default ces_params)",
     )
 
     # LLM configuration (for LLM firm agents)

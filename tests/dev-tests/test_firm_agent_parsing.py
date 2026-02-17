@@ -214,7 +214,7 @@ def test_set_price_parsing():
     
     ledger = Ledger()
     market = Market()
-    args = Namespace(bracket_setting='three', service='google-ai')
+    args = Namespace(bracket_setting='three', service='google-ai', max_supply_unit_cost=10.0)
     
     firm = ParsingTestFirmAgent(
         llm="gemini-2.5-flash",
@@ -268,7 +268,7 @@ def test_purchase_supplies_parsing():
     
     ledger = Ledger()
     market = Market()
-    args = Namespace(bracket_setting='three', service='google-ai')
+    args = Namespace(bracket_setting='three', service='google-ai', max_supply_unit_cost=10.0)
     
     firm = ParsingTestFirmAgent(
         llm="gemini-2.5-flash",
@@ -291,7 +291,7 @@ def test_purchase_supplies_parsing():
     
     try:
         print("Calling purchase_supplies()...")
-        quantity = firm.purchase_supplies(unit_price=10.0, timestep=0)
+        quantity, _ = firm.purchase_supplies(timestep=0)
         print(f"✅ Successfully parsed supply quantity: {quantity}")
         print(f"  Cash after purchase: ${firm.cash:.2f}")
         print(f"  Supplies after purchase: {firm.supplies:.2f}")
@@ -323,7 +323,7 @@ def test_produce_goods_parsing():
     
     ledger = Ledger()
     market = Market()
-    args = Namespace(bracket_setting='three', service='google-ai')
+    args = Namespace(bracket_setting='three', service='google-ai', max_supply_unit_cost=10.0)
     
     firm = ParsingTestFirmAgent(
         llm="gemini-2.5-flash",
@@ -382,7 +382,7 @@ def test_all_actions_sequence():
     
     ledger = Ledger()
     market = Market()
-    args = Namespace(bracket_setting='three', service='google-ai')
+    args = Namespace(bracket_setting='three', service='google-ai', max_supply_unit_cost=10.0)
     
     firm = ParsingTestFirmAgent(
         llm="gemini-2.5-flash",
@@ -407,7 +407,7 @@ def test_all_actions_sequence():
     print("STEP 1: Purchase Supplies")
     print("="*80)
     try:
-        quantity = firm.purchase_supplies(unit_price=10.0, timestep=timestep)
+        quantity, _ = firm.purchase_supplies(timestep=timestep)
         print(f"✅ Purchased {quantity:.2f} supplies\n")
     except Exception as e:
         print(f"❌ Failed: {e}\n")

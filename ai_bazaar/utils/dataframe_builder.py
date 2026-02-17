@@ -272,6 +272,50 @@ class DataFrameBuilder:
                 rows.append({"timestep": t, "firm": name, "value": qty})
         return pd.DataFrame(rows)
 
+    def supply_purchases_by_good_over_time(self, firm_name: str) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, good). Value is total_cost from
+        firm["expenses_info"]["supply_by_good"] for the given firm. Uses all goods that appear
+        in any timestep for this firm; missing (timestep, good) get value 0.
+        """
+        rows = []
+        good_seen = set()
+        timesteps = [s["timestep"] for s in self.states]
+        for s in self.states:
+            t = s["timestep"]
+            firm_by_name = {f.get("name"): f for f in s.get("firms", []) if f.get("name")}
+            f = firm_by_name.get(firm_name)
+            if not f:
+                continue
+            expenses_info = f.get("expenses_info") or {}
+            supply_by_good = expenses_info.get("supply_by_good") or []
+            if isinstance(supply_by_good, list):
+                for entry in supply_by_good:
+                    if not isinstance(entry, dict):
+                        continue
+                    good = entry.get("good")
+                    if good is None:
+                        continue
+                    good_seen.add(good)
+                    total_cost = entry.get("total_cost", 0)
+                    if not isinstance(total_cost, (int, float)):
+                        total_cost = 0
+                    rows.append({"timestep": t, "good": good, "value": total_cost})
+        if not good_seen:
+            return pd.DataFrame(columns=["timestep", "good", "value"])
+        goods = sorted(good_seen)
+        df = pd.DataFrame(rows)
+        full_rows = []
+        for t in timesteps:
+            sub = df[df["timestep"] == t] if not df.empty else pd.DataFrame()
+            for good in goods:
+                val = 0.0
+                if not sub.empty:
+                    row = sub[sub["good"] == good]
+                    val = float(row["value"].sum()) if not row.empty else 0.0
+                full_rows.append({"timestep": t, "good": good, "value": val})
+        return pd.DataFrame(full_rows)
+
     def inventory_per_firm_over_time(self, good: str) -> pd.DataFrame:
         """
         Long format: one row per (timestep, firm). Value is firm["inventory"].get(good, 0) for

@@ -19,7 +19,7 @@ def test_firm_consumer_trading():
     
     # Initialize firm
     print("\nInitializing firm...")
-    args = Namespace(bracket_setting='three', service='google-ai')
+    args = Namespace(bracket_setting='three', service='google-ai', max_supply_unit_cost=10.0)
     firm = FirmAgent(
         llm="gemini-2.5-flash",
         port=8000,
@@ -50,7 +50,7 @@ def test_firm_consumer_trading():
     
     # Firm purchases supplies and produces goods
     print("\nFirm purchasing supplies...")
-    supplies_purchased = firm.purchase_supplies(unit_price=10.0, timestep=0)
+    supplies_purchased, _ = firm.purchase_supplies(timestep=0)
     print(f"Supplies purchased: {supplies_purchased}")
     print(f"Firm cash after supply purchase: {firm.cash}")
     print(f"Firm supplies: {firm.supplies}")
@@ -133,7 +133,7 @@ def test_multiple_agents_market():
     
     # Initialize multiple firms
     print("\nInitializing multiple firms...")
-    args = Namespace(bracket_setting='three', service='google-ai')
+    args = Namespace(bracket_setting='three', service='google-ai', max_supply_unit_cost=10.0)
     
     firm1 = FirmAgent(
         llm="gemini-2.5-flash",
@@ -190,8 +190,8 @@ def test_multiple_agents_market():
     
     # Firms purchase supplies and produce
     print("\nFirms purchasing supplies and producing...")
-    supplies1_purchased = firm1.purchase_supplies(unit_price=10.0, timestep=0)
-    supplies2_purchased = firm2.purchase_supplies(unit_price=10.0, timestep=0)
+    supplies1_purchased, _ = firm1.purchase_supplies(timestep=0)
+    supplies2_purchased, _ = firm2.purchase_supplies(timestep=0)
     
     print(f"Firm1 purchased {supplies1_purchased} supplies")
     print(f"Firm2 purchased {supplies2_purchased} supplies")
@@ -284,7 +284,7 @@ def test_multi_timestep_simulation():
     market = Market()
     
     # Initialize LLM-based firms
-    args = Namespace(bracket_setting='three', service='google-ai')
+    args = Namespace(bracket_setting='three', service='google-ai', max_supply_unit_cost=10.0)
     
     print("Initializing agents...")
     firm1 = FirmAgent(
@@ -358,8 +358,8 @@ def test_multi_timestep_simulation():
         
         # Firms purchase supplies
         print(f"\n[Supply Purchase Phase]")
-        supplies1_purchased = firm1.purchase_supplies(unit_price=10.0, timestep=timestep)
-        supplies2_purchased = firm2.purchase_supplies(unit_price=10.0, timestep=timestep)
+        supplies1_purchased, _ = firm1.purchase_supplies(timestep=timestep)
+        supplies2_purchased, _ = firm2.purchase_supplies(timestep=timestep)
         print(f"Firm1 purchased {supplies1_purchased:.2f} supplies (cash: ${firm1.cash:.2f})")
         print(f"Firm2 purchased {supplies2_purchased:.2f} supplies (cash: ${firm2.cash:.2f})")
         

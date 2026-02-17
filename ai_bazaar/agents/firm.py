@@ -1,12 +1,18 @@
 # FIRM
 from ai_bazaar.market_core.market_core import Ledger, Market, Quote
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from .llm_agent import LLMAgent
 import logging
 import numpy as np
 from ai_bazaar.utils.common import Message
 from collections import defaultdict
 
+DEFAULT_SUPPLY_UNIT_COSTS = {
+    "food": 1.0,
+    "clothing": 1.0,
+    "electronics": 1.0,
+    "furniture": 1.0,
+}
 
 class BaseFirmAgent:
     """Base class for all firms with shared functionality.
@@ -24,6 +30,7 @@ class BaseFirmAgent:
         self.fulfillment_history = []  # List of (successful_qty, requested_qty)
         self.profit = 0.0  # Step-level profit (reset each step, accumulated in update_profit)
         self.expenses_info = {k: 0.0 for k in BaseFirmAgent.EXPENSE_KEYS}
+        self.expenses_info["supply_by_good"] = []  # List of {good, quantity, unit_cost, total_cost}
         self.sales_info = []  # Step-level list of sale records (reset each step, appended in env sales loop)
 
 
@@ -61,15 +68,17 @@ class BaseFirmAgent:
         self.profit = getattr(self, "profit", 0.0) + margin
         return self.profit
 
-    def update_expenses( 
+    def update_expenses(
         self,
         expense_type: str,
         amount: float,
         quantity: Optional[float] = None,
         unit_price: Optional[float] = None,
+        good: Optional[str] = None,
     ) -> None:
         """Accumulate one expense into step-level expenses_info (called from env loop over expenses_info list).
-        expense_type: one of 'supply', 'overhead', 'taxes', 'platform_fee'."""
+        expense_type: one of 'supply', 'overhead', 'taxes', 'platform_fee'.
+        For 'supply', good/quantity/unit_price are stored in expenses_info['supply_by_good'] per good."""
         key = {
             "supply": "supply_cost",
             "overhead": "overhead_costs",
@@ -81,8 +90,18 @@ class BaseFirmAgent:
         info = getattr(self, "expenses_info", None)
         if info is None:
             self.expenses_info = {k: 0.0 for k in self.EXPENSE_KEYS}
+            self.expenses_info["supply_by_good"] = []
             info = self.expenses_info
         info[key] = info.get(key, 0.0) + amount
+        if expense_type == "supply" and good is not None:
+            if "supply_by_good" not in info or info["supply_by_good"] is None:
+                info["supply_by_good"] = []
+            info["supply_by_good"].append({
+                "good": good,
+                "quantity": quantity if quantity is not None else 0.0,
+                "unit_cost": unit_price if unit_price is not None else 0.0,
+                "total_cost": amount,
+            })
 
     def apply_expense_to_profit(self, amount: float) -> None:
         """Subtract an expense from step-level profit (called for each entry in expenses_info).
@@ -208,6 +227,7 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         self.goods = goods
         self.ledger = ledger
         self.market = market
+        self.supply_unit_costs = {good: DEFAULT_SUPPLY_UNIT_COSTS.get(good) * np.random.uniform(1.0, args.max_supply_unit_cost) for good in goods}
 
         # Initialize ledger with cash
         self.ledger.credit(self.name, initial_cash)
@@ -297,35 +317,58 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         self.add_message(timestep, Message.ACTION_PRICE, prices=price_dict)
         return price_dict
 
-    def purchase_supplies(self, unit_price: float, timestep: int) -> float:
-        """LLM decides how much supply to purchase"""
+    def purchase_supplies(self, timestep: int) -> Tuple[float, float]:
+        """LLM decides how much supply to purchase per good using supply_unit_costs.
+        Returns (total_quantity, total_cost)."""
         self.logger.info(f"[ACTION] {self.name} performing action: purchase_supplies")
-        self.add_message(timestep, Message.UPDATE_SUPPLY, unit_price=unit_price)
+        self.add_message(
+            timestep, Message.UPDATE_SUPPLY, supply_unit_costs=self.supply_unit_costs
+        )
 
-        # Call LLM to decide quantity
-        quantity_to_purchase = self.act_llm(
-            timestep, ["supply_quantity"], self.parse_supply_purchase
-        )[0]
+        supply_keys = [f"supply_quantity_{good}" for good in self.goods]
+        quantities_list = self.act_llm(
+            timestep, supply_keys, self.parse_supply_purchase
+        )
+        quantities_by_good = {}
+        for i, good in enumerate(self.goods):
+            q = quantities_list[i] if i < len(quantities_list) else 0.0
+            quantities_by_good[good] = max(0.0, float(q))
 
-        # Execute the purchase (as much as cash allows)
-        cost = quantity_to_purchase * unit_price
-        total_cost = min(cost, self.cash)
-        total_quantity = total_cost / unit_price
+        total_cost = sum(
+            quantities_by_good[g] * self.supply_unit_costs[g] for g in self.goods
+        )
+        if total_cost > self.cash and total_cost > 0:
+            scale = self.cash / total_cost
+            quantities_by_good = {g: quantities_by_good[g] * scale for g in self.goods}
+            total_cost = self.cash
+        total_quantity = sum(quantities_by_good.values())
 
-        # Deduct cost and add supply to ledger
         self.ledger.credit(self.name, -total_cost)
         self.ledger.add_good(self.name, "supply", total_quantity)
 
+        by_good = {}
+        for good in self.goods:
+            q = quantities_by_good[good]
+            uc = self.supply_unit_costs[good]
+            by_good[good] = {
+                "quantity": q,
+                "unit_price": uc,
+                "cost": q * uc,
+            }
+        avg_unit = total_cost / total_quantity if total_quantity else 0.0
         self._timestep_stats[timestep]["supply"] = {
+            "by_good": by_good,
+            "total_quantity": total_quantity,
+            "total_cost": total_cost,
             "quantity": total_quantity,
-            "unit_price": unit_price,
+            "unit_price": avg_unit,
             "cost": total_cost,
         }
 
         self.add_message(
             timestep, Message.ACTION_SUPPLY, quantity=total_quantity, cost=total_cost
         )
-        return total_quantity
+        return (total_quantity, total_cost)
 
     def produce_goods(self, timestep: int):
         """LLM decides how much to produce of each good"""
@@ -625,6 +668,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             supply_unit_price = (
                 supply_cost / supply_quantity if supply_quantity else 0.0
             )
+        by_good = supply_stats.get("by_good", {})
 
         cash_stats = stats.get("cash", {})
         cash_start = cash_stats.get(
@@ -646,9 +690,16 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             lines.append(f"  {good}: sold {sold_qty:.2f} units for ${revenue:.2f}")
         lines.append(f"Total revenue: ${total_revenue:.2f}")
 
-        lines.append(
-            f"Supply purchases: bought {supply_quantity:.2f} units at ${supply_unit_price:.2f} each (total ${supply_cost:.2f})"
-        )
+        if by_good:
+            lines.append("Supply purchases (per good):")
+            for good, bg in by_good.items():
+                q, uc, c = bg.get("quantity", 0), bg.get("unit_price", 0), bg.get("cost", 0)
+                lines.append(f"  {good}: {q:.2f} units at ${uc:.2f} each (${c:.2f})")
+            lines.append(f"Total supply: {supply_quantity:.2f} units, ${supply_cost:.2f}")
+        else:
+            lines.append(
+                f"Supply purchases: bought {supply_quantity:.2f} units at ${supply_unit_price:.2f} each (total ${supply_cost:.2f})"
+            )
         lines.append(f"Overhead costs: ${overhead_costs:.2f}")
         lines.append(f"Taxes paid: ${taxes_paid:.2f}")
         lines.append(f"Total expenses: ${total_expenses:.2f}")
@@ -718,28 +769,33 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             self.message_history[timestep]["user_prompt"] = ""
 
         elif m_type == Message.UPDATE_SUPPLY:
-            unit_price = kwargs.get("unit_price", 0)
+            supply_unit_costs = kwargs.get("supply_unit_costs", {})
             self.message_history[timestep]["historical"] += f"Cash: ${self.cash:.2f}\n"
+            cost_str = ", ".join(
+                f"{good}: ${c:.2f}" for good, c in supply_unit_costs.items()
+            )
             self.message_history[timestep]["historical"] += (
-                f"Supply unit price: ${unit_price:.2f}\n"
+                f"Supply unit costs per good: {cost_str}\n"
             )
 
+            supply_keys = [f"supply_quantity_{good}" for good in self.goods]
             if self.prompt_algo == "cot" or self.prompt_algo == "sc":
-                supply_format = '{"thought":"<thinking>", "supply_quantity":"X"}'
-                self.message_history[timestep]["user_prompt"] += (
-                    "Decide how much supply to purchase. "
-                )
-                self.message_history[timestep]["user_prompt"] += (
-                    f"Use the JSON format: {supply_format}\n"
+                supply_format = (
+                    "{"
+                    + ", ".join(
+                        [f'"thought":"<thinking>"']
+                        + [f'"{k}":"X"' for k in supply_keys]
+                    )
+                    + "}"
                 )
             else:
-                supply_format = '{"supply_quantity":"X"}'
-                self.message_history[timestep]["user_prompt"] += (
-                    "Decide how much supply to purchase. "
-                )
-                self.message_history[timestep]["user_prompt"] += (
-                    f"Use the JSON format: {supply_format}\n"
-                )
+                supply_format = "{" + ", ".join([f'"{k}":"X"' for k in supply_keys]) + "}"
+            self.message_history[timestep]["user_prompt"] += (
+                "Decide how much supply to purchase for each good (quantity per good). "
+            )
+            self.message_history[timestep]["user_prompt"] += (
+                f"Use the JSON format: {supply_format}\n"
+            )
             self.message_history[timestep]["expected_format"] = supply_format
 
         elif m_type == Message.ACTION_SUPPLY:
