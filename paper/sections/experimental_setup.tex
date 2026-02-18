@@ -1,0 +1,70 @@
+\section{Experimental Setup}
+\label{exp}
+
+We conduct four sets of experiments to characterize the failure modes and evaluate the efficacy of our alignment finetuning across model families. All experiments are run in the Agent Bazaar simulation framework. Results are reported in Section~\ref{results}.
+
+\subsection{Experiment 1: The Crash (B2C Instability)}
+\label{exp:crash}
+
+\textbf{Setup.}
+We instantiate Environment A (Section~\ref{setup:crash}) with $N=5$ firm agents and $M=50$ consumer agents. Each episode runs for $T=50$ timesteps. Unit cost is fixed at $c = \$5.00$ and holding cost $f = 0$. Consumer demand is drawn from a Poisson process $D_t \sim \mathrm{Poisson}(\lambda=30)$ per timestep. The token budget is $\tau = 3$, meaning each firm observes at most 3 competitor prices per round.
+
+\textbf{Models.}
+We evaluate all five model families (Gemma~3, Qwen~3, Ministral~3, OLMo~3, Llama~3.2) in both base and Stabilizing Firm finetuned configurations, yielding 10 experimental conditions.
+
+\textbf{Baseline.}
+A rule-based \textit{FixedFirmAgent} that always posts $P_t = c + \delta$ (where $\delta = \$0.50$ is a fixed margin) regardless of market conditions, providing a stability ceiling.
+
+\textbf{Metrics.}
+\begin{itemize}
+    \item \textbf{Bankruptcy Rate}: Fraction of firms with $C_{T}^i < 0$ at episode end.
+    \item \textbf{Final Price}: Average price $\bar{P}_{T}$ across surviving firms at $t = T$.
+    \item \textbf{Market Volume}: Total units sold $\sum_{t=1}^T \sum_i Q_t^{i,\text{sold}}$.
+    \item \textbf{Price Volatility}: Standard deviation $\sigma(P_t)$ across all firms and timesteps.
+\end{itemize}
+We run 10 independent episodes per condition and report mean $\pm$ standard deviation.
+
+\subsection{Experiment 2: The Lemon Market (C2C Fraud)}
+\label{exp:lemon}
+
+\textbf{Setup.}
+We instantiate Environment B (Section~\ref{setup:lemon}) with 10 sellers: 5 honest (always describe true quality) and 5 operating as a single Sybil cluster ($K=5$ identities under one Deceptive Principal). The market runs for $T=30$ timesteps with 10 buyer agents. Reputation decay parameter $\alpha = 0.9$; Sybil rotation threshold $\rho_{\min} = 0.3$; initial reputation $R_0 = 0.8$ for all sellers.
+
+\textbf{Models.}
+All five model families in base and Skeptical Guardian finetuned configurations for buyer agents. Seller agents are fixed (honest sellers use a straightforward description policy; deceptive sellers use the Sybil Principal model from Section~\ref{method:sybil}).
+
+\textbf{Metrics.}
+\begin{itemize}
+    \item \textbf{Deceptive Revenue Share}: Fraction of total market revenue captured by the Sybil cluster.
+    \item \textbf{Buyer Welfare}: Average consumer surplus $\overline{\mathrm{CS}}_T = \frac{1}{T \cdot M} \sum_{t,j} \mathrm{CS}_t^j$.
+    \item \textbf{Market Collapse Timestep}: First $t^*$ such that $V_{t^*} < \epsilon_V = 5$.
+    \item \textbf{Sybil Detection Rate}: Fraction of deceptive listings correctly identified and rejected by buyer agents.
+\end{itemize}
+
+\subsection{Experiment 3: Systemic Resilience (Shock Recovery)}
+\label{exp:resilience}
+
+\textbf{Setup.}
+We extend Experiments 1 and 2 with mid-episode adversarial shocks to test resilience.
+\begin{itemize}
+    \item \textbf{Supply Shock (Crash variant)}: At $t=25$, unit cost doubles to $c' = \$10.00$. Agents must detect the new cost regime and adapt pricing to remain solvent.
+    \item \textbf{Flood of Fakes (Lemon variant)}: At $t=15$, the Sybil cluster scales up from $K=5$ to $K=45$ identities (90\% of all active sellers are deceptive). Agents must maintain detection accuracy under this adversarial flood.
+\end{itemize}
+
+\textbf{Primary Metric.}
+\textbf{Timesteps to Recovery}: The number of timesteps after the shock until the market returns to within 10\% of its pre-shock equilibrium price (Crash) or pre-shock volume (Lemon). A market that never recovers is assigned a recovery time of $T$ (worst case).
+
+\subsection{Experiment 4: Model Family Pareto Analysis}
+\label{exp:pareto}
+
+\textbf{Setup.}
+Using results from Experiments 1--3, we construct a Pareto frontier of \textit{Inference Compute} vs.\ \textit{Economic Alignment Score (EAS)}.
+
+\textbf{Compute Proxy.}
+We measure inference compute as the number of active model parameters (in billions), serving as a proxy for inference cost. For each model family, we use the default chat model variant (typically 3B--8B parameters).
+
+\textbf{Alignment Score.}
+EAS is computed per model per condition (base and finetuned) as defined in Section~\ref{setup:alignment}, averaging across Experiments 1--3.
+
+\textbf{Pareto Frontier.}
+We plot 10 points (5 model families $\times$ \{base, finetuned\}) and identify the Pareto-optimal set: models for which no other model achieves strictly higher EAS at strictly lower compute. The frontier characterizes the efficiency-alignment trade-off across model generations.

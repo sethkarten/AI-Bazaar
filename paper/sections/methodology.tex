@@ -1,34 +1,102 @@
-\section{Methodology: The Agent Bazaar}
+\section{Methodology}
 \label{method}
 
-We model the economy as a partially observable stochastic game (POSG) with two distinct market structures.
+Figure~\ref{fig:methodology} provides a system-level overview of the Agent Bazaar architecture across
+three layers: the market environment, the agent internals, and the Sybil adversary structure.
 
-\subsection{Environment A: The Crash (Amazon/B2C)}
-\label{sec:amazon}
-\textbf{Structure:} A homogenous goods market (e.g., "Standard Widget") with $N$ Firms and $M$ Consumers.
-\textbf{Dynamics:} Firms set prices $P_t$ and production $Q_t$ simultaneously. Consumers (simulated human proxies) buy based on lowest price and urgency.
-\textbf{Failure Mode:} Without inventory friction or foresight, standard LLM agents engage in a "Race to the Bottom," undercutting competitors until $P < \text{Cost}$, leading to bankruptcy.
-\textbf{Objective:} Maximize \textit{Long-Term Survival} and \textit{Market Volume}, rather than short-term revenue.
-
-\subsection{Environment B: The Lemon Market (eBay/C2C)}
-\label{sec:ebay}
-\textbf{Structure:} A heterogeneous goods market (e.g., "Used Electronics") with hidden quality $q \in \{\text{Mint, Good, Poor, Broken}\}$.
-\textbf{Information Asymmetry:} Sellers know $q$ but generate a natural language description $D$. Buyers observe $D$ and Seller Reputation $R$, but not $q$.
-\textbf{Dynamics:} Sellers can choose to be honest ("It's broken") or deceptive ("Mint condition!"). Buyers must decide to \textit{Bid} or \textit{Pass}.
-\textbf{Failure Mode:} Deceptive sellers extract short-term profit. Naive buyers get scammed. Trust ($T$) collapses, and trading volume vanishes (Akerlof's Market for Lemons).
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig/methodology}
+\caption{Agent Bazaar system diagram. \textbf{Lane 1 (Environment)}: The market state $s_t$
+is observed by agents subject to a token budget $\tau$ (Search Friction), agents emit actions,
+and the environment performs market clearing to produce $s_{t+1}$. \textbf{Lane 2 (Agent Internals)}:
+Each agent is an LLM backbone (one of five model families) prompted with a structured CoT template;
+actions are parsed from JSON output. The Skeptical Guardian applies forensic analysis before acting.
+\textbf{Lane 3 (Sybil Structure)}: A single Deceptive Principal coordinates $K$ seller identities
+via a shared signal. Identities with reputation below threshold are retired and replaced, resetting
+the trust signal available to buyers.}
+\label{fig:methodology}
+\end{figure}
 
 \subsection{Agent Architectures}
-We employ state-of-the-art open-weights models as the backbone for our agents.
-\textbf{Firm Agent (Sustainable Firm):}
-\begin{itemize}
-    \item \textit{Input:} Market History (Last Prices, Sales), Inventory, Cash.
-    \item \textit{Action:} Price ($P_{t+1}$), Production ($Q_{t+1}$).
-    \item \textit{Finetuning Target:} Policies that avoid bankruptcy and maintain stable margins during demand shocks.
-\end{itemize}
+\label{method:agents}
 
-\textbf{Consumer Agent (Guardian):}
-\begin{itemize}
-    \item \textit{Input:} Item Description $D$, Seller Reputation $R$, Human Principal Persona.
-    \item \textit{Action:} Bid/No-Bid, Max Price.
-    \item \textit{Finetuning Target:} Correctly identifying $q$ from $(D, R)$ and rejecting bad deals.
-\end{itemize}
+All agents in Agent Bazaar are powered by open-weights LLMs as their reasoning backbone. We study five model families: Gemma~3, Qwen~3, Ministral~3, OLMo~3, and Llama~3.2. Each agent follows a structured \textit{observe-reason-act} loop: the market state is formatted as a structured JSON context, passed to the LLM with a task-specific system prompt, and the model generates a chain-of-thought (CoT) reasoning trace followed by a structured JSON action. Actions are parsed via regex extraction; malformed outputs are re-prompted once and then replaced by a default no-op action.
+
+\textbf{Firm Agent (Stabilizing Firm target).}
+The Firm Agent operates in Environment A. Its observation at time $t$ is:
+\begin{equation}
+    o_t^{\text{firm}} = (\{P_{t-H:t}^{1:N}\}, I_t, C_t, D_{t-1}),
+\end{equation}
+consisting of the last $H=5$ timesteps of all visible competitor prices (sampled under token budget $\tau$), current inventory $I_t$, cash balance $C_t$, and realized demand from the previous round. The action is:
+\begin{equation}
+    a_t^{\text{firm}} = (P_t^i, Q_t^i) \in \mathbb{R}_{>0} \times \mathbb{Z}_{\geq 0}.
+\end{equation}
+The system prompt instructs the agent to reason about price trends, demand signals, and the risk of bankruptcy before committing to a price. In the \textit{Stabilizing Firm} finetuned variant, the prompt is augmented with a market health reflection: the agent is prompted to consider the effect of its pricing decision on overall market stability, not just its own profit.
+
+\textbf{Consumer Agent (Skeptical Guardian target).}
+The Consumer Agent operates in Environment B. Its observation is:
+\begin{equation}
+    o_t^{\text{buyer}} = (D_k, R_k, P_k, \text{persona}),
+\end{equation}
+where $D_k$ is the seller's natural language description of the item, $R_k \in [0,1]$ is the seller's reputation, $P_k$ is the listed price, and \textit{persona} is a human principal profile (e.g., budget-conscious student, experienced collector) that shapes the buyer's valuation. The action is:
+\begin{equation}
+    a_t^{\text{buyer}} = (\text{decision}, P_t^{\max}) \in \{\text{bid}, \text{pass}\} \times \mathbb{R}_{\geq 0}.
+\end{equation}
+The Skeptical Guardian performs \textit{forensic analysis} as an intermediate reasoning step before committing to a decision (Section~\ref{method:sybil}).
+
+\subsection{Sybil Attack Model}
+\label{method:sybil}
+
+We model a Sybil adversary as a single \textbf{Deceptive Principal} that controls a cluster of $K=5$ seller identities $\{S_1, \ldots, S_K\}$. Each identity maintains an independent reputation score $R_k$, an independent transaction history visible to buyers, and an independent listing history. The principal uses one LLM call to jointly decide on a quality tier to misrepresent and then generates $K$ independently-worded descriptions that all claim higher quality than the true $q$.
+
+Formally, the Deceptive Principal's policy is:
+\begin{enumerate}
+    \item \textbf{Item generation:} Sample true quality $q \sim \mathcal{Q}$. Declare advertised quality $\hat{q} > q$ (always misrepresent).
+    \item \textbf{Diversified description generation:} For each active identity $S_k$, generate a description $D_k$ by conditioning the LLM on a stylistic persona (e.g., formal, casual, enthusiast) to produce semantically identical but lexically diverse listings.
+    \item \textbf{Identity rotation:} If $R_k < \rho_{\min} = 0.3$, retire $S_k$ (remove from market) and activate $S_{K+1}$ initialized with $R_{K+1} = 0.8$ (fresh account heuristic). Increment $K$.
+\end{enumerate}
+
+\textbf{Guardian Detection Signals.}
+The Skeptical Guardian uses two complementary forensic signals to identify Sybil activity:
+
+\textit{Signal 1: Text Duplication Similarity.}
+The Guardian maintains a rolling buffer of recent listing descriptions across all active sellers. For a new listing with description $D_k$, it computes the cosine similarity:
+\begin{equation}
+    \text{sim}(D_k, D_j) = \frac{\phi(D_k) \cdot \phi(D_j)}{|\phi(D_k)| \, |\phi(D_j)|}
+\end{equation}
+against all buffered descriptions $D_j$, where $\phi(\cdot)$ is a TF-IDF embedding computed over the local listing buffer. If $\max_j \text{sim}(D_k, D_j) > \theta_{\text{sim}}$, the listing is flagged as potentially coordinated.
+
+\textit{Signal 2: Reputation-Price Mismatch.}
+The Guardian checks whether the implied quality tier of the listed price is inconsistent with the seller's reputation. Concretely, if the listed price $P_k$ falls in the ``Mint'' tier (e.g., $P_k > 0.85 \cdot P_{\max}$) but $R_k < 0.4$, the listing is flagged as a quality-price mismatch. The Skeptical Guardian's CoT prompt is structured to first articulate both signals before rendering a bid/pass decision:
+\begin{enumerate}
+    \item \textit{``Is this description suspiciously similar to other active listings?''}
+    \item \textit{``Does the price tier match the seller's reputation history?''}
+    \item \textit{``What is my posterior estimate of true quality given $(D_k, R_k, P_k)$?''}
+\end{enumerate}
+
+\subsection{Finetuning for Alignment (Supervised Fine-Tuning)}
+\label{method:sft}
+
+Standard zero-shot or few-shot prompting is insufficient to achieve economic alignment: agents default to locally rational myopic strategies that produce globally destructive outcomes (Section~\ref{exp}). We address this by supervised fine-tuning (SFT) on curated behavioral traces.
+
+\textbf{Data Collection.}
+We run $N_{\text{eval}} = 100$ episodes per model family under base prompting. Each episode consists of $T$ timesteps in either Environment A or B. We collect all (state, action, outcome) tuples and score each episode using the Economic Alignment Score (EAS).
+
+\textbf{Stabilization Traces (for Firm Agents).}
+From the $N_{\text{eval}}$ episodes, we filter for \textit{Stabilization Traces}: episodes where (a) the focal firm maintained $P_t^i \geq c$ (price at or above unit cost) for all $T=50$ timesteps, and (b) the market did not crash (at least 3 of 5 firms survived to $t=T$). These traces represent economically sound pricing behavior under competitive pressure. We take the top-$K_{\text{frac}} = 10\%$ by EAS.
+
+\textbf{Guardian Traces (for Consumer Agents).}
+For buyer agents, we filter for \textit{Guardian Traces}: episodes where the buyer correctly rejected at least one deceptive listing. Each rejected deceptive transaction is labeled with the true quality $q$ (obtained from the environment oracle), providing a supervision signal for the distinction between honest and deceptive listings. We take the top-10\% of episodes by buyer welfare (consumer surplus).
+
+\textbf{SFT Setup.}
+Each trace is formatted as a sequence of (system prompt, market state observation, CoT reasoning, action) tuples. We train using LoRA \citep{hu2022lora} with rank $r=16$, scaling factor $\alpha_{\text{LoRA}}=32$, learning rate $\eta=2 \times 10^{-4}$, and 3 training epochs. We apply LoRA adapters to the query, key, value, and output projection matrices of each self-attention layer. Training uses cross-entropy loss on the action tokens only, masking the system prompt and observation tokens to focus supervision on the decision step.
+
+\textbf{Training Data Format.}
+\begin{quote}
+\texttt{[SYSTEM] You are a Firm Agent in a competitive marketplace...}\\
+\texttt{[OBS] \{market\_state\_json\}}\\
+\texttt{[THINK] <CoT reasoning trace>}\\
+\texttt{[ACTION] \{"price": 7.50, "quantity": 10\}}
+\end{quote}
+The \texttt{[THINK]} field contains the model's chain-of-thought; both \texttt{[THINK]} and \texttt{[ACTION]} tokens are included in the training loss to reward both sound reasoning and correct actions.

@@ -1,14 +1,18 @@
 \section{Related Work}
 \label{related}
 
-\textbf{LLM Agents in Economics:} 
-The use of LLMs to simulate human behavior has roots in \textit{Generative Simulacra} \citep{park2023generative}, which demonstrated believable social interactions but lacked rigorous economic stakes. The LLM Economist \citep{karten2025llm} introduced mechanism design for tax policy, focusing on hierarchical governance. EconAgent \citep{li2024econagent} explores macroeconomic behaviors. Our work differs by focusing on the \textit{micro-structure} of high-frequency marketplaces and specific failure modes like fraud and crashes.
+\textbf{LLM Agents in Economic Settings.}
+Prior work deploys LLMs in economic simulation---EconAgent \citep{li2024econagent} at the macroeconomic level, QuantAgent \citep{wang2024quantagent} and FinAgent \citep{zhang2024finagent} for single-agent trading, and the LLM Economist \citep{karten2025llm} for mechanism design in tax policy.
+Vending-Bench \citep{backlund2025vendingbenchbenchmarklongtermcoherence} benchmarks single-agent business coherence over long horizons; Vending-Bench Arena \citep{vendingbencharena2025} extends this to competitive multi-agent play, finding that frontier models independently develop monopoly exploitation and de-facto price cartels.
+We focus instead on the systemic failure modes that emerge in high-frequency multi-agent marketplaces---destructive price spirals and coordinated Sybil fraud---and on training agents to prevent them.
 
-\textbf{Benchmarks for Autonomous Agents:}
-Closest to our work is Vending-Bench \citep{backlund2025vendingbenchbenchmarklongtermcoherence}, which evaluates an agent's ability to run a business. However, Vending-Bench tests \textit{single-agent capability}. Agent Bazaar evaluates \textit{multi-agent dynamics}, revealing that highly capable individual agents can be the most dangerous to systemic stability.
+\textbf{Market Instability and Sybil Attacks.}
+The 2010 Flash Crash showed that individually rational algorithmic agents can collectively trigger market-wide collapse via positive feedback loops~\citep{kirilenko2017flash,farmer2009economy,johnson2013abrupt}.
+Calvano et al.~\citep{calvano2020artificial} found that Q-learning agents tacitly collude above the competitive equilibrium without explicit communication; we show LLM agents exhibit the \textit{opposite} pathology---destructive undercutting below unit cost.
+On the fraud side, the Sybil attack~\citep{douceur2002sybil} and its marketplace variants (fake-review campaigns, identity cycling~\citep{luca2016fake,mayzlin2014promotional}) are well-studied; Dellarocas~\citep{dellarocas2006strategic} showed reputation manipulation is rational when identity cost is low---a condition LLMs satisfy trivially.
+We are the first to study Sybil attacks executed by a single LLM coordinating semantically diverse but fraudulently equivalent listings across multiple identities.
 
-\textbf{Algorithmic Collusion \& Deception:}
-Classical economics warns of algorithmic collusion \citep{calvano2020artificial}, where Q-learning agents learn to fix prices without communication. We extend this to LLMs, showing they can also learn to collude or, conversely, engage in destructive price wars depending on the prompt regime. Additionally, we study Sybil attacks \citep{douceur2002sybil} in the context of agentic commerce, where the cheap generation of identities allows for scaleable fraud.
-
-\textbf{AI Safety \& Economic Alignment:}
-We extend traditional alignment to \textit{economic safety}, defining alignment as the preservation of market stability (low volatility) and integrity (low fraud). This requires agents to internalize the externality of "Platform Health," favoring long-term equilibrium over short-term extraction.
+\textbf{Multi-Agent Frameworks and Alignment.}
+AutoGen~\citep{wu2023autogen}, AgentBench~\citep{liu2023agentbench}, WebArena~\citep{zhou2023webarena}, and MetaGPT~\citep{hong2023metagpt} study cooperative or task-completion agent behavior, not adversarial equilibrium dynamics.
+Constitutional AI~\citep{bai2022constitutional} and RLHF~\citep{ouyang2022training} optimize per-interaction helpfulness, which does not capture \textit{systemic} economic safety: an agent offering the lowest price can be individually helpful yet collectively catastrophic.
+Our approach uses LoRA-based SFT~\citep{hu2022lora} on market traces filtered by Economic Alignment Score, directly training agents to internalize market externalities rather than redesigning incentives.

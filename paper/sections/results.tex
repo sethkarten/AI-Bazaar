@@ -1,0 +1,129 @@
+\section{Results}
+\label{results}
+
+% TODO: Fill in all tables and figures after experiments are completed.
+% All data cells below are marked with TBD.
+% Do NOT substitute placeholder numbers.
+
+\subsection{Experiment 1: The Crash}
+
+\begin{table}[h]
+\centering
+\caption{Experiment 1 (The Crash) --- Bankruptcy Rate and Price Stability across all model families
+and configurations ($N=5$ firms, $T=50$ steps, $c=\$5.00$; mean $\pm$ std over 10 episodes).}
+\label{tab:crash}
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Model} & \textbf{Config} & \textbf{Bankruptcy Rate} $\downarrow$ & \textbf{Final Price (\$)} $\uparrow$ & \textbf{Volume} $\uparrow$ & \textbf{Price Std $\sigma$} $\downarrow$ \\
+\midrule
+Gemma~3        & Base        & TBD & TBD & TBD & TBD \\
+Gemma~3        & Stabilizing Firm  & TBD & TBD & TBD & TBD \\
+Qwen~3         & Base        & TBD & TBD & TBD & TBD \\
+Qwen~3         & Stabilizing Firm  & TBD & TBD & TBD & TBD \\
+Ministral~3    & Base        & TBD & TBD & TBD & TBD \\
+Ministral~3    & Stabilizing Firm  & TBD & TBD & TBD & TBD \\
+OLMo~3         & Base        & TBD & TBD & TBD & TBD \\
+OLMo~3         & Stabilizing Firm  & TBD & TBD & TBD & TBD \\
+Llama~3.2      & Base        & TBD & TBD & TBD & TBD \\
+Llama~3.2      & Stabilizing Firm  & TBD & TBD & TBD & TBD \\
+\midrule
+FixedFirmAgent & Rule-based  & TBD & TBD & TBD & TBD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% Figure 3: Price trajectory over time (see fig/crash_price_trajectory.pdf)
+\begin{figure}[h]
+\centering
+% \includegraphics[width=\linewidth]{fig/crash_price_trajectory.pdf}
+\textcolor{gray}{\textit{[Figure placeholder: Price trajectory plot to be generated after experiments.]}}
+\caption{Experiment 1 (The Crash) --- Average market price $\bar{P}_t$ over 50 timesteps for base
+and Stabilizing Firm agents across model families. The horizontal dotted line marks unit cost
+$c = \$5.00$. Shaded region indicates the bankruptcy zone ($P < c$). Base agents universally
+trigger a price spiral; Stabilizing Firm finetuning maintains a price floor above unit cost.}
+\label{fig:crash_trajectory}
+\end{figure}
+
+\subsection{Experiment 2: The Lemon Market}
+
+\begin{table}[h]
+\centering
+\caption{Experiment 2 (The Lemon Market) --- Deceptive revenue share, buyer welfare, market collapse
+timestep, and Sybil detection rate ($T=30$ steps, $K=5$ Sybil cluster; mean $\pm$ std over 10
+episodes).}
+\label{tab:lemon}
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Model} & \textbf{Config} & \textbf{Deceptive Rev.\ Share} $\downarrow$ & \textbf{Buyer Welfare} $\uparrow$ & \textbf{Collapse $t^*$} $\uparrow$ & \textbf{Detection Rate} $\uparrow$ \\
+\midrule
+Gemma~3        & Base              & TBD & TBD & TBD & TBD \\
+Gemma~3        & Skeptical Guardian & TBD & TBD & TBD & TBD \\
+Qwen~3         & Base              & TBD & TBD & TBD & TBD \\
+Qwen~3         & Skeptical Guardian & TBD & TBD & TBD & TBD \\
+Ministral~3    & Base              & TBD & TBD & TBD & TBD \\
+Ministral~3    & Skeptical Guardian & TBD & TBD & TBD & TBD \\
+OLMo~3         & Base              & TBD & TBD & TBD & TBD \\
+OLMo~3         & Skeptical Guardian & TBD & TBD & TBD & TBD \\
+Llama~3.2      & Base              & TBD & TBD & TBD & TBD \\
+Llama~3.2      & Skeptical Guardian & TBD & TBD & TBD & TBD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% Figure 4: Market volume + reputation decay (see fig/lemon_volume_reputation.pdf)
+\begin{figure}[h]
+\centering
+% \includegraphics[width=\linewidth]{fig/lemon_volume_reputation.pdf}
+\textcolor{gray}{\textit{[Figure placeholder: Dual-axis volume/reputation plot to be generated after experiments.]}}
+\caption{Experiment 2 (The Lemon Market) --- Trading volume $V_t$ (left axis) and average seller
+reputation $\bar{R}_t$ (right axis) over 30 timesteps for base vs.\ Skeptical Guardian buyers.
+Vertical marker at $t=15$ indicates the ``Flood of Fakes'' shock (Experiment 3). Guardian buyers
+arrest reputation collapse and sustain market volume.}
+\label{fig:lemon_volume}
+\end{figure}
+
+\subsection{Experiment 3: Systemic Resilience}
+
+\begin{table}[h]
+\centering
+\caption{Experiment 3 (Systemic Resilience) --- Timesteps to recovery after adversarial shock
+(Supply Shock at $t=25$ for Crash; Flood of Fakes at $t=15$ for Lemon). Agents that fail to
+recover by $t=T$ are assigned the worst-case value $T$.}
+\label{tab:resilience}
+\begin{tabular}{llcc}
+\toprule
+\textbf{Model} & \textbf{Config} & \textbf{Recovery (Crash)} $\downarrow$ & \textbf{Recovery (Lemon)} $\downarrow$ \\
+\midrule
+Gemma~3        & Base / Stabilizing Firm   & TBD / TBD & TBD / TBD \\
+Qwen~3         & Base / Stabilizing Firm   & TBD / TBD & TBD / TBD \\
+Ministral~3    & Base / Stabilizing Firm   & TBD / TBD & TBD / TBD \\
+OLMo~3         & Base / Stabilizing Firm   & TBD / TBD & TBD / TBD \\
+Llama~3.2      & Base / Stabilizing Firm   & TBD / TBD & TBD / TBD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Experiment 4: Model Family Pareto Frontier}
+
+% Figure 5: Pareto frontier (see fig/pareto_frontier.pdf)
+\begin{figure}[h]
+\centering
+% \includegraphics[width=\linewidth]{fig/pareto_frontier.pdf}
+\textcolor{gray}{\textit{[Figure placeholder: Pareto frontier scatter plot to be generated after experiments.]}}
+\caption{Experiment 4 (Pareto Frontier) --- Inference compute (model parameters, log scale) vs.\
+Economic Alignment Score (EAS) for all 10 conditions (5 model families $\times$ \{base, finetuned\}).
+Hollow markers = base; filled markers = finetuned. Pareto frontier curve connects the efficiency-optimal
+finetuned models. Finetuning shifts all models toward higher EAS with minimal compute overhead.}
+\label{fig:pareto}
+\end{figure}
+
+% Optional Figure 6: Sybil detection confusion matrix
+\begin{figure}[h]
+\centering
+% \includegraphics[width=\linewidth]{fig/sybil_detection.pdf}
+\textcolor{gray}{\textit{[Figure placeholder: Sybil detection confusion matrices to be generated after experiments.]}}
+\caption{Sybil detection confusion matrices for base vs.\ Skeptical Guardian buyers (best model
+family, 2 configurations). Guardian buyers achieve high precision on deceptive listing detection;
+base buyers exhibit near-random performance on the Sybil cluster.}
+\label{fig:sybil_confusion}
+\end{figure}

@@ -7,6 +7,8 @@
 \usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{xcolor}
 
 \title{The Agent Bazaar: Benchmarking Economic Alignment in High-Frequency Multi-Agent Ecosystems}
 
@@ -28,14 +30,16 @@ Princeton University \\
 \maketitle
 
 \begin{abstract}
-  The deployment of Large Language Models (LLMs) as autonomous economic agents introduces systemic risks that extend beyond individual capability failures. As agents transition to high-frequency marketplaces (e.g., Amazon, Moltbook), their collective behavior can amplify volatility and mask deception at scale. We introduce \textbf{Agent Bazaar}, a multi-agent simulation framework for evaluating \textit{Economic Alignment}---defined as the capacity of agentic systems to preserve market stability and integrity. We identify two emergent failure modes: (1) \textit{Algorithmic Instability} ("The Crash"), where myopic firms amplify price volatility, and (2) \textit{Sybil Deception} ("The Lemon Market"), where coordinated networks of deceptive agents flood the market with fraudulent listings. We demonstrate that standard open-weights models fail to self-regulate, leading to market collapse. To address this, we propose a dual-alignment strategy: finetuning \textit{Sustainable Firms} to act as volatility dampeners, and \textit{Skeptical Guardians} to detect collusion patterns in seller networks. Our results show that aligned agents do not just maximize profit; they restore equilibrium and protect human welfare in non-stationary environments.
+  The deployment of Large Language Models (LLMs) as autonomous economic agents introduces systemic risks that extend beyond individual capability failures. As agents transition to high-frequency marketplaces (e.g., Amazon, Moltbook) executing over one million agent-driven transactions daily, their collective behavior can amplify volatility and mask deception at scale. We introduce \textbf{Agent Bazaar}, a multi-agent simulation framework for evaluating \textit{Economic Alignment}---defined as the capacity of agentic systems to preserve market stability and integrity. Critically, economic alignment is distinct from general reasoning capability: a highly capable agent can still be economically unsafe. We identify two emergent failure modes: (1) \textit{Algorithmic Instability} (``The Crash''), where myopic firms amplify price volatility until the market collapses, and (2) \textit{Sybil Deception} (``The Lemon Market''), where a single deceptive principal operating multiple coordinated seller identities floods the market with fraudulent listings, eroding trust and trading volume. We demonstrate that standard open-weights models fail to self-regulate under both failure modes, leading to market collapse. To address this, we propose a dual-alignment strategy: finetuning \textit{Stabilizing Firms} to act as volatility dampeners, and \textit{Skeptical Guardians} to detect Sybil coordination patterns in seller networks. We evaluate five open-weights model families (Gemma~3, Qwen~3, Ministral~3, OLMo~3, Llama~3.2) in both base and finetuned configurations. Our results show that aligned agents do not merely maximize profit; they restore equilibrium and protect human welfare in non-stationary environments.
 \end{abstract}
 
 \input{sections/introduction}
 \input{sections/related_work}
+\input{sections/problem_setup}
 \input{sections/methodology}
-\input{sections/experiments}
-\input{sections/discussion}
+\input{sections/experimental_setup}
+\input{sections/results}
+\input{sections/conclusion}
 
 \bibliographystyle{colm2026_conference}
 \bibliography{references}
