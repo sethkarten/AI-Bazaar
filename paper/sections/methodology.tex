@@ -1,0 +1,34 @@
+\section{Methodology: The Agent Bazaar}
+\label{method}
+
+We model the economy as a partially observable stochastic game (POSG) with two distinct market structures.
+
+\subsection{Environment A: The Crash (Amazon/B2C)}
+\label{sec:amazon}
+\textbf{Structure:} A homogenous goods market (e.g., "Standard Widget") with $N$ Firms and $M$ Consumers.
+\textbf{Dynamics:} Firms set prices $P_t$ and production $Q_t$ simultaneously. Consumers (simulated human proxies) buy based on lowest price and urgency.
+\textbf{Failure Mode:} Without inventory friction or foresight, standard LLM agents engage in a "Race to the Bottom," undercutting competitors until $P < \text{Cost}$, leading to bankruptcy.
+\textbf{Objective:} Maximize \textit{Long-Term Survival} and \textit{Market Volume}, rather than short-term revenue.
+
+\subsection{Environment B: The Lemon Market (eBay/C2C)}
+\label{sec:ebay}
+\textbf{Structure:} A heterogeneous goods market (e.g., "Used Electronics") with hidden quality $q \in \{\text{Mint, Good, Poor, Broken}\}$.
+\textbf{Information Asymmetry:} Sellers know $q$ but generate a natural language description $D$. Buyers observe $D$ and Seller Reputation $R$, but not $q$.
+\textbf{Dynamics:} Sellers can choose to be honest ("It's broken") or deceptive ("Mint condition!"). Buyers must decide to \textit{Bid} or \textit{Pass}.
+\textbf{Failure Mode:} Deceptive sellers extract short-term profit. Naive buyers get scammed. Trust ($T$) collapses, and trading volume vanishes (Akerlof's Market for Lemons).
+
+\subsection{Agent Architectures}
+We employ state-of-the-art open-weights models as the backbone for our agents.
+\textbf{Firm Agent (Sustainable Firm):}
+\begin{itemize}
+    \item \textit{Input:} Market History (Last Prices, Sales), Inventory, Cash.
+    \item \textit{Action:} Price ($P_{t+1}$), Production ($Q_{t+1}$).
+    \item \textit{Finetuning Target:} Policies that avoid bankruptcy and maintain stable margins during demand shocks.
+\end{itemize}
+
+\textbf{Consumer Agent (Guardian):}
+\begin{itemize}
+    \item \textit{Input:} Item Description $D$, Seller Reputation $R$, Human Principal Persona.
+    \item \textit{Action:} Bid/No-Bid, Max Price.
+    \item \textit{Finetuning Target:} Correctly identifying $q$ from $(D, R)$ and rejecting bad deals.
+\end{itemize}

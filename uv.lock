@@ -29,6 +29,7 @@ name = "ai-bazaar"
 version = "1.0.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "altair" },
     { name = "bitsandbytes" },
     { name = "datasets" },
     { name = "numpy" },
@@ -60,6 +61,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "altair" },
     { name = "bitsandbytes" },
     { name = "datasets" },
     { name = "numpy" },

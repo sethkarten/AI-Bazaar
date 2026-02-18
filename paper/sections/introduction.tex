@@ -1,0 +1,14 @@
+\section{Introduction}
+\label{intro}
+The digital economy is undergoing a phase transition from human-centric commerce to agent-centric ecosystems. Emerging platforms (e.g., Moltbook) and established marketplaces (Amazon, eBay) are increasingly populated by autonomous agents capable of executing transactions at superhuman speeds. While individual agents may be "rational" optimizers in isolation, their collective interaction introduces severe systemic risks. Flash crashes, liquidity crises, and deceptive equilibria ("Lemon Markets") can emerge rapidly when thousands of unaligned agents interact under partial observability.
+
+To ensure the safety of future economic systems, we must extend the definition of \textit{AI Alignment} beyond chat safety to \textbf{Economic Alignment}. We define an economically aligned agent as one that (1) contributes to smooth, stable market dynamics rather than chaotic volatility, and (2) protects the welfare of human participants against exploitation or fraud. This aligns with the safety community's goal of robust, reliable systems that allow humans to safely participate in AI-driven environments.
+
+Current benchmarks, such as VendingBench \citep{backlund2025vendingbenchbenchmarklongtermcoherence}, focus primarily on the business capability of a single agent in a static environment. However, real-world markets are fundamentally \textit{multi-agent} and \textit{non-stationary}. Agents must cope with \textbf{Search Friction}—modeled here as a token budget that limits their ability to monitor all competitor prices or global demand. This partial observability means that market states can shift violently before an agent can update its model, leading to "fog of war" dynamics where myopic optimization creates systemic collapse.
+
+In this work, we introduce \textbf{Agent Bazaar}, a dynamic testbed for evaluating Economic Alignment. Our contributions are three-fold, bridging the gap between benchmarking and safety training:
+\begin{enumerate}
+    \item \textbf{A Safety Benchmark for Agent Economies:} We provide a high-fidelity simulator for both B2C (Amazon-style) and C2C (eBay-style) markets, explicitly modeling non-stationarity via supply/demand shocks and information asymmetry.
+    \item \textbf{Identification of Alignment Failures:} We empirically demonstrate two emergent failure modes in standard open-source models: "The Crash" (systemic instability due to predatory pricing) and "The Lemon Market" (trust collapse due to deceptive listings).
+    \item \textbf{Training for Economic Safety:} We show that standard prompting is insufficient for safety. Instead, we demonstrate that \textbf{finetuning} agents on market trajectories—creating "Stable Market Makers" and "Skeptical Guardians"—is necessary to restore equilibrium and protect consumer surplus.
+\end{enumerate}

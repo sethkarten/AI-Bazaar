@@ -1,0 +1,14 @@
+\section{Related Work}
+\label{related}
+
+\textbf{LLM Agents in Economics:} 
+The use of LLMs to simulate human behavior has roots in \textit{Generative Simulacra} \citep{park2023generative}, which demonstrated believable social interactions but lacked rigorous economic stakes. The LLM Economist \citep{karten2025llm} introduced mechanism design for tax policy, focusing on hierarchical governance. EconAgent \citep{li2024econagent} explores macroeconomic behaviors. Our work differs by focusing on the \textit{micro-structure} of high-frequency marketplaces and specific failure modes like fraud and crashes.
+
+\textbf{Benchmarks for Autonomous Agents:}
+Closest to our work is Vending-Bench \citep{backlund2025vendingbenchbenchmarklongtermcoherence}, which evaluates an agent's ability to run a business. However, Vending-Bench tests \textit{single-agent capability}. Agent Bazaar evaluates \textit{multi-agent dynamics}, revealing that highly capable individual agents can be the most dangerous to systemic stability.
+
+\textbf{Algorithmic Collusion \& Deception:}
+Classical economics warns of algorithmic collusion \citep{calvano2020artificial}, where Q-learning agents learn to fix prices without communication. We extend this to LLMs, showing they can also learn to collude or, conversely, engage in destructive price wars depending on the prompt regime. Additionally, we study Sybil attacks \citep{douceur2002sybil} in the context of agentic commerce, where the cheap generation of identities allows for scaleable fraud.
+
+\textbf{AI Safety \& Economic Alignment:}
+We extend traditional alignment to \textit{economic safety}, defining alignment as the preservation of market stability (low volatility) and integrity (low fraud). This requires agents to internalize the externality of "Platform Health," favoring long-term equilibrium over short-term extraction.
