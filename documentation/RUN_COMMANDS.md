@@ -129,6 +129,15 @@ python -m ai_bazaar.main --use-cost-pref-gen --max-supply-unit-cost 10 --use-env
 python -m ai_bazaar.main --use-cost-pref-gen --max-supply-unit-cost 10 --use-env --firm-type LLM --num-goods 4 --num-firms 5 --consumer-type CES --num-consumers 20 --name eq_ini_test_3 --max-timesteps 40 --firm-initial-cash 5000 --consumer-scenario BOUNDED_BAZAAR --llm gemini-2.5-flash --discovery-limit 5 --max-tokens 2000 --prompt-algo cot  --no-diaries --seed 8
 ```
 
+```bash
+python -m ai_bazaar.main --use-cost-pref-gen --max-supply-unit-cost 10 --use-env --firm-type LLM --num-goods 2 --num-firms 5 --consumer-type CES --num-consumers 20 --name eq_ini_test_4 --max-timesteps 20 --firm-initial-cash 5000 --consumer-scenario BOUNDED_BAZAAR --llm gemini-2.5-flash --discovery-limit 1 --max-tokens 2000 --prompt-algo cot  --no-diaries --seed 8 
+```
+
+# Parsing Debugging/Testing
+```bash
+python -m ai_bazaar.main --use-cost-pref-gen --max-supply-unit-cost 10 --use-env --firm-type LLM --num-goods 4 --num-firms 1 --consumer-type CES --num-consumers 5 --name eq_ini_test_4 --max-timesteps 20 --firm-initial-cash 1000 --consumer-scenario BOUNDED_BAZAAR --llm gemini-2.5-flash --discovery-limit 1 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8 --log-firm-prompts 
+```
+
 ---
 
 ## Ablation-style runs

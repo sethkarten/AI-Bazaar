@@ -217,6 +217,25 @@ class BazaarWorld:
             json.dump(out, fp, indent=2)
         self.logger.info("Wrote firm attributes to %s", path)
 
+    def _build_rerun_command(self, d: dict) -> str:
+        """Build a copy-paste ready command line string to rerun the simulation."""
+        STORE_TRUE_FLAGS = {
+            "info_asymmetry", "use_gen_ces", "use_cost_pref_gen", "wandb",
+            "log_firm_prompts", "use_parsing_agent", "no_diaries", "use_env",
+        }
+        parts = []
+        for key, val in sorted(d.items()):
+            opt = "--" + key.replace("_", "-")
+            if key in STORE_TRUE_FLAGS:
+                if val is True:
+                    parts.append(opt)
+            else:
+                s = str(val)
+                if " " in s or '"' in s or "\\" in s:
+                    s = '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+                parts.append(f"{opt} {s}")
+        return "python -m ai_bazaar.main " + " ".join(parts)
+
     def _write_experiment_args(self):
         """Write experiment arguments to a JSON file in the run directory for the viz General tab."""
         def _to_serializable(obj):
@@ -239,6 +258,7 @@ class BazaarWorld:
                 return str(obj)
 
         d = _to_serializable(vars(self.args))
+        d["rerun_command"] = self._build_rerun_command(d)
         log_dir = getattr(self.args, "log_dir", "logs")
         run_name = getattr(self.args, "name", None) or "simulation"
         run_dir = os.path.join(log_dir, run_name)

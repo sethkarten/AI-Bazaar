@@ -107,6 +107,11 @@ else:
     with tab0:
         st.subheader("Experiment arguments")
         if experiment_args_dict is not None:
+            # Copy-paste rerun command (if present)
+            rerun_cmd = experiment_args_dict.get("rerun_command")
+            if rerun_cmd:
+                st.subheader("Rerun command")
+                st.code(rerun_cmd, language="bash")
             # Key/value table (flat; nested dicts shown as JSON string)
             rows = []
             for key, val in sorted(experiment_args_dict.items()):
