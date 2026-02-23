@@ -201,6 +201,36 @@ else:
         else:
             st.caption(f"No supply_by_good data for {selected_firm} in this run.")
 
+        st.subheader("Average profit (last 3 timesteps)")
+        profit_rolling = df_builder_firm.profit_rolling_avg_per_firm_over_time(window=3)
+        profit_rolling_firm = profit_rolling[profit_rolling["firm"] == selected_firm] if not profit_rolling.empty else pd.DataFrame()
+        if not profit_rolling_firm.empty:
+            chart_profit_rolling = (
+                AltairChartBuilder(profit_rolling_firm)
+                .x("timestep", title="Timestep")
+                .y("value", title="Avg profit (3-step)")
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_profit_rolling, use_container_width=True)
+        else:
+            st.caption(f"No profit data for {selected_firm} in this run.")
+
+        st.subheader("Orders filled")
+        filled_by_firm = df_builder_firm.filled_orders_count_by_firm_over_time()
+        filled_selected = filled_by_firm[filled_by_firm["firm"] == selected_firm] if not filled_by_firm.empty else pd.DataFrame()
+        if not filled_selected.empty:
+            chart_filled = (
+                AltairChartBuilder(filled_selected)
+                .x("timestep", title="Timestep")
+                .y("value", title="Orders filled")
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_filled, use_container_width=True)
+        else:
+            st.caption(f"No filled-orders data for {selected_firm} (run with --use-env and state files that include filled_orders_count_by_firm).")
+
     # CONSUMER TAB: Consumer states and diary entries.
     with tab3:
         st.subheader("Consumer CES params")
@@ -297,6 +327,24 @@ else:
             )
             st.altair_chart(chart_utility_components, use_container_width=True)
 
+        # ---- eWTP by good for selected consumer ----
+        st.subheader("eWTP by good")
+        ewtp_by_good = df_builder_consumer.consumer_ewtp_by_good_over_time(
+            consumer_name=selected_consumer
+        )
+        if not ewtp_by_good.empty:
+            chart_ewtp = (
+                AltairChartBuilder(ewtp_by_good)
+                .x("timestep", title="Timestep")
+                .y("value", title="eWTP")
+                .color("good", legend_title="Good")
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_ewtp, use_container_width=True)
+        else:
+            st.caption("No eWTP data for this consumer (eWTP is tracked for CES consumers).")
+
         # ---- Consumer diary: all entries across all state files ----
         st.subheader("Consumer diary (all timesteps)")
         diary_entries_all = []
@@ -350,6 +398,21 @@ else:
         )
         st.altair_chart(chart_cash_agg, use_container_width=True)
 
+        # ---- Chart 1b: Total filled orders per timestep ----
+        st.subheader("Total filled orders per timestep")
+        filled_total_df = df_builder.filled_orders_count_over_time()
+        if not filled_total_df.empty:
+            chart_filled_total = (
+                AltairChartBuilder(filled_total_df)
+                .x("timestep", title="Timestep")
+                .y("value", title="Filled orders")
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_filled_total, use_container_width=True)
+        else:
+            st.caption("No filled-orders data (run with --use-env and state files that include filled_orders_count).")
+
         # ---- Chart 2: Gini coefficient ----
         gini_long = df_builder.metrics_over_time_long(
             value_vars=["gini"],
@@ -384,6 +447,22 @@ else:
             .build()
         )
         st.altair_chart(chart_profit_firm, use_container_width=True)
+
+        # ---- Chart 3b: Average profit (last 3 timesteps) per firm ----
+        st.subheader("Average profit (last 3 timesteps) per firm")
+        profit_rolling_per_firm = df_builder.profit_rolling_avg_per_firm_over_time(window=3)
+        if not profit_rolling_per_firm.empty:
+            chart_profit_rolling = (
+                AltairChartBuilder(profit_rolling_per_firm)
+                .x("timestep", title="Timestep")
+                .y("value", title="Avg profit (3-step)")
+                .color("firm", legend_title="Firm")
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_profit_rolling, use_container_width=True)
+        else:
+            st.caption("No profit data in this run.")
 
         # ---- Chart 4: Cash per firm (all firms on same chart) ----
         st.subheader("Cash per firm")
@@ -517,6 +596,22 @@ else:
                 .build()
             )
             st.altair_chart(chart_surplus, use_container_width=True)
+
+        # ---- Chart 5c: Average eWTP by good ----
+        st.subheader("Average eWTP by good")
+        avg_ewtp_by_good = df_builder.avg_ewtp_by_good_over_time()
+        if not avg_ewtp_by_good.empty:
+            chart_avg_ewtp = (
+                AltairChartBuilder(avg_ewtp_by_good)
+                .x("timestep", title="Timestep")
+                .y("value", title="Avg eWTP")
+                .color("good", legend_title="Good")
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_avg_ewtp, use_container_width=True)
+        else:
+            st.caption("No eWTP data in this run (eWTP is tracked for CES consumers).")
 
         # ---- Chart 6: Food inventory per consumer (all consumers on same chart) ----
         st.subheader("Food inventory per consumer")

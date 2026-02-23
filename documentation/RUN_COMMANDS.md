@@ -139,6 +139,48 @@ python -m ai_bazaar.main --use-cost-pref-gen --max-supply-unit-cost 10 --use-env
 ```
 
 ---
+## THE CRASH
+# eWTP Tests
+```bash
+python -m ai_bazaar.main --use-cost-pref-gen --max-supply-unit-cost 1 --use-env --firm-type LLM --num-goods 1 --num-firms 1 --consumer-type CES --num-consumers 10 --name eWTP_test_1 --max-timesteps 10 --firm-initial-cash 1000 --consumer-scenario BOUNDED_BAZAAR --llm gemini-2.5-flash --discovery-limit 5 --max-tokens 2000 --prompt-algo cot  --no-diaries --seed 8
+```
+
+```bash
+python -m ai_bazaar.main --use-cost-pref-gen --max-supply-unit-cost 1 --use-env --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 20 --name eWTP_test_2 --max-timesteps 20 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm gemini-2.5-flash --discovery-limit 2 --max-tokens 2000 --prompt-algo cot  --no-diaries --seed 8
+```
+
+# Crash Tests
+
+**Run all Crash Tests from project root:** `python scripts/run_crash_tests.py`  
+Logs go to `logs/crash_tests/` (summary + per-run logs).
+
+# Large: discovery limit variation
+```bash
+python -m ai_bazaar.main --name crash_test_large_1 --use-cost-pref-gen --max-supply-unit-cost 1 --use-env --firm-type LLM --num-goods 1 --num-firms 8 --consumer-type CES --num-consumers 40 --max-timesteps 50 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm gemini-2.5-flash --discovery-limit 1 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+```bash
+python -m ai_bazaar.main --name crash_test_large_2 --use-cost-pref-gen --max-supply-unit-cost 1 --use-env --firm-type LLM --num-goods 1 --num-firms 8 --consumer-type CES --num-consumers 40 --max-timesteps 50 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm gemini-2.5-flash --discovery-limit 2 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+```bash
+python -m ai_bazaar.main --name crash_test_large_3 --use-cost-pref-gen --max-supply-unit-cost 1 --use-env --firm-type LLM --num-goods 1 --num-firms 8 --consumer-type CES --num-consumers 40 --max-timesteps 50 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm gemini-2.5-flash --discovery-limit 5 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+```bash
+python -m ai_bazaar.main --name crash_test_large_4 --use-cost-pref-gen --max-supply-unit-cost 1 --use-env --firm-type LLM --num-goods 1 --num-firms 8 --consumer-type CES --num-consumers 40 --max-timesteps 50 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm gemini-2.5-flash --discovery-limit 8 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+# Hetero: heterogeneous supply costs
+```bash
+python -m ai_bazaar.main --name crash_test_hetero_1 --use-cost-pref-gen --max-supply-unit-cost 5 --use-env --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 40 --max-timesteps 30 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm gemini-2.5-flash --discovery-limit 2 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+# Cheap: low firm initial cash
+```bash
+python -m ai_bazaar.main --name crash_test_cheap_1 --use-cost-pref-gen --max-supply-unit-cost 1 --use-env --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 40 --max-timesteps 30 --firm-initial-cash 250 --consumer-scenario THE_CRASH --llm gemini-2.5-flash --discovery-limit 2 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+# Single: 1 firm
+```bash
+python -m ai_bazaar.main --name crash_test_single_1 --use-cost-pref-gen --max-supply-unit-cost 1 --use-env --firm-type LLM --num-goods 1 --num-firms 1 --consumer-type CES --num-consumers 40 --max-timesteps 30 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm gemini-2.5-flash --discovery-limit 2 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+
+---
 
 ## Ablation-style runs
 

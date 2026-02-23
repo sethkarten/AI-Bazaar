@@ -105,6 +105,7 @@ class Market:
                 if filled:
                     filled_orders.append(order) # Note: Storing duplicate information here between the order and sales_info
                     sales_info.append({
+                        'consumer_id': order.consumer_id,
                         'firm_id': order.firm_id,
                         'good': order.good,
                         'quantity_sold': quantity_sold,

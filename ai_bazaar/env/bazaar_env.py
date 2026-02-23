@@ -401,6 +401,9 @@ class BazaarWorld:
             if getattr(f, "in_business", True)
         }
         discovery_limit = getattr(self.args, "discovery_limit", 5)
+        use_eWTP = getattr(self.args, "use_eWTP", False) or (
+            getattr(self.args, "consumer_scenario", None) == "THE_CRASH"
+        )
 
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=len(self.consumers)
@@ -415,6 +418,7 @@ class BazaarWorld:
                             self.args.consumer_scenario,
                             discovery_limit=discovery_limit,
                             firm_reputations=reputations,
+                            use_eWTP=use_eWTP,
                         )
                     ] = consumer
                 else:
@@ -432,7 +436,29 @@ class BazaarWorld:
 
         # 6. Market Clearing
         filled_orders, sales_info = self.market.clear(self.ledger)
+        self.filled_orders_count = len(filled_orders)
+        filled_by_firm = defaultdict(int)
+        for order in filled_orders:
+            filled_by_firm[order.firm_id] += 1
+        self.filled_orders_count_by_firm = dict(filled_by_firm)
         self.logger.info(f"Filled {len(filled_orders)} orders")
+
+        # update eWTP for all consumers
+        # iterate through sales info and update eWTP for each consumer
+        consumers_sold_to = []
+        consumers_by_name = {c.name: c for c in self.consumers}
+        for sale in sales_info:
+            consumer_id = sale.get("consumer_id")
+            if consumer_id is None:
+                continue
+            consumer = consumers_by_name.get(consumer_id)
+            if consumer is not None and hasattr(consumer, "update_eWTP"):
+                consumer.update_eWTP(sale)
+                consumers_sold_to.append(consumer_id)
+        # if the consumer is not in any sales info (they did not buy anything), update eWTP (r unchanged)
+        for consumer in self.consumers:
+            if consumer.name not in consumers_sold_to and hasattr(consumer, "update_eWTP"):
+                consumer.update_eWTP()
 
         # CES-based consumer surplus this timestep (per consumer, for state file)
         consumers_by_name = {c.name: c for c in self.consumers}
@@ -630,6 +656,8 @@ class BazaarWorld:
             "firms": self._build_firms_state(money, inventories),
             "consumers": self._build_consumers_state(money, inventories),
             "total_fees": getattr(self, "total_fees", 0.0),
+            "filled_orders_count": getattr(self, "filled_orders_count", 0),
+            "filled_orders_count_by_firm": getattr(self, "filled_orders_count_by_firm", {}),
         }
 
         log_dir = getattr(self.args, "log_dir", "logs")
@@ -717,6 +745,7 @@ class BazaarWorld:
             goods_utility = c.compute_goods_utility() if hasattr(c, "compute_goods_utility") else 0.0
             cash_utility = c.compute_cash_utility() if hasattr(c, "compute_cash_utility") else 0.0
             wtp = c.compute_willingness_to_pay(self.timestep) if hasattr(c, "compute_willingness_to_pay") else {}
+            ewtp = dict(getattr(c, "eWTP", {})) if hasattr(c, "eWTP") else {}
             by_name[c.name] = {
                 "name": c.name,
                 "labor": getattr(c, "l", 0),
@@ -728,6 +757,7 @@ class BazaarWorld:
                 "labor_disutility": labor_disutility,
                 "inventory": dict(inventories.get(c.name, {})),
                 "willingness_to_pay": dict(wtp),
+                "eWTP": ewtp,
                 "consumer_surplus": getattr(self, "consumer_surplus_this_step", {}).get(c.name, 0.0),
                 "diary": getattr(c, "diary", [])[-1:] if hasattr(c, "diary") else [],
             }
@@ -744,6 +774,7 @@ class BazaarWorld:
                     "labor_disutility": 0.0,
                     "inventory": dict(inventories.get(key, {})),
                     "willingness_to_pay": {},
+                    "eWTP": {},
                     "consumer_surplus": getattr(self, "consumer_surplus_this_step", {}).get(key, 0.0),
                     "diary": [],
                 }

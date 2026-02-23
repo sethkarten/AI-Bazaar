@@ -437,8 +437,10 @@ def create_argument_parser():
             "PRICE_DISCRIMINATION",
             "RATIONAL_BAZAAR",
             "BOUNDED_BAZAAR",
+            "THE_CRASH",
+            "LEMON_MARKET",
         ],
-        help="Consumer scenario",
+        help="Consumer scenario (THE_CRASH forces use of eWTP)",
     )
     parser.add_argument(
         "--consumption-interval",
@@ -521,6 +523,11 @@ def create_argument_parser():
         "--use-env",
         action="store_true",
         help="Run simulation via BazaarWorld (env) instead of inline loop; state files written to log_dir.",
+    )
+    parser.add_argument(
+        "--use-eWTP",
+        action="store_true",
+        help="Use expected WTP (eWTP) instead of WTP when clearing the market (order max_price).",
     )
 
     return parser

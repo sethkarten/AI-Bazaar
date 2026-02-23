@@ -110,6 +110,63 @@ class DataFrameBuilder:
                         seen.add(g)
         return sorted(seen)
 
+    def _all_consumer_ewtp_good_names(self) -> List[str]:
+        """Union of all good names from consumer eWTP dicts across states."""
+        seen = set()
+        for s in self.states:
+            for c in s.get("consumers", []):
+                ewtp = c.get("eWTP") or {}
+                for g in ewtp.keys():
+                    if g and g not in seen:
+                        seen.add(g)
+        return sorted(seen)
+
+    def consumer_ewtp_by_good_over_time(
+        self, consumer_name: str
+    ) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, good). Value is eWTP for the given consumer per good.
+        Uses all goods that appear in any consumer eWTP across states; missing (timestep, good) get value 0.
+        """
+        goods = self._all_consumer_ewtp_good_names()
+        if not goods:
+            return pd.DataFrame(columns=["timestep", "good", "value"])
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            consumer_by_name = {c.get("name"): c for c in s.get("consumers", []) if c.get("name")}
+            c = consumer_by_name.get(consumer_name, {})
+            ewtp = c.get("eWTP") or {}
+            for good in goods:
+                val = ewtp.get(good, 0.0)
+                if not isinstance(val, (int, float)):
+                    val = 0.0
+                rows.append({"timestep": t, "good": good, "value": float(val)})
+        return pd.DataFrame(rows)
+
+    def avg_ewtp_by_good_over_time(self) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, good). Value is average eWTP across all consumers for that good.
+        Uses all goods that appear in any consumer eWTP across states.
+        """
+        goods = self._all_consumer_ewtp_good_names()
+        if not goods:
+            return pd.DataFrame(columns=["timestep", "good", "value"])
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            consumers = s.get("consumers", [])
+            for good in goods:
+                vals = []
+                for c in consumers:
+                    ewtp = c.get("eWTP") or {}
+                    v = ewtp.get(good)
+                    if isinstance(v, (int, float)):
+                        vals.append(float(v))
+                avg = float(np.mean(vals)) if vals else 0.0
+                rows.append({"timestep": t, "good": good, "value": avg})
+        return pd.DataFrame(rows)
+
     def metrics_over_time(
         self,
         metrics: Optional[List[str]] = None,
@@ -159,6 +216,37 @@ class DataFrameBuilder:
             long_df[var_name] = long_df[var_name].replace(renames)
         return long_df
 
+    def filled_orders_count_over_time(self) -> pd.DataFrame:
+        """
+        One row per timestep: timestep, value (total filled consumer orders that step).
+        Uses state top-level filled_orders_count; 0 if missing (e.g. legacy state files).
+        """
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            count = s.get("filled_orders_count", 0)
+            if not isinstance(count, (int, float)):
+                count = 0
+            rows.append({"timestep": t, "value": int(count)})
+        return pd.DataFrame(rows)
+
+    def filled_orders_count_by_firm_over_time(self) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, firm). Value is number of consumer orders
+        filled by that firm that step. Uses union of all firm names; 0 if firm had no fills.
+        """
+        all_firms = self._all_firm_names()
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            by_firm = s.get("filled_orders_count_by_firm") or {}
+            for name in all_firms:
+                count = by_firm.get(name, 0)
+                if not isinstance(count, (int, float)):
+                    count = 0
+                rows.append({"timestep": t, "firm": name, "value": int(count)})
+        return pd.DataFrame(rows)
+
     def profit_per_firm_over_time(self) -> pd.DataFrame:
         """
         Long format: one row per (timestep, firm). Value is firm["profit"] for each firm.
@@ -173,6 +261,25 @@ class DataFrameBuilder:
                 f = firm_by_name.get(name)
                 rows.append({"timestep": t, "firm": name, "value": f.get("profit", 0) if f else 0})
         return pd.DataFrame(rows)
+
+    def profit_rolling_avg_per_firm_over_time(
+        self, window: int = 3
+    ) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, firm). Value is average of profit over the last
+        `window` timesteps (including current). Uses min_periods=1 so early timesteps have
+        partial averages.
+        """
+        df = self.profit_per_firm_over_time()
+        if df.empty:
+            return df
+        result = []
+        for firm_name, grp in df.groupby("firm"):
+            grp = grp.sort_values("timestep")
+            rolling = grp["value"].rolling(window=window, min_periods=1).mean()
+            for t, v in zip(grp["timestep"], rolling):
+                result.append({"timestep": t, "firm": firm_name, "value": float(v)})
+        return pd.DataFrame(result)
 
     def cash_per_firm_over_time(self) -> pd.DataFrame:
         """
