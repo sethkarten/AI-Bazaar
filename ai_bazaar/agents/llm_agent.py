@@ -39,6 +39,8 @@ class LLMAgent:
         # Initialize the appropriate model based on llm_type
         if llm_instance:
             self.llm = llm_instance
+        elif llm_type is None or llm_type == "None":
+            self.llm = None
         else:
             self.llm = self._create_llm_model(llm_type, port, args)
 
@@ -226,12 +228,42 @@ class LLMAgent:
     def extract_keys_from_dict(self, d, keys):
         result = {}
 
+        # Keys that denote nested structures already handled above; skip in flat iteration
+        _NESTED_KEYS = (
+            "production_allocations",
+            "produce_goods",
+            "production",
+            "produce",
+            "set_prices",
+            "pricing",
+            "prices",
+            "supply_purchases",
+            "purchase_supplies",
+            "buy_supplies",
+        )
+
         # Key mapping for alternative key names that LLMs might use
         key_mapping = {
             "purchase_supply": "supply_quantity",
             "purchase_supplies": "supply_quantity",
+            "purchase_supply": "supply_quantity",
+            "purchase_supply_quantity": "supply_quantity",
             "buy_supply": "supply_quantity",
             "buy_food_supply": "supply_quantity",
+            "production_food": "produce_food",
+            "food_production": "produce_food",
+            "food_production_percentage": "produce_food",
+            "food_production_allocation": "produce_food",
+            "food_production_distribution": "produce_food",
+            "food_production_percentage": "produce_food",
+            "food_production_allocation": "produce_food",
+            "food_production_distribution": "produce_food",
+            "food_price": "price_food",
+            "food_prices": "price_food",
+            "food_pricing": "price_food",
+            "set_food_price": "price_food",
+            "set_food_prices": "price_food",
+            "set_food_pricing": "price_food",
         }
 
         # Handle nested structures for supply purchases
@@ -289,18 +321,7 @@ class LLMAgent:
 
         # Standard extraction
         for key, value in d.items():
-            # Skip nested structures we've already handled
-            if key in [
-                "production_allocations",
-                "production",
-                "produce",
-                "set_prices",
-                "pricing",
-                "prices",
-                "supply_purchases",
-                "purchase_supplies",
-                "buy_supplies",
-            ]:
+            if key in _NESTED_KEYS:
                 continue
 
             # Check if key matches directly
@@ -313,6 +334,24 @@ class LLMAgent:
             elif isinstance(value, dict):
                 nested_result = self.extract_keys_from_dict(value, keys)
                 result.update(nested_result)
+
+        # For any required key still missing: accept a response key that contains the
+        # required key as a contiguous substring (e.g. set_price_food -> price_food).
+        # Also accept purchase_<good> / supply_<good> -> supply_quantity_<good>.
+        for required_key in keys:
+            if required_key in result:
+                continue
+            for resp_key, resp_value in d.items():
+                if resp_key in _NESTED_KEYS or isinstance(resp_value, dict):
+                    continue
+                if required_key in resp_key:
+                    result[required_key] = resp_value
+                    break
+                if required_key.startswith("supply_quantity_"):
+                    suffix = required_key.replace("supply_quantity_", "", 1)
+                    if resp_key in (f"purchase_{suffix}", f"supply_{suffix}"):
+                        result[required_key] = resp_value
+                        break
 
         return result
 

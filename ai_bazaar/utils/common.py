@@ -21,6 +21,18 @@ class Message(Enum):
     UPDATE_PRODUCTION = auto()
     ACTION_PRODUCTION = auto()
     REFLECTION = auto()
+    UPDATE_LISTING = auto()
+    ACTION_LISTING = auto()
+    
+QUALITY_DICT = {
+    'mint': 1.0,
+    'good': 0.7,
+    'fair': 0.4,
+    'poor': 0.1,                
+}
+
+# LEMON_MARKET scenario: single good is "car"; num_goods forced to 1
+LEMON_MARKET_GOODS = ["car"]
 
 # Shared state for persona messages
 GEN_ROLE_MESSAGES = {}

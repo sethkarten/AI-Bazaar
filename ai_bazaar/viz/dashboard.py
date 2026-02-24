@@ -100,8 +100,8 @@ else:
         f"{pd.DataFrame(state['consumers'])['utility'].mean():.2f}",
     )
 
-    # Tab 0: General (experiment args). Tab 1–3: single-timestep view. Tab 4: time-series charts.
-    tab0, tab1, tab2, tab3, tab4 = st.tabs(["📋 General", "💰 Wealth Distribution", "🏢 Firms", "👥 Consumers", "📊 Charts"])
+    # Tab 0: General. Tab 1–3: single-timestep view. Tab 4: Charts. Tab 5: Lemon Market.
+    tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 General", "💰 Wealth Distribution", "🏢 Firms", "👥 Consumers", "📊 Charts", "🍋 Lemon Market"])
 
     # GENERAL TAB: Experiment arguments.
     with tab0:
@@ -644,3 +644,30 @@ else:
                 .build()
             )
             st.altair_chart(chart_utility_components, use_container_width=True)
+
+    # LEMON MARKET TAB: All posted listings (only for runs with consumer_scenario LEMON_MARKET).
+    with tab5:
+        is_lemon_run = (
+            experiment_args_dict is not None
+            and experiment_args_dict.get("consumer_scenario") == "LEMON_MARKET"
+        )
+        if not is_lemon_run:
+            st.info("Current selection is not a Lemon Market run.")
+        else:
+            all_listings = []
+            for path in state_files:
+                with open(path, "r") as f:
+                    snap = json.load(f)
+                for row in snap.get("lemon_market_new_listings", []):
+                    all_listings.append(row)
+            if all_listings:
+                st.subheader("All posted listings")
+                df_listings = pd.DataFrame(all_listings)
+                # Order columns: timestep_posted first, then id, firm_id, etc.
+                cols = ["timestep_posted", "id", "firm_id", "quality", "quality_value", "price", "reputation", "description"]
+                cols = [c for c in cols if c in df_listings.columns]
+                extra = [c for c in df_listings.columns if c not in cols]
+                df_listings = df_listings[cols + extra]
+                st.dataframe(df_listings, use_container_width=True)
+            else:
+                st.caption("No lemon market listings found in state files.")

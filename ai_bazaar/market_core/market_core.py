@@ -55,7 +55,7 @@ class Ledger:
 # MARKET 
 from collections import deque
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Any
 
 @dataclass
 class Order:
@@ -64,6 +64,7 @@ class Order:
     good: str
     quantity: float
     max_price: float  # willingness to pay
+    listing_id: Optional[str] = None  # for LEMON_MARKET: which listing this order targets
 
 @dataclass
 class Quote:
@@ -72,10 +73,23 @@ class Quote:
     price: float
     quantity_available: float
 
+@dataclass
+class Listing:
+    """A single listing (e.g. used car) in a lemon market. One unit per listing."""
+    id: str
+    firm_id: str
+    description: str
+    price: float
+    reputation: float
+    quality: str
+    quality_value: float
+    ttl: int = 3  # time-to-live; decremented each step if not sold; removed when <= 0
+
 class Market:
     def __init__(self):
         self.orders = deque()  # Queue of pending orders
         self.quotes = []  # List of current quotes
+        self.listings = []  # List of Listing for LEMON_MARKET (cleared each step via post_listings)
         
     def submit_order(self, order: Order):
         """Add order to the queue"""
@@ -86,34 +100,95 @@ class Market:
         # Remove existing quote from same firm for same good
         self.quotes = [q for q in self.quotes if not (q.firm_id == quote.firm_id and q.good == quote.good)]
         self.quotes.append(quote)
+
+    def post_listings(self, listings: List[Any], listing_ttl: int = 3) -> None:
+        """Post listings for LEMON_MARKET. Accepts list of dicts or Listing; assigns id/ttl if missing."""
+        self.listings = []
+        for i, L in enumerate(listings):
+            if isinstance(L, Listing):
+                self.listings.append(L)
+            else:
+                lid = L.get("id") or f"listing_{i}"
+                ttl = L.get("ttl", listing_ttl)
+                self.listings.append(Listing(
+                    id=lid,
+                    firm_id=L["firm_id"],
+                    description=L.get("description", ""),
+                    price=float(L["price"]),
+                    reputation=float(L.get("reputation", 1.0)),
+                    quality=L.get("quality", "unknown"),
+                    quality_value=float(L.get("quality_value", 0.5)),
+                    ttl=int(ttl),
+                ))
         
     def clear(self, ledger: Ledger):
-        """Match orders with quotes and execute trades
-        
+        """Match orders with quotes or listings and execute trades.
+
+        If an order has listing_id, it is filled from self.listings (LEMON_MARKET).
+        Otherwise it is filled from self.quotes.
+
         Returns:
             tuple: (filled_orders, sales_info) where sales_info is a list of dicts
                    with keys: firm_id, good, quantity_sold, requested_quantity, price
         """
         filled_orders = []
         sales_info = []
-        
+
         while self.orders:
             order = self.orders.popleft()
-            result = self._fill_order(order, ledger)
+            if getattr(order, "listing_id", None) is not None:
+                result = self._fill_order_listing(order, ledger)
+            else:
+                result = self._fill_order(order, ledger)
             if result:
-                filled, quantity_sold, price = result
+                filled = result[0]
+                quantity_sold = result[1]
+                price = result[2]
                 if filled:
-                    filled_orders.append(order) # Note: Storing duplicate information here between the order and sales_info
-                    sales_info.append({
+                    filled_orders.append(order)
+                    sale_entry = {
                         'consumer_id': order.consumer_id,
                         'firm_id': order.firm_id,
                         'good': order.good,
                         'quantity_sold': quantity_sold,
                         'requested_quantity': order.quantity,
-                        'price': price,  # Actual transaction price from the filled quote
-                    })
-                
+                        'price': price,
+                    }
+                    # LEMON_MARKET: include quality_value for reputation update
+                    if len(result) >= 4:
+                        sale_entry['quality_value'] = result[3]
+                    sales_info.append(sale_entry)
         return filled_orders, sales_info
+
+    def _fill_order_listing(self, order: Order, ledger: Ledger):
+        """Fill an order that targets a listing (LEMON_MARKET). One listing = one unit of good 'car'."""
+        listing_id = getattr(order, "listing_id", None)
+        if not listing_id:
+            return None
+        listing = None
+        idx = None
+        for i, L in enumerate(self.listings):
+            if L.id == listing_id:
+                listing = L
+                idx = i
+                break
+        if listing is None or listing.price > order.max_price:
+            return None
+        total_cost = listing.price * order.quantity
+        if ledger.agent_money.get(order.consumer_id, 0) < total_cost:
+            return None
+        car_good = "car"
+        firm_has = ledger.agent_inventories.get(listing.firm_id, {}).get(car_good, 0)
+        if firm_has < order.quantity:
+            return None
+        try:
+            ledger.transfer_money(order.consumer_id, listing.firm_id, total_cost)
+            ledger.transfer_good(listing.firm_id, order.consumer_id, car_good, order.quantity)
+        except ValueError:
+            return None
+        # Remove filled listing so it cannot be filled again
+        self.listings.pop(idx)
+        return (True, order.quantity, listing.price, listing.quality_value)
     
     def _fill_order(self, order: Order, ledger: Ledger):
         """Try to fill a single order

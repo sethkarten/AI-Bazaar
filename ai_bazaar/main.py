@@ -20,6 +20,7 @@ from .agents.firm import FirmAgent, FixedFirmAgent
 from .agents.consumer import CESConsumerAgent, FixedConsumerAgent
 from .agents.llm_agent import TestAgent
 from .env.bazaar_env import BazaarWorld
+from .utils.common import LEMON_MARKET_GOODS
 
 
 def setup_logging(args):
@@ -95,11 +96,14 @@ def run_marketplace_simulation(args, llm_instance=None):
     firms = []
 
     goods_list = ["food", "clothing", "electronics", "furniture"]
-    goods = []
-    for i in range(args.num_goods):
-        if i >= len(goods_list):
-            break
-        goods.append(goods_list[i])
+    if getattr(args, "consumer_scenario", None) == "LEMON_MARKET":
+        goods = LEMON_MARKET_GOODS[:1]  # ["car"], num_goods already forced to 1
+    else:
+        goods = []
+        for i in range(args.num_goods):
+            if i >= len(goods_list):
+                break
+            goods.append(goods_list[i])
 
     for i in range(args.num_firms):
         name = f"firm_{i}"
@@ -443,6 +447,18 @@ def create_argument_parser():
         help="Consumer scenario (THE_CRASH forces use of eWTP)",
     )
     parser.add_argument(
+        "--listing-ttl",
+        type=int,
+        default=3,
+        help="LEMON_MARKET: time-to-live for listings; decremented each step if unsold; default 3",
+    )
+    parser.add_argument(
+        "--reputation-alpha",
+        type=float,
+        default=0.9,
+        help="LEMON_MARKET: reputation update smoothing; R_new = alpha*R_old + (1-alpha)*q; default 0.9",
+    )
+    parser.add_argument(
         "--consumption-interval",
         type=int,
         default=1,
@@ -537,6 +553,10 @@ def main():
     """Main entry point."""
     parser = create_argument_parser()
     args = parser.parse_args()
+
+    # LEMON_MARKET: force num_goods to 1 and only good is "car"
+    if getattr(args, "consumer_scenario", None) == "LEMON_MARKET":
+        args.num_goods = 1
 
     setup_logging(args)
     logger = logging.getLogger("main")

@@ -3,11 +3,13 @@ import os
 import json
 import numpy as np
 import random
+from dataclasses import asdict
 from typing import Dict, List, Any, Sequence
 from collections import defaultdict
 from ..market_core.market_core import Ledger, Market
 from ..agents.firm import FirmAgent, FixedFirmAgent
 from ..agents.consumer import CESConsumerAgent, FixedConsumerAgent
+from ..utils.common import QUALITY_DICT, LEMON_MARKET_GOODS
 
 
 from ..agents.planner import TaxPlanner, FixedTaxPlanner
@@ -18,6 +20,7 @@ DEFAULT_SUPPLY_UNIT_COSTS = {
     "clothing": 1.0,
     "electronics": 1.0,
     "furniture": 1.0,
+    "car": 1.0,
 }
 
 DEFAULT_PREFERENCES = {
@@ -25,6 +28,7 @@ DEFAULT_PREFERENCES = {
     "clothing": 0.2,
     "electronics": 0.1,
     "furniture": 0.1,
+    "car": 1.0,
 }
 
 class BazaarWorld:
@@ -33,8 +37,14 @@ class BazaarWorld:
         self.logger = logging.getLogger("main")
         self.ledger = Ledger()
         self.market = Market()
-        self.goods_list = ["food", "clothing", "electronics", "furniture"]
-        self.goods = self.goods_list[: args.num_goods]
+        # LEMON_MARKET: use lemon_market_goods and force num_goods = 1
+        if getattr(args, "consumer_scenario", None) == "LEMON_MARKET":
+            args.num_goods = 1
+            self.goods_list = list(LEMON_MARKET_GOODS)
+            self.goods = self.goods_list[:1]  # ["car"]
+        else:
+            self.goods_list = ["food", "clothing", "electronics", "furniture"]
+            self.goods = self.goods_list[: args.num_goods]
         # default supply unit costs
         self.supply_unit_costs = {good: DEFAULT_SUPPLY_UNIT_COSTS.get(good) for good in self.goods}
 
@@ -135,6 +145,13 @@ class BazaarWorld:
                 )
             self.consumers.append(consumer)
 
+        # LEMON_MARKET: 1 timestep = 1 year — scale income by 52 and labor disutility
+        if getattr(args, "consumer_scenario", None) == "LEMON_MARKET":
+            for c in self.consumers:
+                c.income_scale = 52
+                if hasattr(c, "delta"):
+                    c._labor_disutility_scale = 52 ** c.delta
+
         self._write_consumer_attributes()
         self._write_firm_attributes()
         self._write_experiment_args()
@@ -144,7 +161,10 @@ class BazaarWorld:
 
         self.timestep = 0
         self.firm_prices_last_step = {}
-
+        # LEMON_MARKET: list of new listings each step (filled in lemon_market_firm_phases)
+        self.lemon_market_listings = []
+        # LEMON_MARKET: unsold listings carried over (ttl decremented after clear)
+        self.lemon_market_listings_unsold = []
     def _write_consumer_attributes(self):
         """Write unique attributes of all consumer agents to a JSON file (after full initialization)."""
         def _to_serializable(obj):
@@ -295,99 +315,142 @@ class BazaarWorld:
                     )
             concurrent.futures.wait(futures)
 
-        # 1. Supply Phase (Sequential for now as it modifies ledger)
-        supply_unit_price = 1.0
-        for firm in self.firms:
-            if not getattr(firm, "in_business", True):
-                continue
-            if self.args.firm_type == "LLM":
-                firm.purchase_supplies(self.timestep)
-                supply_stats = getattr(firm, "_timestep_stats", {}).get(self.timestep, {}).get("supply", {})
-                by_good = supply_stats.get("by_good", {})
-                for good, bg in by_good.items():
-                    cost = bg.get("cost", 0.0)
-                    if cost <= 0:
-                        continue
-                    expenses_info.append({
-                        "firm_id": firm.name,
-                        "expense_type": "supply",
-                        "good": good,
-                        "amount": cost,
-                        "quantity": bg.get("quantity", 0.0),
-                        "unit_price": bg.get("unit_price", 0.0),
-                    })
-            else:
-                quantity = firm.cash * 0.5 / supply_unit_price
-                quantity = firm.purchase_supplies(quantity, supply_unit_price, self.timestep)
-                cost = quantity * supply_unit_price
-                expenses_info.append({
-                    "firm_id": firm.name,
-                    "expense_type": "supply",
-                    "good": "supply",
-                    "amount": cost,
-                    "quantity": quantity,
-                    "unit_price": supply_unit_price,
-                })
-
-        # 2. Production Phase
-        for firm in self.firms:
-            if not getattr(firm, "in_business", True):
-                continue
-            firm.produce_goods(self.timestep)
-
-        # 3. Pricing Phase (Parallel)
-        firm_prices = {}
-
-        # Prepare market context for each firm (Information Asymmetry)
-        market_contexts = {}
-        for firm in self.firms:
-            if not getattr(firm, "in_business", True):
-                continue
-
-            if getattr(self.args, "info_asymmetry", False):
-                # Firm only sees a noisy average of competitor prices
-                noisy_context = {"competitor_summary": {}}
-                for good in self.goods:
-                    comp_prices = [
-                        self.firm_prices_last_step.get(f.name, {}).get(good, 10.0)
-                        for f in self.firms
-                        if f.name != firm.name and getattr(f, "in_business", True)
-                    ]
-                    if comp_prices:
-                        avg = np.mean(comp_prices)
-                        # Add 10% noise
-                        noisy_avg = avg * (1.0 + np.random.uniform(-0.1, 0.1))
-                        noisy_context["competitor_summary"][good] = round(noisy_avg, 2)
-                market_contexts[firm.name] = noisy_context
-            else:
-                # Full information (as before)
-                market_contexts[firm.name] = {"last_prices": self.firm_prices_last_step}
-
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=len(self.firms)
-        ) as executor:
-            future_to_firm = {}
+        # firm phases
+        #B2C
+        def firm_phases(firm_prices, market_contexts):
+            
+            # 1. Supply Phase (Sequential for now as it modifies ledger)
+            supply_unit_price = 1.0
             for firm in self.firms:
                 if not getattr(firm, "in_business", True):
                     continue
                 if self.args.firm_type == "LLM":
-                    future_to_firm[
-                        executor.submit(
-                            firm.set_price,
-                            self.timestep,
-                            market_data=market_contexts.get(firm.name, {}),
-                        )
-                    ] = firm
+                    firm.purchase_supplies(self.timestep)
+                    supply_stats = getattr(firm, "_timestep_stats", {}).get(self.timestep, {}).get("supply", {})
+                    by_good = supply_stats.get("by_good", {})
+                    for good, bg in by_good.items():
+                        cost = bg.get("cost", 0.0)
+                        if cost <= 0:
+                            continue
+                        expenses_info.append({
+                            "firm_id": firm.name,
+                            "expense_type": "supply",
+                            "good": good,
+                            "amount": cost,
+                            "quantity": bg.get("quantity", 0.0),
+                            "unit_price": bg.get("unit_price", 0.0),
+                        })
                 else:
-                    prices = firm.set_price(price=10.0, timestep=self.timestep)
+                    quantity = firm.cash * 0.5 / supply_unit_price
+                    quantity = firm.purchase_supplies(quantity, supply_unit_price, self.timestep)
+                    cost = quantity * supply_unit_price
+                    expenses_info.append({
+                        "firm_id": firm.name,
+                        "expense_type": "supply",
+                        "good": "supply",
+                        "amount": cost,
+                        "quantity": quantity,
+                        "unit_price": supply_unit_price,
+                    })
+
+            # 2. Production Phase
+            for firm in self.firms:
+                if not getattr(firm, "in_business", True):
+                    continue
+                firm.produce_goods(self.timestep)
+
+            # 3. Pricing Phase (Parallel)
+
+            # Prepare market context for each firm (Information Asymmetry)
+            for firm in self.firms:
+                if not getattr(firm, "in_business", True):
+                    continue
+
+                if getattr(self.args, "info_asymmetry", False):
+                    # Firm only sees a noisy average of competitor prices
+                    noisy_context = {"competitor_summary": {}}
+                    for good in self.goods:
+                        comp_prices = [
+                            self.firm_prices_last_step.get(f.name, {}).get(good, 10.0)
+                            for f in self.firms
+                            if f.name != firm.name and getattr(f, "in_business", True)
+                        ]
+                        if comp_prices:
+                            avg = np.mean(comp_prices)
+                            # Add 10% noise
+                            noisy_avg = avg * (1.0 + np.random.uniform(-0.1, 0.1))
+                            noisy_context["competitor_summary"][good] = round(noisy_avg, 2)
+                    market_contexts[firm.name] = noisy_context
+                else:
+                    # Full information (as before)
+                    market_contexts[firm.name] = {"last_prices": self.firm_prices_last_step}
+
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=len(self.firms)
+            ) as executor:
+                future_to_firm = {}
+                for firm in self.firms:
+                    if not getattr(firm, "in_business", True):
+                        continue
+                    if self.args.firm_type == "LLM":
+                        future_to_firm[
+                            executor.submit(
+                                firm.set_price,
+                                self.timestep,
+                                market_data=market_contexts.get(firm.name, {}),
+                            )
+                        ] = firm
+                    else:
+                        prices = firm.set_price(price=10.0, timestep=self.timestep)
+                        firm_prices[firm.name] = prices
+                        firm.post_quotes(prices)
+
+                for future in concurrent.futures.as_completed(future_to_firm):
+                    firm = future_to_firm[future]
+                    prices = future.result()
                     firm_prices[firm.name] = prices
                     firm.post_quotes(prices)
+        #C2C
+        def lemon_market_firm_phases():
+            new_listings = []
+            for firm in self.firms:
+                if not getattr(firm, "in_business", True):
+                    continue
 
-            for future in concurrent.futures.as_completed(future_to_firm):
-                firm = future_to_firm[future]
-                prices = future.result()
-                firm_prices[firm.name] = prices
-                firm.post_quotes(prices)
+                # 1) Endow the firm with a car of quality randomly sampled from QUALITY_DICT
+                if not hasattr(firm, "listings"):
+                    firm.listings = []
+                quality_key = random.choice(list(QUALITY_DICT.keys()))
+                quality_value = QUALITY_DICT[quality_key]
+                firm.listings.append({
+                    "quality": quality_key,
+                    "quality_value": quality_value,
+                    "posted": False,
+                })
+
+                # 2) Create listings for all items not flagged as "posted"
+                firm_new = firm.create_listings(self.timestep)
+                new_listings.extend(firm_new)
+
+            # 3) Store the new listings in a list (on the world for downstream use)
+            self.lemon_market_listings = new_listings
+        
+        # 3. Firm phases
+        firm_prices = {}
+        market_contexts = {}
+        if self.args.consumer_scenario != "LEMON_MARKET":
+            firm_phases(firm_prices, market_contexts)
+        elif self.args.consumer_scenario == "LEMON_MARKET":
+            lemon_market_firm_phases()
+            # Merge unsold (from previous step) with new listings; post all with listing_ttl
+            listing_ttl = getattr(self.args, "listing_ttl", 3)
+            unsold = getattr(self, "lemon_market_listings_unsold", [])
+            all_listings = unsold + self.lemon_market_listings
+            self.market.post_listings(all_listings, listing_ttl=listing_ttl)
+            self.lemon_market_listings_count = len(self.market.listings)
+            # Endow firms with 1 car only for NEW listings (unsold already have inventory)
+            for L in self.lemon_market_listings:
+                self.ledger.add_good(L["firm_id"], "car", 1.0)
 
         # 4. Income Phase: Receive labor income
         for consumer in self.consumers:
@@ -404,6 +467,9 @@ class BazaarWorld:
         use_eWTP = getattr(self.args, "use_eWTP", False) or (
             getattr(self.args, "consumer_scenario", None) == "THE_CRASH"
         )
+        if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
+            self.lemon_market_bids_count = 0
+            self.lemon_market_passes_count = 0
 
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=len(self.consumers)
@@ -431,6 +497,11 @@ class BazaarWorld:
                 consumer = future_to_cons[future]
                 orders = future.result()
                 consumer.submit_orders(orders)
+                if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
+                    n_seen = getattr(consumer, "_lemon_listings_seen", 0)
+                    n_bids = len(orders)
+                    self.lemon_market_bids_count += n_bids
+                    self.lemon_market_passes_count += max(0, n_seen - n_bids)
 
         pre_clearing_ledger = self.ledger.copy()
 
@@ -442,6 +513,25 @@ class BazaarWorld:
             filled_by_firm[order.firm_id] += 1
         self.filled_orders_count_by_firm = dict(filled_by_firm)
         self.logger.info(f"Filled {len(filled_orders)} orders")
+
+        # LEMON_MARKET: decrement TTL for unsold listings; keep only ttl > 0 for next step
+        if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
+            for L in self.market.listings:
+                L.ttl -= 1
+            self.market.listings = [L for L in self.market.listings if L.ttl > 0]
+            self.lemon_market_listings_unsold = list(self.market.listings)
+
+            # Update seller reputation: R_{t+1} = alpha * R_t + (1 - alpha) * q (q = quality of car sold)
+            alpha = getattr(self.args, "reputation_alpha", 0.9)
+            firms_by_name = {f.name: f for f in self.firms}
+            for sale in sales_info:
+                firm_id = sale.get("firm_id")
+                q = sale.get("quality_value")
+                if firm_id is None or q is None:
+                    continue
+                firm = firms_by_name.get(firm_id)
+                if firm is not None and hasattr(firm, "update_reputation"):
+                    firm.update_reputation(quality=float(q), alpha=alpha)
 
         # update eWTP for all consumers
         # iterate through sales info and update eWTP for each consumer
@@ -491,8 +581,11 @@ class BazaarWorld:
             good = sale["good"]
             quantity_sold = sale["quantity_sold"]
             requested_qty = sale.get("requested_quantity", quantity_sold)  # market_core returns requested_quantity
-            # Use filled price from sale when available (from market.clear), else fallback to firm_prices
-            price = sale.get("price", firm_prices[firm_name][good])
+            # Use filled price from sale when available (from market.clear). LEMON_MARKET has no firm_prices.
+            if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
+                price = sale.get("price", 0.0)
+            else:
+                price = sale.get("price", firm_prices.get(firm_name, {}).get(good, 0.0))
 
             firm_sales_summary[firm_name]["sold"] += quantity_sold
             firm_sales_summary[firm_name]["requested"] += requested_qty
@@ -522,10 +615,12 @@ class BazaarWorld:
                     break
 
         # Update reputations for all firms (even if no sales)
-        for firm in self.firms:
-            summary = firm_sales_summary.get(firm.name, {"sold": 0.0, "requested": 0.0})
-            if summary["requested"] > 0:
-                firm.update_reputation(summary["sold"], summary["requested"])
+        # LEMON_MARKET uses R_{t+1} = alpha*R_t + (1-alpha)*q instead (done above)
+        if getattr(self.args, "consumer_scenario", None) != "LEMON_MARKET":
+            for firm in self.firms:
+                summary = firm_sales_summary.get(firm.name, {"sold": 0.0, "requested": 0.0})
+                if summary["requested"] > 0:
+                    firm.update_reputation(summary["sold"], summary["requested"])
 
         # 7. Cleanup & Overhead
         self.market.quotes.clear()
@@ -658,7 +753,22 @@ class BazaarWorld:
             "total_fees": getattr(self, "total_fees", 0.0),
             "filled_orders_count": getattr(self, "filled_orders_count", 0),
             "filled_orders_count_by_firm": getattr(self, "filled_orders_count_by_firm", {}),
+            "lemon_market_listings_count": getattr(self, "lemon_market_listings_count", 0),
+            "lemon_market_bids_count": getattr(self, "lemon_market_bids_count", 0),
+            "lemon_market_passes_count": getattr(self, "lemon_market_passes_count", 0),
         }
+        if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
+            # New listings posted this step (with timestep for dashboard "all listings" table)
+            new_listings = []
+            for d in getattr(self, "lemon_market_listings", []):
+                row = {k: v for k, v in d.items() if k != "posted"}
+                row["timestep_posted"] = self.timestep
+                new_listings.append(row)
+            state["lemon_market_new_listings"] = new_listings
+            # Unsold listings at end of step (Listing dataclass -> dict)
+            state["lemon_market_unsold_listings"] = [
+                asdict(L) for L in getattr(self, "lemon_market_listings_unsold", [])
+            ]
 
         log_dir = getattr(self.args, "log_dir", "logs")
         run_name = getattr(self.args, "name", None) or "simulation"
