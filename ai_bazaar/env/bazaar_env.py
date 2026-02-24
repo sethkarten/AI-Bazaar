@@ -288,6 +288,20 @@ class BazaarWorld:
             json.dump(d, f, indent=2)
         self.logger.info("Wrote experiment args to %s", path)
 
+    def _consumers_participating_this_step(self):
+        """Return the list of consumers who participate this timestep. If poisson_demand_lambda is set, k = min(Poisson(lam), N) consumers are chosen at random; else all participate. THE_CRASH scenario defaults lambda to 30 if not set."""
+        lam = getattr(self.args, "poisson_demand_lambda", None)
+        if lam is None:
+            if getattr(self.args, "consumer_scenario", None) == "THE_CRASH":
+                lam = 30
+            else:
+                return self.consumers
+        k = np.random.poisson(lam)
+        k = min(max(0, k), len(self.consumers))
+        if k == 0:
+            return []
+        return random.sample(self.consumers, k)
+
     def step(self):
         """Execute one timestep of the bazaar with parallel agent actions"""
         import concurrent.futures
@@ -471,11 +485,12 @@ class BazaarWorld:
             self.lemon_market_bids_count = 0
             self.lemon_market_passes_count = 0
 
+        participating = self._consumers_participating_this_step()
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=len(self.consumers)
+            max_workers=max(1, len(participating))
         ) as executor:
             future_to_cons = {}
-            for consumer in self.consumers:
+            for consumer in participating:
                 if self.args.consumer_type == "CES":
                     future_to_cons[
                         executor.submit(

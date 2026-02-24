@@ -244,8 +244,15 @@ def run_marketplace_simulation(args, llm_instance=None):
                 for firm in firms
                 if getattr(firm, "in_business", True)
             }
+            lam = getattr(args, "poisson_demand_lambda", None)
+            if lam is not None:
+                k = int(np.random.poisson(lam))
+                k = min(max(0, k), len(consumers))
+                participating = random.sample(consumers, k) if k > 0 else []
+            else:
+                participating = consumers
             consumer_orders = {}
-            for consumer in consumers:
+            for consumer in participating:
                 if args.consumer_type == "CES":
                     orders = consumer.make_orders(
                         timestep,
@@ -414,6 +421,12 @@ def create_argument_parser():
         help="Max firms (per good) a consumer can poll for prices before ordering (0 = no limit)",
     )
     parser.add_argument(
+        "--poisson-demand-lambda",
+        type=float,
+        default=None,
+        help="If set, each timestep the number of consumers who participate is min(Poisson(lambda), num_consumers). If None, all consumers participate.",
+    )
+    parser.add_argument(
         "--info-asymmetry",
         action="store_true",
         help="Enable information asymmetry (firms see noisy competitor data)",
@@ -557,6 +570,10 @@ def main():
     # LEMON_MARKET: force num_goods to 1 and only good is "car"
     if getattr(args, "consumer_scenario", None) == "LEMON_MARKET":
         args.num_goods = 1
+
+    # THE_CRASH: default Poisson demand lambda to 30 unless explicitly set
+    if getattr(args, "consumer_scenario", None) == "THE_CRASH" and getattr(args, "poisson_demand_lambda", None) is None:
+        args.poisson_demand_lambda = 30
 
     setup_logging(args)
     logger = logging.getLogger("main")
