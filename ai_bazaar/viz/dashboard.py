@@ -654,6 +654,28 @@ else:
         if not is_lemon_run:
             st.info("Current selection is not a Lemon Market run.")
         else:
+            # Chart: Listings, Bids, Passes over time
+            df_builder_lemon = DataFrameBuilder(state_files=state_files)
+            lemon_metrics = df_builder_lemon.lemon_market_metrics_over_time()
+            if not lemon_metrics.empty:
+                st.subheader("Listings, Bids, and Passes over time")
+                chart_lemon = (
+                    AltairChartBuilder(lemon_metrics)
+                    .x("timestep", title="Timestep")
+                    .y("value", title="Count")
+                    .color(
+                        "metric",
+                        domain=["Listings", "Bids", "Passes"],
+                        range_=["#1f77b4", "#2ca02c", "#ff7f0e"],
+                        legend_title="Metric",
+                    )
+                    .mark_line(strokeWidth=2)
+                    .build()
+                )
+                st.altair_chart(chart_lemon, use_container_width=True)
+            else:
+                st.caption("No lemon market metrics in state files.")
+
             all_listings = []
             for path in state_files:
                 with open(path, "r") as f:

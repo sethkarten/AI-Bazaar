@@ -216,6 +216,29 @@ class DataFrameBuilder:
             long_df[var_name] = long_df[var_name].replace(renames)
         return long_df
 
+    def lemon_market_metrics_over_time(self) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, metric). Metrics: Listings, Bids, Passes.
+        Uses state lemon_market_listings_count, lemon_market_bids_count, lemon_market_passes_count.
+        Returns empty DataFrame if no state has these keys (non–lemon runs).
+        """
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            listings = s.get("lemon_market_listings_count", 0)
+            bids = s.get("lemon_market_bids_count", 0)
+            passes = s.get("lemon_market_passes_count", 0)
+            if not isinstance(listings, (int, float)):
+                listings = 0
+            if not isinstance(bids, (int, float)):
+                bids = 0
+            if not isinstance(passes, (int, float)):
+                passes = 0
+            rows.append({"timestep": t, "metric": "Listings", "value": int(listings)})
+            rows.append({"timestep": t, "metric": "Bids", "value": int(bids)})
+            rows.append({"timestep": t, "metric": "Passes", "value": int(passes)})
+        return pd.DataFrame(rows)
+
     def filled_orders_count_over_time(self) -> pd.DataFrame:
         """
         One row per timestep: timestep, value (total filled consumer orders that step).
