@@ -1,7 +1,7 @@
 import logging
 import re
 from time import sleep
-from typing import Optional
+from typing import Any, Optional
 from ..utils.common import Message
 import json
 from ..models.openai_model import OpenAIModel
@@ -191,6 +191,7 @@ class LLMAgent:
         parse_func,
         depth: int = 0,
         retry: bool = False,
+        on_parse_failure_return: Optional[Any] = None,
     ) -> list[float]:
         # concat user prompts from prev timesteps to get historical information for current timestep
         msg = self.get_historical_message(timestep, retry)
@@ -204,23 +205,48 @@ class LLMAgent:
 
         if self.prompt_algo == "io":
             return self.prompt_io(
-                msg, timestep, keys, parse_func, expected_format=expected_format
+                msg,
+                timestep,
+                keys,
+                parse_func,
+                expected_format=expected_format,
+                on_parse_failure_return=on_parse_failure_return,
             )
         elif self.prompt_algo == "cot":
             return self.prompt_cot(
-                msg, timestep, keys, parse_func, expected_format=expected_format
+                msg,
+                timestep,
+                keys,
+                parse_func,
+                expected_format=expected_format,
+                on_parse_failure_return=on_parse_failure_return,
             )
         elif self.prompt_algo == "sc":
             return self.prompt_sc(
-                msg, timestep, keys, parse_func, expected_format=expected_format
+                msg,
+                timestep,
+                keys,
+                parse_func,
+                expected_format=expected_format,
+                on_parse_failure_return=on_parse_failure_return,
             )
         elif self.prompt_algo == "tot":
             return self.prompt_sc(
-                msg, timestep, keys, parse_func, expected_format=expected_format
+                msg,
+                timestep,
+                keys,
+                parse_func,
+                expected_format=expected_format,
+                on_parse_failure_return=on_parse_failure_return,
             )
         elif self.prompt_algo == "mcts":
             return self.prompt_mcts(
-                msg, timestep, keys, parse_func, expected_format=expected_format
+                msg,
+                timestep,
+                keys,
+                parse_func,
+                expected_format=expected_format,
+                on_parse_failure_return=on_parse_failure_return,
             )
         else:
             raise ValueError()
@@ -508,6 +534,7 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
         cot: bool = False,
         temperature: float = 0.7,
         expected_format: Optional[str] = None,
+        on_parse_failure_return: Optional[Any] = None,
     ) -> list[float]:
         # Log when prompting an agent
         if depth == 0:
@@ -660,8 +687,14 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
                     depth=depth + 1,
                     retry=True,
                     expected_format=expected_format,
+                    on_parse_failure_return=on_parse_failure_return,
                 )
             else:
+                if on_parse_failure_return is not None:
+                    self.logger.warning(
+                        f"Parsing failed after max retries (depth={depth}); using no-op fallback for {self.name}"
+                    )
+                    return on_parse_failure_return
                 raise ValueError(
                     f"Max recursion depth={depth} reached. Error parsing JSON: "
                     + str(e)
@@ -767,9 +800,15 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
         keys: list[str],
         parse_func,
         expected_format: Optional[str] = None,
+        on_parse_failure_return: Optional[Any] = None,
     ) -> list[float]:
         return self.call_llm(
-            msg, timestep, keys, parse_func, expected_format=expected_format
+            msg,
+            timestep,
+            keys,
+            parse_func,
+            expected_format=expected_format,
+            on_parse_failure_return=on_parse_failure_return,
         )
 
     # Self-Consistency prompting
@@ -780,11 +819,17 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
         keys: list[str],
         parse_func,
         expected_format: Optional[str] = None,
+        on_parse_failure_return: Optional[Any] = None,
     ) -> list[float]:
         llm_outputs = []
         for i in range(self.K):
             llm_output = self.prompt_cot(
-                msg, timestep, keys, parse_func, expected_format=expected_format
+                msg,
+                timestep,
+                keys,
+                parse_func,
+                expected_format=expected_format,
+                on_parse_failure_return=on_parse_failure_return,
             )
             llm_outputs.append(llm_output)
 
@@ -806,6 +851,7 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
         keys: list[str],
         parse_func,
         expected_format: Optional[str] = None,
+        on_parse_failure_return: Optional[Any] = None,
     ) -> list[float]:
         cot_prompt = (
             " Let's think step by step. Your thought should no more than 4 sentences."
@@ -818,6 +864,7 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
             parse_func,
             cot=True,
             expected_format=expected_format,
+            on_parse_failure_return=on_parse_failure_return,
         )
 
     def add_message(self, timestep: int, m_type: Message, **args) -> None:

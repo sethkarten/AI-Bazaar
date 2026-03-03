@@ -37,13 +37,15 @@ def test_consumption_framework_four_goods():
     market = Market()
     timestep = 0
 
-    # One firm, 4 goods
+    # One firm, 4 goods; unit_costs + markup = 12.0 per good
     firm = FixedFirmAgent(
         name="firm_0",
         goods=GOODS_4,
         initial_cash=2000.0,
         ledger=ledger,
         market=market,
+        unit_costs={g: 1.0 for g in GOODS_4},
+        markup=0.50,
     )
 
     # One consumer, 4 goods
@@ -79,7 +81,7 @@ def test_consumption_framework_four_goods():
         print(f"Assert firm.inventory[{g!r}] == 10.0")
         assert firm.inventory[g] == 10.0
 
-    prices = firm.set_price(price=12.0, timestep=timestep)
+    prices = firm.set_price(timestep=timestep)
     firm.post_quotes(prices)
     print("Assert len(market.quotes) == 4")
     assert len(market.quotes) == 4
@@ -171,6 +173,8 @@ def test_consumption_framework_two_consumers():
         initial_cash=2000.0,
         ledger=ledger,
         market=market,
+        unit_costs={g: 1.0 for g in GOODS_4},
+        markup=0.50,
     )
     consumer_a = FixedConsumerAgent(
         name="consumer_a",
@@ -194,7 +198,7 @@ def test_consumption_framework_two_consumers():
 
     firm.purchase_supplies(quantity_to_purchase=80.0, unit_price=10.0, timestep=timestep)
     firm.produce_goods(timestep=timestep)
-    firm.post_quotes(firm.set_price(price=10.0, timestep=timestep))
+    firm.post_quotes(firm.set_price(timestep=timestep))
 
     orders_a = consumer_a.make_orders(timestep=timestep)
     orders_b = consumer_b.make_orders(timestep=timestep)
@@ -247,6 +251,8 @@ def test_durability_consumption_rates():
         initial_cash=2000.0,
         ledger=ledger,
         market=market,
+        unit_costs={g: 1.0 for g in GOODS_4},
+        markup=0.50,
     )
     consumer = FixedConsumerAgent(
         name="consumer_0",
@@ -259,7 +265,7 @@ def test_durability_consumption_rates():
     consumer.receive_income(timestep=timestep)
     firm.purchase_supplies(quantity_to_purchase=40.0, unit_price=10.0, timestep=timestep)
     firm.produce_goods(timestep=timestep)
-    firm.post_quotes(firm.set_price(price=12.0, timestep=timestep))
+    firm.post_quotes(firm.set_price(timestep=timestep))
     orders = consumer.make_orders(timestep=timestep)
     consumer.submit_orders(orders)
     market.clear(ledger, timestep=timestep)

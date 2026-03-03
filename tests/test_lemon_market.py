@@ -52,7 +52,7 @@ def test_quality_dict():
 
 
 def test_listing_dataclass():
-    """Listing has id, firm_id, description, price, reputation, quality, quality_value, ttl."""
+    """Listing has id, firm_id, description, price, reputation, quality, quality_value."""
     L = Listing(
         id="lid_1",
         firm_id="firm_0",
@@ -61,13 +61,11 @@ def test_listing_dataclass():
         reputation=0.8,
         quality="good",
         quality_value=0.7,
-        ttl=3,
     )
     assert L.id == "lid_1"
     assert L.firm_id == "firm_0"
     assert L.price == 5000.0
     assert L.quality_value == 0.7
-    assert L.ttl == 3
 
 
 def test_order_listing_id():
@@ -86,7 +84,7 @@ def test_order_listing_id():
 
 
 def test_post_listings_from_dicts():
-    """post_listings accepts list of dicts and sets id/ttl."""
+    """post_listings accepts list of dicts and sets id."""
     market = Market()
     listings = [
         {
@@ -98,23 +96,23 @@ def test_post_listings_from_dicts():
             "quality_value": 0.7,
         },
     ]
-    market.post_listings(listings, listing_ttl=5)
+    market.post_listings(listings)
     assert len(market.listings) == 1
     L = market.listings[0]
     assert L.firm_id == "firm_0"
     assert L.price == 4000.0
     assert L.quality_value == 0.7
-    assert L.ttl == 5
     assert L.id is not None
 
 
-def test_post_listings_preserves_listing_ttl():
-    """post_listings with existing Listing objects keeps their ttl."""
+def test_post_listings_preserves_listing_objects():
+    """post_listings with existing Listing objects appends them as-is."""
     market = Market()
-    L = Listing("id1", "f0", "desc", 1000.0, 1.0, "fair", 0.4, ttl=2)
-    market.post_listings([L], listing_ttl=10)
+    L = Listing("id1", "f0", "desc", 1000.0, 1.0, "fair", 0.4)
+    market.post_listings([L])
     assert len(market.listings) == 1
-    assert market.listings[0].ttl == 2
+    assert market.listings[0].id == "id1"
+    assert market.listings[0].price == 1000.0
 
 
 # --- market_core: clear with listing orders ---
@@ -135,7 +133,6 @@ def test_fill_order_listing_success():
         reputation=1.0,
         quality="good",
         quality_value=0.7,
-        ttl=3,
     )
     market.listings = [L]
     order = Order(
@@ -170,7 +167,7 @@ def test_fill_order_listing_fails_if_price_above_max():
     market = Market()
     ledger.credit("consumer_0", 10_000.0)
     ledger.add_good("firm_0", "car", 1.0)
-    L = Listing("l1", "firm_0", "d", 5000.0, 1.0, "good", 0.7, ttl=3)
+    L = Listing("l1", "firm_0", "d", 5000.0, 1.0, "good", 0.7)
     market.listings = [L]
     order = Order("consumer_0", "firm_0", "car", 1.0, 3000.0, listing_id="l1")
     market.orders.append(order)
@@ -189,7 +186,7 @@ def test_fill_order_listing_fails_if_insufficient_cash():
     market = Market()
     ledger.credit("consumer_0", 1000.0)
     ledger.add_good("firm_0", "car", 1.0)
-    L = Listing("l1", "firm_0", "d", 5000.0, 1.0, "good", 0.7, ttl=3)
+    L = Listing("l1", "firm_0", "d", 5000.0, 1.0, "good", 0.7)
     market.listings = [L]
     order = Order("consumer_0", "firm_0", "car", 1.0, 5000.0, listing_id="l1")
     market.orders.append(order)
@@ -280,8 +277,8 @@ def test_make_orders_lemon_submits_when_cs_positive():
     """_make_orders_lemon returns one order for listing with highest CS > 0."""
     ledger = Ledger()
     market = Market()
-    L1 = Listing("l1", "firm_0", "d", 1000.0, 1.0, "good", 0.7, ttl=3)
-    L2 = Listing("l2", "firm_1", "d", 5000.0, 0.5, "fair", 0.4, ttl=3)
+    L1 = Listing("l1", "firm_0", "d", 1000.0, 1.0, "good", 0.7)
+    L2 = Listing("l2", "firm_1", "d", 5000.0, 0.5, "fair", 0.4)
     market.listings = [L1, L2]
     args = SimpleNamespace(no_diaries=True, bracket_setting="three")
     consumer = CESConsumerAgent(
@@ -309,7 +306,7 @@ def test_make_orders_lemon_no_order_when_cs_non_positive():
     ledger = Ledger()
     market = Market()
     # Very high price so CS = rep * max_wtp - price <= 0 for typical income
-    L = Listing("l1", "firm_0", "d", 1_000_000.0, 1.0, "good", 0.7, ttl=3)
+    L = Listing("l1", "firm_0", "d", 1_000_000.0, 1.0, "good", 0.7)
     market.listings = [L]
     args = SimpleNamespace(no_diaries=True, bracket_setting="three")
     consumer = CESConsumerAgent(

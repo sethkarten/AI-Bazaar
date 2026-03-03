@@ -91,6 +91,8 @@ class BazaarWorld:
                     initial_cash=args.firm_initial_cash,
                     ledger=self.ledger,
                     market=self.market,
+                    unit_costs=self.supply_unit_costs_by_firm[i],
+                    markup=args.firm_markup,
                 )
             self.firms.append(firm)
 
@@ -145,12 +147,16 @@ class BazaarWorld:
                 )
             self.consumers.append(consumer)
 
-        # LEMON_MARKET: 1 timestep = 1 year — scale income by 52 and labor disutility
+        # Income scale by scenario: LEMON_MARKET = 1 timestep per year (52); else 1 timestep = 1 day (1/365)
         if getattr(args, "consumer_scenario", None) == "LEMON_MARKET":
             for c in self.consumers:
                 c.income_scale = 52
                 if hasattr(c, "delta"):
                     c._labor_disutility_scale = 52 ** c.delta
+        else:
+            # Non-LEMON: scale income to 1 day (nominal income interpreted as annual)
+            for c in self.consumers:
+                c.income_scale = 1.0 / 365.0
 
         self._write_consumer_attributes()
         self._write_firm_attributes()
@@ -163,7 +169,7 @@ class BazaarWorld:
         self.firm_prices_last_step = {}
         # LEMON_MARKET: list of new listings each step (filled in lemon_market_firm_phases)
         self.lemon_market_listings = []
-        # LEMON_MARKET: unsold listings carried over (ttl decremented after clear)
+        # LEMON_MARKET: unsold listings carried over after clear
         self.lemon_market_listings_unsold = []
     def _write_consumer_attributes(self):
         """Write unique attributes of all consumer agents to a JSON file (after full initialization)."""
@@ -332,21 +338,24 @@ class BazaarWorld:
         # firm phases
         #B2C
         def firm_phases(firm_prices, market_contexts):
-            
-            # 1. Supply Phase (Sequential for now as it modifies ledger)
             supply_unit_price = 1.0
-            for firm in self.firms:
-                if not getattr(firm, "in_business", True):
-                    continue
+            active_firms = [
+                f for f in self.firms
+                if getattr(f, "in_business", True)
+            ]
+
+            def do_firm_supply(firm):
+                """Run one firm's supply phase; returns list of expense dicts. Each firm only touches its own ledger keys."""
                 if self.args.firm_type == "LLM":
                     firm.purchase_supplies(self.timestep)
                     supply_stats = getattr(firm, "_timestep_stats", {}).get(self.timestep, {}).get("supply", {})
                     by_good = supply_stats.get("by_good", {})
+                    entries = []
                     for good, bg in by_good.items():
                         cost = bg.get("cost", 0.0)
                         if cost <= 0:
                             continue
-                        expenses_info.append({
+                        entries.append({
                             "firm_id": firm.name,
                             "expense_type": "supply",
                             "good": good,
@@ -354,24 +363,34 @@ class BazaarWorld:
                             "quantity": bg.get("quantity", 0.0),
                             "unit_price": bg.get("unit_price", 0.0),
                         })
+                    return entries
                 else:
                     quantity = firm.cash * 0.5 / supply_unit_price
                     quantity = firm.purchase_supplies(quantity, supply_unit_price, self.timestep)
                     cost = quantity * supply_unit_price
-                    expenses_info.append({
+                    return [{
                         "firm_id": firm.name,
                         "expense_type": "supply",
                         "good": "supply",
                         "amount": cost,
                         "quantity": quantity,
                         "unit_price": supply_unit_price,
-                    })
+                    }]
 
-            # 2. Production Phase
-            for firm in self.firms:
-                if not getattr(firm, "in_business", True):
-                    continue
-                firm.produce_goods(self.timestep)
+            # 1. Supply Phase (parallel: each firm only modifies its own ledger keys)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(active_firms))) as executor:
+                supply_futures = {executor.submit(do_firm_supply, firm): firm for firm in active_firms}
+                for future in concurrent.futures.as_completed(supply_futures):
+                    entries = future.result()
+                    expenses_info.extend(entries)
+
+            # 2. Production Phase (parallel: each firm only modifies its own ledger keys)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(active_firms))) as executor:
+                prod_futures = [
+                    executor.submit(firm.produce_goods, self.timestep)
+                    for firm in active_firms
+                ]
+                concurrent.futures.wait(prod_futures)
 
             # 3. Pricing Phase (Parallel)
 
@@ -415,7 +434,7 @@ class BazaarWorld:
                             )
                         ] = firm
                     else:
-                        prices = firm.set_price(price=10.0, timestep=self.timestep)
+                        prices = firm.set_price(timestep=self.timestep)
                         firm_prices[firm.name] = prices
                         firm.post_quotes(prices)
 
@@ -456,11 +475,10 @@ class BazaarWorld:
             firm_phases(firm_prices, market_contexts)
         elif self.args.consumer_scenario == "LEMON_MARKET":
             lemon_market_firm_phases()
-            # Merge unsold (from previous step) with new listings; post all with listing_ttl
-            listing_ttl = getattr(self.args, "listing_ttl", 3)
+            # Merge unsold (from previous step) with new listings; post all
             unsold = getattr(self, "lemon_market_listings_unsold", [])
             all_listings = unsold + self.lemon_market_listings
-            self.market.post_listings(all_listings, listing_ttl=listing_ttl)
+            self.market.post_listings(all_listings)
             self.lemon_market_listings_count = len(self.market.listings)
             # Endow firms with 1 car only for NEW listings (unsold already have inventory)
             for L in self.lemon_market_listings:
@@ -529,11 +547,8 @@ class BazaarWorld:
         self.filled_orders_count_by_firm = dict(filled_by_firm)
         self.logger.info(f"Filled {len(filled_orders)} orders")
 
-        # LEMON_MARKET: decrement TTL for unsold listings; keep only ttl > 0 for next step
+        # LEMON_MARKET: carry over unsold listings to next step
         if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
-            for L in self.market.listings:
-                L.ttl -= 1
-            self.market.listings = [L for L in self.market.listings if L.ttl > 0]
             self.lemon_market_listings_unsold = list(self.market.listings)
 
             # Update seller reputation: R_{t+1} = alpha * R_t + (1 - alpha) * q (q = quality of car sold)
@@ -651,6 +666,19 @@ class BazaarWorld:
                 "expense_type": "overhead",
                 "amount": amount_paid,
             })
+
+        # 7b. Taxes (all firms including FixedFirmAgent)
+        firm_tax_rate = getattr(self.args, "firm_tax_rate", 0.05)
+        for firm in self.firms:
+            if not getattr(firm, "in_business", True):
+                continue
+            if hasattr(firm, "pay_taxes"):
+                taxes_paid = firm.pay_taxes(self.timestep, firm_tax_rate)
+                expenses_info.append({
+                    "firm_id": firm.name,
+                    "expense_type": "taxes",
+                    "amount": taxes_paid,
+                })
 
         # 8. Platform Fees (Simulating Amazon/eBay)
         total_fees = 0.0

@@ -98,7 +98,9 @@ def test_firm_consumer_trading():
         goods=["widget", "gadget"],
         initial_cash=1000.0,
         ledger=ledger,
-        market=market
+        market=market,
+        unit_costs={"widget": 14.5, "gadget": 14.5},
+        markup=0.50,
     )
     
     # Initialize consumer
@@ -139,13 +141,13 @@ def test_firm_consumer_trading():
     
     # Firm sets prices and posts quotes
     print("\nFirm setting prices and posting quotes...")
-    prices = firm.set_price(price=15, timestep=0)
+    prices = firm.set_price(timestep=0)
     quotes = firm.post_quotes(prices)
     print(f"Prices: {prices}")
     print(f"Quotes posted: {len(quotes)}")
     print(f"Market quotes: {len(market.quotes)}")
     
-    assert prices == {"widget": 15, "gadget": 15}
+    assert prices == {"widget": 15.0, "gadget": 15.0}
     assert len(quotes) == 2
     assert len(market.quotes) == 2
     
@@ -202,7 +204,9 @@ def test_multiple_agents_market():
         goods=["widget"],
         initial_cash=1000.0,
         ledger=ledger,
-        market=market
+        market=market,
+        unit_costs={"widget": 11.5},
+        markup=0.50,
     )
     
     firm2 = FixedFirmAgent(
@@ -210,7 +214,9 @@ def test_multiple_agents_market():
         goods=["gadget"],
         initial_cash=1000.0,
         ledger=ledger,
-        market=market
+        market=market,
+        unit_costs={"gadget": 17.5},
+        markup=0.50,
     )
     
     # Initialize multiple consumers
@@ -251,8 +257,8 @@ def test_multiple_agents_market():
     
     # Firms post quotes
     print("\nFirms posting quotes...")
-    firm1_quotes = firm1.post_quotes(firm1.set_price(price=12, timestep=0))
-    firm2_quotes = firm2.post_quotes(firm2.set_price(price=18, timestep=0))
+    firm1_quotes = firm1.post_quotes(firm1.set_price(timestep=0))
+    firm2_quotes = firm2.post_quotes(firm2.set_price(timestep=0))
     
     print(f"Total quotes in market: {len(market.quotes)}")
     print(f"Firm1 quotes: {len(firm1_quotes)}")
@@ -323,13 +329,13 @@ def test_consumer_budget_allocation():
     consumer.receive_income(timestep=0)
     print(f"Consumer cash: {consumer.cash}")
     
-    # Create firm with different prices for different goods
+    # Create firm (post_quotes called with custom dict below, not set_price)
     firm = FixedFirmAgent(
         name="test_firm",
         goods=["widget", "gadget"],
         initial_cash=1000.0,
         ledger=ledger,
-        market=market
+        market=market,
     )
     
     # Give firm inventory
@@ -388,13 +394,15 @@ def test_complete_market_simulation():
     ledger = Ledger()
     market = Market()
     
-    # Initialize agents
+    # Initialize agents (unit_costs + markup = 15 per good)
     firm = FixedFirmAgent(
         name="firm",
         goods=["widget", "gadget"],
         initial_cash=2000.0,
         ledger=ledger,
-        market=market
+        market=market,
+        unit_costs={"widget": 14.5, "gadget": 14.5},
+        markup=0.50,
     )
     
     consumer = FixedConsumerAgent(
@@ -428,7 +436,7 @@ def test_complete_market_simulation():
         print(f"Firm inventory: {firm.inventory}")
         
         # Firm posts quotes
-        prices = firm.set_price(price=15, timestep=timestep)
+        prices = firm.set_price(timestep=timestep)
         quotes = firm.post_quotes(prices)
         print(f"Firm posted {len(quotes)} quotes")
         

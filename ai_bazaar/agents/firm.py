@@ -328,8 +328,19 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         # Create keys for each good's price
         price_keys = [f"price_{good}" for good in self.goods]
 
+        # No-op fallback: use previous timestep prices or 1.0 per good
+        prev_prices = self._timestep_stats.get(timestep - 1, {}).get("prices", {})
+        noop_prices = tuple(
+            prev_prices.get(g, 1.0) for g in self.goods
+        ) if prev_prices else tuple(1.0 for _ in self.goods)
+
         # Call LLM to decide prices
-        prices = self.act_llm(timestep, price_keys, self.parse_prices)
+        prices = self.act_llm(
+            timestep,
+            price_keys,
+            self.parse_prices,
+            on_parse_failure_return=noop_prices,
+        )
 
         # Convert to dictionary
         price_dict = {good: price for good, price in zip(self.goods, prices)}
@@ -348,8 +359,13 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         )
 
         supply_keys = [f"supply_quantity_{good}" for good in self.goods]
+        # No-op fallback: purchase zero supplies
+        noop_supply = tuple(0.0 for _ in self.goods)
         quantities_list = self.act_llm(
-            timestep, supply_keys, self.parse_supply_purchase
+            timestep,
+            supply_keys,
+            self.parse_supply_purchase,
+            on_parse_failure_return=noop_supply,
         )
         quantities_by_good = {}
         for i, good in enumerate(self.goods):
@@ -400,9 +416,16 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         # Create keys for each good's production amount
         production_keys = [f"produce_{good}" for good in self.goods]
 
+        # No-op fallback: equal split (100% / n goods)
+        n_goods = len(self.goods)
+        noop_production = tuple(100.0 / n_goods for _ in self.goods)
+
         # Call LLM to decide production amounts (as percentages of available supply)
         production_percentages = self.act_llm(
-            timestep, production_keys, self.parse_production
+            timestep,
+            production_keys,
+            self.parse_production,
+            on_parse_failure_return=noop_production,
         )
 
         supply_available = self.supplies
@@ -460,17 +483,26 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                     quality_value=quality_value,
                     max_price=max_price,
                 )
-                result = self.act_llm(
-                    timestep, ["description", "price"], self.parse_listing
-                )
-                description = result[0]
-                price = result[1]
-                self.add_message(
-                    timestep,
-                    Message.ACTION_LISTING,
-                    description=description,
-                    price=price,
-                )
+                try:
+                    result = self.act_llm(
+                        timestep,
+                        ["description", "price"],
+                        self.parse_listing,
+                    )
+                    description = result[0]
+                    price = result[1]
+                    self.add_message(
+                        timestep,
+                        Message.ACTION_LISTING,
+                        description=description,
+                        price=price,
+                    )
+                except ValueError:
+                    # Parsing failed after max retries; skip this listing (do not create it)
+                    self.logger.warning(
+                        f"[ACTION] {self.name} create_listing parsing failed; skipping this listing"
+                    )
+                    continue
             listing = {
                 "id": f"{self.name}_listing_{len(new_listings)}",
                 "firm_id": self.name,
@@ -995,6 +1027,8 @@ class FixedFirmAgent(BaseFirmAgent):
         initial_cash: float,
         ledger: Ledger,
         market: Market,
+        unit_costs: Dict[str, float] = None,
+        markup: float = 0.50,
     ):
         BaseFirmAgent.__init__(self)
         self.name = name
@@ -1003,7 +1037,8 @@ class FixedFirmAgent(BaseFirmAgent):
         self.ledger = ledger
         self.market = market
         self.logger = logging.getLogger("main")
-        # self.policy = policy
+        self.unit_costs = dict(unit_costs) if unit_costs is not None else {g: 1.0 for g in goods}
+        self.markup = markup
         self.ledger.credit(self.name, initial_cash)
 
         # Initialize inventory in ledger
@@ -1023,9 +1058,9 @@ class FixedFirmAgent(BaseFirmAgent):
             defaultdict(lambda: {good: 0.0 for good in goods})
         )
 
-    def set_price(self, price: float, timestep: int = None) -> Dict[str, float]:
-        """Set fixed prices for goods"""
-        return {good: price for good in self.goods}
+    def set_price(self, timestep: int = None) -> Dict[str, float]:
+        """Set prices as unit_cost + markup per good."""
+        return {good: self.unit_costs.get(good, 1.0) + self.markup for good in self.goods}
 
     def purchase_supplies(
         self, quantity_to_purchase: float, unit_price: float, timestep: int

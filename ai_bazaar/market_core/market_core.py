@@ -83,7 +83,6 @@ class Listing:
     reputation: float
     quality: str
     quality_value: float
-    ttl: int = 3  # time-to-live; decremented each step if not sold; removed when <= 0
 
 class Market:
     def __init__(self):
@@ -101,15 +100,14 @@ class Market:
         self.quotes = [q for q in self.quotes if not (q.firm_id == quote.firm_id and q.good == quote.good)]
         self.quotes.append(quote)
 
-    def post_listings(self, listings: List[Any], listing_ttl: int = 3) -> None:
-        """Post listings for LEMON_MARKET. Accepts list of dicts or Listing; assigns id/ttl if missing."""
+    def post_listings(self, listings: List[Any]) -> None:
+        """Post listings for LEMON_MARKET. Accepts list of dicts or Listing; assigns id if missing."""
         self.listings = []
         for i, L in enumerate(listings):
             if isinstance(L, Listing):
                 self.listings.append(L)
             else:
                 lid = L.get("id") or f"listing_{i}"
-                ttl = L.get("ttl", listing_ttl)
                 self.listings.append(Listing(
                     id=lid,
                     firm_id=L["firm_id"],
@@ -118,7 +116,6 @@ class Market:
                     reputation=float(L.get("reputation", 1.0)),
                     quality=L.get("quality", "unknown"),
                     quality_value=float(L.get("quality_value", 0.5)),
-                    ttl=int(ttl),
                 ))
         
     def clear(self, ledger: Ledger):

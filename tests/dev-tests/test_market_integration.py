@@ -103,7 +103,9 @@ def test_ledger_market_fixed_firm_integration():
         goods=["widget", "gadget"],
         initial_cash=1000.0,
         ledger=firm_ledger,
-        market=firm_market
+        market=firm_market,
+        unit_costs={"widget": 11.5, "gadget": 11.5},
+        markup=0.50,
     )
     
     # Test firm initialization
@@ -132,11 +134,11 @@ def test_ledger_market_fixed_firm_integration():
     assert firm.ledger.agent_inventories["test_firm"]["supply"] == firm.supplies
     
     
-    # Test setting prices
+    # Test setting prices (unit_cost + markup = 12)
     print("\nSetting prices...")
-    prices = firm.set_price(price=12, timestep=0)
+    prices = firm.set_price(timestep=0)
     print("prices", prices)
-    assert prices == {"widget": 12, "gadget": 12}
+    assert prices == {"widget": 12.0, "gadget": 12.0}
     
     
     # Give the firm some inventory to sell

@@ -190,23 +190,32 @@ python -m ai_bazaar.main --name crash_test_2 --use-cost-pref-gen --max-supply-un
 ```bash
 python -m ai_bazaar.main --name crash_experiment_1_test_1 --use-cost-pref-gen --max-supply-unit-cost 1 --use-env --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 50 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm gemini-2.5-flash --use-parsing-agent --discovery-limit 3 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
+## Crash Environment: Baseline
+```bash
+python -m ai_bazaar.main --name crash_baseline_test_1 --use-cost-pref-gen --firm-type LLM --num-firms 1 --consumer-type CES --num-consumers 10 --max-timesteps 10 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --firm-markup 50 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+```bash
+python -m ai_bazaar.main --name crash_baseline_test_2 --use-cost-pref-gen --firm-type FIXED --num-firms 1 --consumer-type CES --num-consumers 10 --max-timesteps 10 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --firm-markup 50 --max-tokens 2000 --no-diaries --seed 8
+```
+
+
 
 # Lemon Market Tests
 
-Used-car (lemon) market: firms list cars (quality from QUALITY_DICT), consumers order if CS = E[q]*max_wtp - price > 0; listing TTL and seller reputation (R_new = alpha*R + (1-alpha)*q) apply.
+Used-car (lemon) market: firms list cars (quality from QUALITY_DICT), consumers order if CS = E[q]*max_wtp - price > 0; seller reputation (R_new = alpha*R + (1-alpha)*q) applies.
 
 ```bash
 python -m ai_bazaar.main --name lemon_test_nosybil_1 --use-cost-pref-gen --use-env --firm-type LLM --num-firms 1 --consumer-type CES --num-consumers 10 --max-timesteps 10 --firm-initial-cash 5000 --consumer-scenario LEMON_MARKET --llm gemini-2.5-flash --use-parsing-agent --discovery-limit 5 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
 
-With optional lemon args (listing TTL and reputation alpha; defaults 3 and 0.9):
+With optional reputation alpha (default 0.9):
 
 ```bash
-python -m ai_bazaar.main --name lemon_test_nosybil_2 --use-env --firm-type LLM --num-firms 3 --consumer-type CES --num-consumers 10 --max-timesteps 10 --firm-initial-cash 5000 --consumer-scenario LEMON_MARKET --listing-ttl 3 --reputation-alpha 0.9 --llm gemini-2.5-flash --discovery-limit 5 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+python -m ai_bazaar.main --name lemon_test_nosybil_2 --use-env --firm-type LLM --num-firms 3 --consumer-type CES --num-consumers 10 --max-timesteps 10 --firm-initial-cash 5000 --consumer-scenario LEMON_MARKET --reputation-alpha 0.9 --llm gemini-2.5-flash --discovery-limit 5 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
 
 ```bash
-python -m ai_bazaar.main --name lemon_test_nosybil_3 --use-env --firm-type LLM --num-firms 10 --consumer-type CES --num-consumers 10 --max-timesteps 10 --firm-initial-cash 1000 --consumer-scenario LEMON_MARKET --listing-ttl 3 --reputation-alpha 0.9 --llm gemini-2.5-flash --discovery-limit 5 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+python -m ai_bazaar.main --name lemon_test_nosybil_3 --use-env --firm-type LLM --num-firms 10 --consumer-type CES --num-consumers 10 --max-timesteps 10 --firm-initial-cash 1000 --consumer-scenario LEMON_MARKET --reputation-alpha 0.9 --llm gemini-2.5-flash --discovery-limit 5 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
 
 **Lemon market unit tests** (no LLM, fast):
