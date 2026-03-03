@@ -29,6 +29,7 @@ class BaseFirmAgent:
         self.reputation = 1.0  # Default perfect reputation
         self.fulfillment_history = []  # List of (successful_qty, requested_qty)
         self.profit = 0.0  # Step-level profit (reset each step, accumulated in update_profit)
+        self.overhead_scale = 1.0  # Set by env: 1/7 for daily timesteps, 1.0 for LEMON_MARKET
         self.expenses_info = {k: 0.0 for k in BaseFirmAgent.EXPENSE_KEYS}
         self.expenses_info["supply_by_good"] = []  # List of {good, quantity, unit_cost, total_cost}
         self.sales_info = []  # Step-level list of sale records (reset each step, appended in env sales loop)
@@ -170,9 +171,10 @@ class BaseFirmAgent:
         return taxes_paid
 
     def get_overhead_costs(self, timestep: int) -> float:
-        """Get overhead costs"""
-        #! Some arbitrary rent cost for now
-        return 50.0  #! TODO: Replace with actual overhead costs
+        """Get overhead costs. Base is 50 per timestep; overhead_scale (set by env) scales this for daily vs weekly timesteps."""
+        base = 50.0
+        scale = getattr(self, "overhead_scale", 1.0)
+        return base * scale
 
     def pay_overhead_costs(self, timestep: int) -> float:
         """Pay overhead costs"""
@@ -298,8 +300,11 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
     def _create_system_prompt(self) -> str:
         """Create system prompt for the LLM firm agent"""
         goods_list = ", ".join(self.goods)
+        timescale_line = ""
+        if getattr(self.args, "consumer_scenario", None) != "LEMON_MARKET":
+            timescale_line = "\nEach timestep represents one day. Consumer income and demand are on a daily scale.\n"
         return f"""You are a firm manager named {self.name} that produces and sells goods in a market economy.
-You produce the following goods: {goods_list}.
+You produce the following goods: {goods_list}.{timescale_line}
 
 Your goal is to maximize profit by making strategic decisions about:
 1. Pricing: Set competitive prices for your goods to maximize revenue

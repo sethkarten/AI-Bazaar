@@ -1,30 +1,28 @@
 \documentclass{article}
-\usepackage[utf8]{inputenc} % allow utf-8 input
-\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
-\usepackage{hyperref}       % hyperlinks
-\usepackage{url}            % simple URL typesetting
-\usepackage{booktabs}       % professional-quality tables
-\usepackage{amsmath}        % \text, equations
-\usepackage{amsfonts}       % blackboard math symbols
-\usepackage{nicefrac}       % compact symbols for 1/2, etc.
-\usepackage[expansion=false]{microtype}  % microtypography (expansion needs scalable fonts in pdfTeX)
-\usepackage{xcolor}         % colors
-\usepackage{natbib}
+\usepackage{colm2026_conference}
 
-\title{The Agent Bazaar: Scaling Agentic Markets with Reinforcement Learning}
+\usepackage{microtype}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{xcolor}
 
-\author{%
-  Cameron Crow\\
-  Princeton University\\
-  \texttt{ccrow@princeton.edu} \\
-  \and
-  Seth Karten \\
-  Princeton University \\
-  \texttt{sethkarten@princeton.edu} \\
-  \and
-  Chi Jin \\
-  Princeton University \\
-  \texttt{chijin@princeton.edu} \\
+\title{The Agent Bazaar: Benchmarking Economic Alignment in High-Frequency Multi-Agent Ecosystems}
+
+\author{Seth Karten \\
+Princeton University \\
+\texttt{sethkarten@princeton.edu} \\
+\And
+Cameron Crow \\
+Princeton University \\
+\texttt{ccrow@princeton.edu} \\
+\And
+Chi Jin \\
+Princeton University \\
+\texttt{chijin@princeton.edu}
 }
 
 \begin{document}
@@ -32,174 +30,18 @@
 \maketitle
 
 \begin{abstract}
-  The integration of AI systems into economic activity requires a robust understanding of agentic behavior in marketplace settings. We present Agent Bazaar, a simulation framework for studying high-speed agentic markets, specifically focusing on autonomous firms operating in digital marketplaces like Amazon and eBay. We extend the LLM Economist framework to include decentralized goods trading between heterogeneous firms and consumers without centralized governance. We evaluate agentic decision-making by comparing in-context optimization with policy gradient methods (REINFORCE++). Results indicate that in-context agents often fail to maintain sustainable profit margins, leading to bankruptcy, whereas RL-finetuned agents develop robust pricing and inventory strategies to stay in business. Finetuned open-source models (Gemma 3-4B) match the economic performance of frontier models when trained on market dynamics.
+  The deployment of Large Language Models (LLMs) as autonomous economic agents introduces systemic risks that extend beyond individual capability failures. As agents transition to high-frequency marketplaces (e.g., Amazon, Moltbook) executing over one million agent-driven transactions daily, their collective behavior can amplify volatility and mask deception at scale. We introduce \textbf{Agent Bazaar}, a multi-agent simulation framework for evaluating \textit{Economic Alignment}---defined as the capacity of agentic systems to preserve market stability and integrity. Critically, economic alignment is distinct from general reasoning capability: a highly capable agent can still be economically unsafe. We identify two emergent failure modes: (1) \textit{Algorithmic Instability} (``The Crash''), where myopic firms amplify price volatility until the market collapses, and (2) \textit{Sybil Deception} (``The Lemon Market''), where a single deceptive principal operating multiple coordinated seller identities floods the market with fraudulent listings, eroding trust and trading volume. We demonstrate that standard open-weights models fail to self-regulate under both failure modes, leading to market collapse. To address this, we propose a dual-alignment strategy: finetuning \textit{Stabilizing Firms} to act as volatility dampeners, and \textit{Skeptical Guardians} to detect Sybil coordination patterns in seller networks. We evaluate five open-weights model families (Gemma~3, Qwen~3, Ministral~3, OLMo~3, Llama~3.2) in both base and finetuned configurations. Our results show that aligned agents do not merely maximize profit; they restore equilibrium and protect human welfare in non-stationary environments.
 \end{abstract}
 
-\section{Introduction}
-\label{intro}
+\input{sections/introduction}
+\input{sections/related_work}
+\input{sections/problem_setup}
+\input{sections/methodology}
+\input{sections/experimental_setup}
+\input{sections/results}
+\input{sections/conclusion}
 
-The integration of agentic artificial intelligence into economic systems presents both opportunities for efficiency and risks of instability. As Large Language Models (LLMs) transition from passive assistants to active participants in digital marketplaces, such as Amazon and eBay, understanding their strategic behavior becomes critical for system design and platform safety. Prior work on the LLM Economist \citep{karten2025llm} demonstrated the potential for LLMs to simulate hierarchical tax policy optimization. However, the dynamics of decentralized, competitive trading in fully agentic marketplaces remain largely unexplored.
-
-In this paper, we introduce Agent Bazaar, a framework for studying competitive market dynamics among LLM-based agents. We move beyond hierarchical settings to model decentralized interactions between autonomous firms and consumers. Firms must manage production, pricing, and cash flow in a competitive landscape, facing realistic constraints such as platform fees and overhead costs. Consumers optimize their bundles according to individual preference personas, creating realistic demand patterns. This environment allows us to study emergent phenomena such as price wars and the effects of bounded rationality on firm survival.
-
-We evaluate agentic decision-making by comparing standard in-context optimization with REINFORCE++, a policy gradient method adapted for text-based actions. Our experiments utilize open-source models, specifically the Gemma 3-4B architecture, to ensure transparency and reproducibility without reliance on proprietary frontier APIs. We find that while in-context agents can adapt to competitive pressures, they often fall into destructive pricing strategies that reduce aggregate welfare in monopolistic or limited-information environments. Finetuning via REINFORCE++ enables these agents to develop more robust strategies that match or exceed the performance of larger, general-purpose models.
-
-Our main contributions are:
-\begin{itemize}
-    \item We present Agent Bazaar, a multi-agent framework for simulating decentralized agentic markets with firms and consumers.
-    \item We implement and analyze four distinct market scenarios: Race to the Bottom, Early Bird, Price Discrimination, and Bounded Bazaar.
-    \item We demonstrate that REINFORCE++ finetuning of open-source models improves economic performance relative to in-context optimization.
-    \item We provide a comprehensive evaluation of welfare metrics, including consumer surplus and producer profit, across diverse agent populations.
-\end{itemize}
-
-The remainder of this paper is organized as follows. Section \ref{method} describes the Agent Bazaar framework and our RL implementation. Section \ref{exp} presents experimental results across market scenarios. Section \ref{conclusion} discusses the implications for future agentic economies.
-
-\section{Related Work}
-\label{related}
-
-Our work builds on several lines of research in agent-based modeling, multi-agent reinforcement learning, and LLM-based simulacra.
-
-\paragraph{LLM-based Economic Simulations}
-Recent work has leveraged LLMs to create realistic economic agents. \citet{karten2025llm} introduced the LLM Economist, which uses LLMs for tax policy design in a hierarchical setting. Other studies have explored LLMs in social dilemmas and bargaining games. Agent Bazaar extends this by focusing on decentralized marketplace interactions with firm and consumer roles.
-
-\paragraph{Multi-Agent Reinforcement Learning (MARL)}
-MARL has been applied to economic modeling for decades. Traditional approaches often use MLP-based agents trained with PPO or DQN. Our work differs by using LLMs as the policy architecture, allowing for persona-driven behavior and natural language reasoning. We employ REINFORCE++ to optimize these text-based policies.
-
-\paragraph{Market Dynamics and Mechanism Design}
-The study of price wars and first-mover advantages is a staple of classical economics. Computational models of these dynamics often rely on fixed heuristics. Agent Bazaar provides a test bed for these theories in environments where agents possess limited information and exhibit bounded rationality, similar to human market participants.
-
-\section{Methodology}
-\label{method}
-
-We implement Agent Bazaar as a multi-agent reinforcement learning environment with decentralized decision-making. The framework consists of two primary agent types: Firm Agents and Consumer Agents, interacting within a digital marketplace.
-
-\subsection{Environment Dynamics}
-The simulation proceeds in discrete timesteps. Each step involves a sequence of phases: Labor, Supply, Production, Pricing, Consumption, Market Clearing, and Platform Maintenance. The state of the world is maintained in a centralized \textit{Ledger}, which tracks the cash and multi-good inventory of every participant. Figure \ref{fig:arch} illustrates the interaction loop.
-
-\begin{figure}[ht]
-    \centering
-    % \includegraphics[width=0.8\textwidth]{fig/architecture.png}
-    \fbox{Architecture Diagram Placeholder: Interactions between Firms, Consumers, Ledger, and Market.}
-    \caption{Agent Bazaar system architecture and interaction loop.}
-    \label{fig:arch}
-\end{figure}
-
-\begin{table}[ht]
-    \centering
-    \caption{Summary of notation used in the Methodology.}
-    \label{tab:notation}
-    \begin{tabular}{ll}
-        \toprule
-        Symbol & Description \\
-        \midrule
-        $t$ & Timestep index \\
-        $j$ & Firm agent index \\
-        $i$ & Consumer agent index \\
-        $S_{j,t}$ & Raw supply quantity purchased by firm $j$ at time $t$ \\
-        $\mathbf{P}_{j,t}$ & Price vector set by firm $j$ at time $t$ \\
-        $\mathbf{Q}_{j,t}$ & Quantity vector sold by firm $j$ at time $t$ \\
-        $\Pi_j$ & Cumulative profit of firm $j$ \\
-        $c$ & Unit cost of raw supplies \\
-        $\Omega_j$ & Fixed overhead costs for firm $j$ \\
-        $\phi$ & Marketplace platform fee rate \\
-        $U_i$ & Utility of consumer $i$ \\
-        $l_{i,t}$ & Labor hours chosen by consumer $i$ at time $t$ \\
-        $v_i$ & Skill level (productivity) of consumer $i$ \\
-        $z_{i,t}$ & Pre-tax income of consumer $i$ at time $t$ \\
-        $\alpha_{i,k}$ & Preference weight of consumer $i$ for good $k$ \\
-        $\sigma$ & Elasticity of substitution in CES utility \\
-        $\delta$ & Disutility of labor exponent \\
-        \bottomrule
-    \end{tabular}
-\end{table}
-
-\subsection{Firm Agents}
-Firms are profit-maximizing entities operating on a digital platform. At each timestep, a firm $j$ chooses a supply quantity $S_{j,t}$ to purchase and decides the price vector $\mathbf{P}_{j,t}$ for its produced goods. Production is governed by a linear transformation of raw supplies into finished goods. The firm's objective is to maximize its cumulative profit while avoiding bankruptcy:
-\begin{equation}
-    \Pi_j = \sum_{t=0}^T (\mathbf{P}_{j,t}^\top \mathbf{Q}_{j,t} - c S_{j,t} - \Omega_j - \phi C_{j,t})
-\end{equation}
-where $\phi$ is the platform fee rate applied to the firm's cash $C_{j,t}$ (simulating maintenance costs).
-
-\subsection{Consumer Agents}
-Consumers maximize utility over consumption bundles and leisure. We utilize a Constant Elasticity of Substitution (CES) utility function, augmented with labor disutility. A consumer $i$ with skill $v_i$ chooses labor hours $l_{i,t}$ and a consumption bundle $\mathbf{x}_{i,t}$:
-\begin{equation}
-    U_i = \left( \sum_{k \in \mathcal{G}} \alpha_{i,k} x_{i,t,k}^{\frac{\sigma-1}{\sigma}} \right)^{\frac{\sigma}{\sigma-1}} - c l_{i,t}^\delta
-\end{equation}
-where $\mathcal{G}$ is the set of goods, $\alpha_{i,k}$ are preference weights, and $\sigma$ is the elasticity of substitution. Income is derived from labor $z_{i,t} = l_{i,t} v_i \frac{w_t}{10}$.
-
-\subsection{Scaling and Computational Complexity}
-The Agent Bazaar is designed for high-speed simulation, but the market clearing process presents a potential bottleneck. Currently, clearing $O$ orders against $Q$ quotes has a worst-case complexity of $O(O \cdot Q)$. To scale to larger populations, we propose indexing quotes by good and firm identity, reducing the complexity to $O(O + Q)$.
-
-\subsection{Dual-Engine Reinforcement Learning}
-To scale trajectory collection while maintaining high-fidelity gradient updates, we implement a \textit{Dual-Engine} architecture. For the \textit{backward pass} (training), we utilize \textit{Unsloth}, which provides optimized CUDA kernels for LoRA adapters, achieving a 3x speedup over standard implementations. For the \textit{forward pass} (experience collection), we employ \textit{vLLM} with LoRA support. At the end of each training iteration $k$, the LoRA adapters are synchronized to the vLLM server, ensuring that agents in iteration $k+1$ act according to the most recent policy. This decoupled approach allows us to utilize batched inference for trajectory generation, reducing the time per episode from 40 minutes to under 3 minutes on NVIDIA H200 nodes.
-
-\subsection{REINFORCE++ Optimization}
-We train specialized policies using REINFORCE++, a policy gradient method. The policy $\pi_\theta(a|s)$ is finetuned to maximize the expected reward $R$, where $R$ is the individual utility for consumers and cumulative profit for firms. We compute the policy gradient as:
-\begin{equation}
-    \nabla_\theta J(\theta) \approx \frac{1}{N} \sum_{i=1}^N \nabla_\theta \log \pi_\theta(a_i|s_i) (R_i - b)
-\end{equation}
-where $b$ is a running baseline of observed rewards.
-
-\subsection{Equilibrium Analysis}
-In the \textit{Race to the Bottom} scenario, we expect the market to converge to a Bertrand equilibrium where $P_j = c$ for all firms $j$. However, due to the bounded rationality of LLM agents and the discrete nature of pricing, we often observe oscillations or collusion. In \textit{Price Discrimination}, firms should ideally set prices $P_{j,k}$ proportional to the preference weights $\alpha_{i,k}$ of the target consumer segments. 
-
-\subsection{Opponent Modeling}
-In decentralized marketplaces, agents must account for the non-stationarity of their opponents' policies. Our agents implicitly model opponents through the \textit{Market History} provided in their prompts, which includes previous prices and sales volumes. We observe emergent strategic behaviors where firms adjust their prices in response to competitor undercutting, characteristic of multi-agent dynamics.
-
-\subsection{Hyperparameters}
-For our REINFORCE++ experiments, we use the Gemma 3-4B model as the base policy. Training is conducted with a learning rate of $5 \times 10^{-5}$ using the AdamW optimizer. We use a LoRA rank of $r=16$ and $\alpha=16$. Trajectories are collected in batches of 5 episodes per iteration, with a maximum of 100 iterations. We apply a kl-penalty coefficient of $\beta=0.1$ to maintain policy stability relative to the base model.
-
-\section{Experiments}
-\label{exp}
-
-We evaluate Agent Bazaar across four strategic scenarios designed to test the limits of agentic rationality in digital marketplaces. Our experiments compare standard In-Context Learning (ICL) baselines against policies finetuned via REINFORCE++ across multiple model families: Gemma 3 4B, Qwen 2.5 7B, Ministral 8B, and OLMo 2 7B.
-
-\subsection{Reward Signal Ablation: Profit vs. Revenue}
-We compare two distinct reward formulations for firm agents:
-\begin{enumerate}
-    \item \textbf{Revenue Maximization}: Reward is defined solely as $R = \sum P \cdot Q$.
-    \item \textbf{Bankruptcy Avoidance (Profit)}: Reward is defined as $R = \Pi = \text{Revenue} - \text{Costs}$.
-\end{enumerate}
-Our results show that agents trained on Revenue alone often engage in predatory pricing that leads to rapid bankruptcy once cash reserves are depleted by platform fees. Agents optimized for Profit (Bankruptcy Avoidance) develop "Pre-emptive Pricing" strategies that maintain liquidity over multiple timesteps.
-
-\subsection{Information Asymmetry and Discovery Friction}
-We introduce \textit{Discovery Friction} where consumers only observe a subset of available quotes, ranked by a recommendation score:
-\begin{equation}
-    \text{Score}_{j} = \frac{1}{P_j} \cdot \text{Rep}_j
-\end{equation}
-where $\text{Rep}_j$ is the firm's historical fulfillment rate. This experiment demonstrates the emergence of \textit{Reputation Premiums}, where high-reputation firms can maintain higher prices while retaining visibility in the "Top 5" recommended listings.
-
-\subsection{Qualitative Reasoning vs. Quantitative Performance}
-By analyzing the \textit{Strategic Diaries}, we observe a strong correlation between the depth of reasoning in reflections and the agent's survival time. Finetuning via REINFORCE++ encourages agents to transition from reactive statements ("We lost money") to proactive planning ("We should lower prices next step to regain visibility").
-
-\paragraph{Race to the Bottom}
-Firms compete solely on price. Consumers have high price elasticity and always purchase from the lowest bidder. Preliminary results with ICL agents show rapid convergence to sub-marginal prices, leading to firm bankruptcy within the first 20 timesteps. For instance, in our manual baseline test on NVIDIA RTX 5090, multiple firms failed to cover a fixed overhead cost of \$50.00 despite maintaining high sales volumes, as their margins were compressed to near-zero. In contrast, REINFORCE++ agents develop more sustainable competitive strategies, maintaining thin but positive profit margins that allow for long-term survival.
-
-\paragraph{Price Discrimination}
-Firms attempt to segment the market based on consumer personas. Preliminary observations from our model benchmarking runs show that larger models (e.g., Qwen 3 8B) successfully identify high-income personas and adjust pricing upwards for necessity goods, while smaller models often struggle with the multi-step reasoning required for effective segmentation.
-
-\paragraph{Bounded Bazaar}
-Agents operate with limited information, only observing a subset of market quotes. This more closely mimics human market behavior. We find that the stochastic nature of the Bounded Bazaar provides a natural regularization for the REINFORCE++ policies, preventing overfitting to specific competitor price points.
-
-\paragraph{Monopolistic Instability}
-A single firm dominates the market for a necessity good (Food). We observe the emergent marketplace dynamics and the ability of consumer agents to adapt their labor and consumption patterns to mitigate welfare loss in the absence of centralized intervention.
-
-\subsection{Model Family Benchmarking}
-We compare the performance of different open-source model families in the marketplace environment. Our study includes:
-\begin{itemize}
-    \item \textbf{Gemma 3 4B}: Small and efficient, providing a baseline for high-speed trajectory collection.
-    \item \textbf{Qwen 3 7B}: Optimized for tool-use and structured output, showing superior JSON parsing stability.
-    \item \textbf{Ministral 3 8B}: High reasoning capability for its size, exhibiting advanced strategic behavior in diaries.
-    \item \textbf{OLMo 3 7B}: A fully open-source reference model, used to ensure results generalize to non-proprietary training data.
-\end{itemize}
-We analyze the Pareto frontier of \textit{Compute Cost} vs. \textit{Economic Stability}, demonstrating that 7B-8B parameter models achieve a significant survival advantage over smaller architectures when finetuned on market dynamics.
-
-\section{Conclusion}
-\label{conclusion}
-
-Agent Bazaar provides a comprehensive simulation framework for exploring the strategic behavior of autonomous agents in digital marketplaces. By moving beyond centralized governance to model decentralized competition on platforms like Amazon and eBay, we identify key failure modes of standard in-context models, specifically predatory pricing leading to bankruptcy. Our results demonstrate that lightweight RL finetuning via REINFORCE++ allows open-source models to develop robust survival strategies, successfully managing reputation, inventory, and liquidity. These findings suggest that agentic safety in economic systems requires not only strong base models but also specialized alignment with multi-agent market dynamics.
-
-\bibliographystyle{plainnat}
+\bibliographystyle{colm2026_conference}
 \bibliography{references}
 
 \end{document}

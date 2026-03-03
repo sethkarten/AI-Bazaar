@@ -198,6 +198,13 @@ python -m ai_bazaar.main --name crash_baseline_test_1 --use-cost-pref-gen --firm
 python -m ai_bazaar.main --name crash_baseline_test_2 --use-cost-pref-gen --firm-type FIXED --num-firms 1 --consumer-type CES --num-consumers 10 --max-timesteps 10 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --firm-markup 50 --max-tokens 2000 --no-diaries --seed 8
 ```
 
+## Crash Environment: Parallelized Firms, Improved Parsing, Long Horizon Tests
+```bash
+python -m ai_bazaar.main --name crash_horizon_test_1 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 100 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm gemini-2.5-flash --discovery-limit 3 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+```bash
+python -m ai_bazaar.main --name crash_horizon_test_2 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 100 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm gemini-2.5-flash --discovery-limit 3 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
 
 
 # Lemon Market Tests

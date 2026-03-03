@@ -94,6 +94,8 @@ class BazaarWorld:
                     unit_costs=self.supply_unit_costs_by_firm[i],
                     markup=args.firm_markup,
                 )
+            # Scale overhead by timestep length: daily (non-LEMON) = 1/7 of base; LEMON (weekly) = full base
+            firm.overhead_scale = 1.0 / 7.0 if getattr(args, "consumer_scenario", None) != "LEMON_MARKET" else 1.0
             self.firms.append(firm)
 
         self.consumers = []

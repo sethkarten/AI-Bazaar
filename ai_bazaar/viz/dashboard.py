@@ -147,6 +147,21 @@ else:
                 firms_df = firms_df.drop(columns=[col])
         st.table(firms_df)
 
+        st.subheader("Firms in business over time")
+        df_builder_firms_count = DataFrameBuilder(state_files=state_files)
+        firms_in_business_df = df_builder_firms_count.firms_in_business_over_time()
+        if not firms_in_business_df.empty:
+            chart_firms_in_business = (
+                AltairChartBuilder(firms_in_business_df)
+                .x("timestep", title="Timestep")
+                .y("value", title="Firms in business")
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_firms_in_business, use_container_width=True)
+        else:
+            st.caption("No firm count data in this run.")
+
         st.subheader("Firm attributes (supply unit costs)")
         if firm_attributes_list is not None:
             # Collect all goods across firms for column headers
@@ -376,6 +391,260 @@ else:
     with tab4:
         df_builder = DataFrameBuilder(state_files=state_files)
 
+        # ---- Overlay charts: combine multiple series on one chart ----
+        def _long_firms_in_business(db):
+            df = db.firms_in_business_over_time()
+            if df.empty:
+                return df
+            df = df.copy()
+            df["metric"] = "Firms in business"
+            return df
+
+        def _long_total_cash(db):
+            return db.metrics_over_time_long(
+                value_vars=["total_cash"],
+                renames={"total_cash": "Total cash"},
+            )
+
+        def _long_gini(db):
+            return db.metrics_over_time_long(
+                value_vars=["gini"],
+                renames={"gini": "Gini coefficient"},
+            )
+
+        def _long_filled_orders(db):
+            df = db.filled_orders_count_over_time()
+            if df.empty:
+                return df
+            df = df.copy()
+            df["metric"] = "Filled orders"
+            return df
+
+        def _long_total_profit(db):
+            return db.metrics_over_time_long(
+                value_vars=["total_profit"],
+                renames={"total_profit": "Total profit"},
+            )
+
+        def _long_avg_reputation(db):
+            df = db.reputation_per_firm_over_time()
+            if df.empty:
+                return df
+            agg = df.groupby("timestep", as_index=False)["value"].mean()
+            agg["metric"] = "Avg reputation (firms)"
+            return agg[["timestep", "metric", "value"]]
+
+        def _long_total_sales(db):
+            df = db.sales_per_firm_over_time()
+            if df.empty:
+                return df
+            agg = df.groupby("timestep", as_index=False)["value"].sum()
+            agg["metric"] = "Total sales (quantity)"
+            return agg[["timestep", "metric", "value"]]
+
+        def _long_avg_consumer_surplus(db):
+            df = db.consumer_surplus_per_consumer_over_time()
+            if df.empty:
+                return df
+            agg = df.groupby("timestep", as_index=False)["value"].mean()
+            agg["metric"] = "Avg consumer surplus"
+            return agg[["timestep", "metric", "value"]]
+
+        def _long_total_utility_avg(db):
+            df = db.consumer_utility_components_over_time()
+            if df.empty:
+                return df
+            part = df[df["metric"] == "Total utility (avg)"].copy()
+            part["metric"] = "Total utility (avg)"
+            return part[["timestep", "metric", "value"]]
+
+        def _long_avg_food_inventory(db):
+            df = db.food_inventory_per_consumer_over_time()
+            if df.empty:
+                return df
+            agg = df.groupby("timestep", as_index=False)["value"].mean()
+            agg["metric"] = "Avg food inventory"
+            return agg[["timestep", "metric", "value"]]
+
+        def _long_avg_ewtp(db):
+            df = db.avg_ewtp_by_good_over_time()
+            if df.empty:
+                return df
+            agg = df.groupby("timestep", as_index=False)["value"].mean()
+            agg["metric"] = "Avg eWTP (across goods)"
+            return agg[["timestep", "metric", "value"]]
+
+        def _long_total_cash_firms(db):
+            df = db.cash_per_firm_over_time()
+            if df.empty:
+                return df
+            agg = df.groupby("timestep", as_index=False)["value"].sum()
+            agg["metric"] = "Total cash (firms)"
+            return agg[["timestep", "metric", "value"]]
+
+        def _long_avg_cash_firms(db):
+            df = db.cash_per_firm_over_time()
+            if df.empty:
+                return df
+            agg = df.groupby("timestep", as_index=False)["value"].mean()
+            agg["metric"] = "Avg cash (firms)"
+            return agg[["timestep", "metric", "value"]]
+
+        def _long_avg_profit_firms(db):
+            df = db.profit_per_firm_over_time()
+            if df.empty:
+                return df
+            agg = df.groupby("timestep", as_index=False)["value"].mean()
+            agg["metric"] = "Avg profit (firms)"
+            return agg[["timestep", "metric", "value"]]
+
+        def _long_total_cash_consumers(db):
+            df = db.cash_per_consumer_over_time()
+            if df.empty:
+                return df
+            agg = df.groupby("timestep", as_index=False)["value"].sum()
+            agg["metric"] = "Total cash (consumers)"
+            return agg[["timestep", "metric", "value"]]
+
+        def _long_avg_cash_consumers(db):
+            df = db.cash_per_consumer_over_time()
+            if df.empty:
+                return df
+            agg = df.groupby("timestep", as_index=False)["value"].mean()
+            agg["metric"] = "Avg cash (consumers)"
+            return agg[["timestep", "metric", "value"]]
+
+        def _long_avg_price(db):
+            good_names = db._all_good_names()
+            if not good_names:
+                return pd.DataFrame({"timestep": [], "metric": [], "value": []})
+            parts = []
+            for g in good_names:
+                df = db.price_per_firm_over_time(g)
+                if not df.empty:
+                    parts.append(df)
+            if not parts:
+                return pd.DataFrame({"timestep": [], "metric": [], "value": []})
+            combined = pd.concat(parts, ignore_index=True)
+            combined = combined[combined["value"] > 0]  # only positive prices
+            if combined.empty:
+                return pd.DataFrame({"timestep": [], "metric": [], "value": []})
+            agg = combined.groupby("timestep", as_index=False)["value"].mean()
+            agg = agg.assign(metric="Avg price (all goods)")
+            return agg[["timestep", "metric", "value"]]
+
+        def _long_utility_component(db, component_name):
+            df = db.consumer_utility_components_over_time()
+            if df.empty:
+                return df
+            part = df[df["metric"] == component_name].copy()
+            part["metric"] = component_name
+            return part[["timestep", "metric", "value"]]
+
+        def _long_goods_utility_avg(db):
+            return _long_utility_component(db, "Goods utility (avg)")
+
+        def _long_cash_utility_avg(db):
+            return _long_utility_component(db, "Cash utility (avg)")
+
+        def _long_labor_disutility_avg(db):
+            return _long_utility_component(db, "Labor disutility (avg)")
+
+        def _long_avg_sales_per_firm(db):
+            df = db.sales_per_firm_over_time()
+            if df.empty:
+                return df
+            agg = df.groupby("timestep", as_index=False)["value"].mean()
+            agg["metric"] = "Avg sales per firm"
+            return agg[["timestep", "metric", "value"]]
+
+        def _long_lemon_metric(db, metric_name):
+            df = db.lemon_market_metrics_over_time()
+            if df.empty:
+                return df
+            part = df[df["metric"] == metric_name].copy()
+            part["metric"] = metric_name
+            return part[["timestep", "metric", "value"]]
+
+        overlay_options = [
+            ("Total cash", _long_total_cash),
+            ("Total cash (firms)", _long_total_cash_firms),
+            ("Avg cash (firms)", _long_avg_cash_firms),
+            ("Total cash (consumers)", _long_total_cash_consumers),
+            ("Avg cash (consumers)", _long_avg_cash_consumers),
+            ("Total profit", _long_total_profit),
+            ("Avg profit (firms)", _long_avg_profit_firms),
+            ("Gini coefficient", _long_gini),
+            ("Firms in business", _long_firms_in_business),
+            ("Filled orders", _long_filled_orders),
+            ("Avg reputation (firms)", _long_avg_reputation),
+            ("Total sales (quantity)", _long_total_sales),
+            ("Avg sales per firm", _long_avg_sales_per_firm),
+            ("Avg price (all goods)", _long_avg_price),
+            ("Avg consumer surplus", _long_avg_consumer_surplus),
+            ("Total utility (avg)", _long_total_utility_avg),
+            ("Goods utility (avg)", _long_goods_utility_avg),
+            ("Cash utility (avg)", _long_cash_utility_avg),
+            ("Labor disutility (avg)", _long_labor_disutility_avg),
+            ("Avg food inventory", _long_avg_food_inventory),
+            ("Avg eWTP (across goods)", _long_avg_ewtp),
+            ("Lemon: Listings", lambda db: _long_lemon_metric(db, "Listings")),
+            ("Lemon: Bids", lambda db: _long_lemon_metric(db, "Bids")),
+            ("Lemon: Passes", lambda db: _long_lemon_metric(db, "Passes")),
+        ]
+        overlay_labels = [o[0] for o in overlay_options]
+        overlay_getters = {o[0]: o[1] for o in overlay_options}
+
+        st.subheader("Overlay charts")
+        overlay_selected = st.multiselect(
+            "Select two or more series to overlay on one chart",
+            options=overlay_labels,
+            default=[],
+            key="charts_overlay_select",
+        )
+        overlay_normalize = st.checkbox(
+            "Normalize each series to 0–1 for comparison",
+            value=False,
+            key="charts_overlay_normalize",
+        )
+        if len(overlay_selected) >= 2:
+            combined_rows = []
+            for label in overlay_selected:
+                getter = overlay_getters[label]
+                part = getter(df_builder)
+                if part.empty or "metric" not in part.columns:
+                    part = part.copy()
+                    part["metric"] = label
+                if "value" in part.columns and "timestep" in part.columns:
+                    combined_rows.append(part[["timestep", "metric", "value"]])
+            if combined_rows:
+                overlay_df = pd.concat(combined_rows, ignore_index=True)
+                if overlay_normalize:
+                    overlay_df = overlay_df.copy()
+                    for m in overlay_df["metric"].unique():
+                        mask = overlay_df["metric"] == m
+                        v = overlay_df.loc[mask, "value"]
+                        lo, hi = v.min(), v.max()
+                        if hi > lo:
+                            overlay_df.loc[mask, "value"] = (v - lo) / (hi - lo)
+                        else:
+                            overlay_df.loc[mask, "value"] = 0.0
+                chart_overlay = (
+                    AltairChartBuilder(overlay_df)
+                    .x("timestep", title="Timestep")
+                    .y("value", title="Value" + (" (normalized 0–1)" if overlay_normalize else ""))
+                    .color("metric", legend_title="Series")
+                    .mark_line(strokeWidth=2)
+                    .build()
+                )
+                st.altair_chart(chart_overlay, use_container_width=True)
+            else:
+                st.caption("No data for selected series.")
+        elif overlay_selected:
+            st.caption("Select at least two series to overlay.")
+
+        st.divider()
+
         # ---- Chart 1: Total cash in circulation ----
         cash_long = df_builder.metrics_over_time_long(
             value_vars=["total_cash"],
@@ -412,6 +681,30 @@ else:
             st.altair_chart(chart_filled_total, use_container_width=True)
         else:
             st.caption("No filled-orders data (run with --use-env and state files that include filled_orders_count).")
+
+        # ---- Chart 1c: Firms in business over time ----
+        st.subheader("Firms in business over time")
+        firms_in_business_chart_df = df_builder.firms_in_business_over_time()
+        if not firms_in_business_chart_df.empty:
+            firms_in_business_chart_df = firms_in_business_chart_df.copy()
+            firms_in_business_chart_df["metric"] = "Firms in business"
+            color_firms = st.color_picker("Line color", "#2ca02c", key="chart_firms_in_business_color")
+            chart_firms_in_business_tab4 = (
+                AltairChartBuilder(firms_in_business_chart_df)
+                .x("timestep", title="Timestep")
+                .y("value", title="Firms in business")
+                .color(
+                    "metric",
+                    domain=["Firms in business"],
+                    range_=[color_firms],
+                    legend_title="Metric",
+                )
+                .mark_line(strokeWidth=2)
+                .build()
+            )
+            st.altair_chart(chart_firms_in_business_tab4, use_container_width=True)
+        else:
+            st.caption("No firm count data in this run.")
 
         # ---- Chart 2: Gini coefficient ----
         gini_long = df_builder.metrics_over_time_long(

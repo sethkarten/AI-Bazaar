@@ -239,6 +239,17 @@ class DataFrameBuilder:
             rows.append({"timestep": t, "metric": "Passes", "value": int(passes)})
         return pd.DataFrame(rows)
 
+    def firms_in_business_over_time(self) -> pd.DataFrame:
+        """
+        One row per timestep: timestep, value (number of firms with in_business True).
+        """
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            count = sum(1 for f in s.get("firms", []) if f.get("in_business", False))
+            rows.append({"timestep": t, "value": int(count)})
+        return pd.DataFrame(rows)
+
     def filled_orders_count_over_time(self) -> pd.DataFrame:
         """
         One row per timestep: timestep, value (total filled consumer orders that step).
