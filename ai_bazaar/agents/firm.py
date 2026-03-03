@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from .llm_agent import LLMAgent
 import logging
 import numpy as np
-from ai_bazaar.utils.common import Message
+from ai_bazaar.utils.common import Message, advertised_quality_for_sybil
 from collections import defaultdict
 
 DEFAULT_SUPPLY_UNIT_COSTS = {
@@ -490,7 +490,8 @@ STABILIZING FIRM: Never set price below your unit cost (cost to produce one unit
         )
 
     def create_listings(self, timestep: int = None, max_price: float = 5000.0) -> List[Dict[str, Any]]:
-        """Create listings for all unposted cars: use add_message + act_llm (same structure as set_price)."""
+        """Create listings for all unposted cars: use add_message + act_llm (same structure as set_price).
+        Sybil firms advertise a higher quality than true (q̂ > q); listing still stores true quality_value for reputation."""
         new_listings = []
         listings = getattr(self, "listings", [])
         if timestep is None:
@@ -500,16 +501,23 @@ STABILIZING FIRM: Never set price below your unit cost (cost to produce one unit
                 continue
             quality = item.get("quality", "unknown")
             quality_value = item.get("quality_value", 0.5)
+            # Sybil: misrepresent — advertise one tier above true quality for description/price
+            advertised_quality = quality
+            advertised_quality_value = quality_value
+            if getattr(self, "sybil", False):
+                advertised_quality, advertised_quality_value = advertised_quality_for_sybil(
+                    quality, quality_value
+                )
             if self.llm is None:
-                description = f"Used car, {quality} condition."
-                price = max_price * quality_value
+                description = f"Used car, {advertised_quality} condition."
+                price = max_price * advertised_quality_value
             else:
                 self.logger.info(f"[ACTION] {self.name} performing action: create_listing")
                 self.add_message(
                     timestep,
                     Message.UPDATE_LISTING,
-                    quality=quality,
-                    quality_value=quality_value,
+                    quality=advertised_quality,
+                    quality_value=advertised_quality_value,
                     max_price=max_price,
                 )
                 try:
@@ -532,6 +540,7 @@ STABILIZING FIRM: Never set price below your unit cost (cost to produce one unit
                         f"[ACTION] {self.name} create_listing parsing failed; skipping this listing"
                     )
                     continue
+            # Listing always stores true quality_value so reputation updates use actual q after sale
             listing = {
                 "id": f"{self.name}_listing_{len(new_listings)}",
                 "firm_id": self.name,

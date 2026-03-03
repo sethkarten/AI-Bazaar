@@ -65,8 +65,11 @@ class BazaarWorld:
             ]
 
         self.firms = []
+        sybil_cluster_size = getattr(args, "sybil_cluster_size", 0)
+        is_lemon = getattr(args, "consumer_scenario", None) == "LEMON_MARKET"
         for i in range(args.num_firms):
             name = f"firm_{i}"
+            is_sybil = is_lemon and sybil_cluster_size > 0 and i >= args.num_firms - sybil_cluster_size
             if args.firm_type == "LLM":
                 firm_kw = {
                     "llm": args.llm,
@@ -81,6 +84,7 @@ class BazaarWorld:
                     "timeout": getattr(args, "timeout", 30),
                     "args": args,
                     "llm_instance": llm_model,
+                    "sybil": is_sybil,
                 }
                 firm_kw["supply_unit_costs"] = self.supply_unit_costs_by_firm[i]
                 firm = FirmAgent(**firm_kw)
@@ -99,6 +103,9 @@ class BazaarWorld:
             # Only one firm is a stabilizing firm when --stabilizing-firm is set (first LLM firm)
             if args.firm_type == "LLM" and getattr(args, "stabilizing_firm", False):
                 firm.stabilizing_firm = i == 0
+            # LEMON_MARKET: initial reputation R_0 (paper uses 0.8)
+            if is_lemon and getattr(args, "reputation_initial", None) is not None:
+                firm.reputation = float(args.reputation_initial)
             self.firms.append(firm)
 
         self.consumers = []
@@ -347,17 +354,23 @@ class BazaarWorld:
             if hasattr(firm, "sales_info"):
                 firm.sales_info = []
 
-        # 0. Labor Phase: Consumers (Workers) choose labor supply (Parallel)
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=len(self.consumers)
-        ) as executor:
-            futures = []
-            for consumer in self.consumers:
-                if hasattr(consumer, "choose_labor"):
-                    futures.append(
-                        executor.submit(consumer.choose_labor, self.timestep, wage=10.0)
-                    )
-            concurrent.futures.wait(futures)
+        # 0. Labor Phase: CES consumers choose labor at t=0; thereafter only if --dynamic-labor
+        labor_phase_active = self.timestep == 0 or getattr(
+            self.args, "dynamic_labor", False
+        )
+        if labor_phase_active:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=len(self.consumers)
+            ) as executor:
+                futures = []
+                for consumer in self.consumers:
+                    if hasattr(consumer, "choose_labor"):
+                        futures.append(
+                            executor.submit(
+                                consumer.choose_labor, self.timestep, wage=10.0
+                            )
+                        )
+                concurrent.futures.wait(futures)
 
         # firm phases
         #B2C
@@ -467,14 +480,14 @@ class BazaarWorld:
                     prices = future.result()
                     firm_prices[firm.name] = prices
                     firm.post_quotes(prices)
-        #C2C
+        # C2C Lemon Market: endow sequentially (RNG order), then create_listings in parallel (like Crash pricing)
         def lemon_market_firm_phases():
-            new_listings = []
-            for firm in self.firms:
-                if not getattr(firm, "in_business", True):
-                    continue
-
-                # 1) Endow the firm with a car of quality randomly sampled from QUALITY_DICT
+            active_firms = [
+                f for f in self.firms
+                if getattr(f, "in_business", True)
+            ]
+            # 1) Endow each firm with a car (sequential for reproducible RNG)
+            for firm in active_firms:
                 if not hasattr(firm, "listings"):
                     firm.listings = []
                 quality_key = random.choice(list(QUALITY_DICT.keys()))
@@ -485,9 +498,18 @@ class BazaarWorld:
                     "posted": False,
                 })
 
-                # 2) Create listings for all items not flagged as "posted"
-                firm_new = firm.create_listings(self.timestep)
-                new_listings.extend(firm_new)
+            # 2) Create listings in parallel (each firm only touches own state + LLM)
+            new_listings = []
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=max(1, len(active_firms))
+            ) as executor:
+                future_to_firm = {
+                    executor.submit(firm.create_listings, self.timestep): firm
+                    for firm in active_firms
+                }
+                for future in concurrent.futures.as_completed(future_to_firm):
+                    firm_new = future.result()
+                    new_listings.extend(firm_new)
 
             # 3) Store the new listings in a list (on the world for downstream use)
             self.lemon_market_listings = new_listings
@@ -586,6 +608,14 @@ class BazaarWorld:
                 firm = firms_by_name.get(firm_id)
                 if firm is not None and hasattr(firm, "update_reputation"):
                     firm.update_reputation(quality=float(q), alpha=alpha)
+
+            # Sybil identity rotation: if R < rho_min, reset to R_0 (fresh identity)
+            rho_min = getattr(self.args, "sybil_rho_min", 0.3)
+            r0 = getattr(self.args, "reputation_initial", 0.8)
+            for firm in self.firms:
+                if getattr(firm, "sybil", False) and firm.reputation < rho_min:
+                    firm.reputation = float(r0)
+                    self.logger.info(f"Sybil identity rotation: {firm.name} R reset to {r0}")
 
         # update eWTP for all consumers
         # iterate through sales info and update eWTP for each consumer

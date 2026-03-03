@@ -28,7 +28,7 @@ from ai_bazaar.market_core.market_core import (
 )
 from ai_bazaar.agents.firm import BaseFirmAgent, FixedFirmAgent
 from ai_bazaar.agents.consumer import CESConsumerAgent
-from ai_bazaar.utils.common import LEMON_MARKET_GOODS, QUALITY_DICT
+from ai_bazaar.utils.common import LEMON_MARKET_GOODS, QUALITY_DICT, advertised_quality_for_sybil
 from ai_bazaar.env.bazaar_env import BazaarWorld
 from ai_bazaar.main import create_argument_parser
 
@@ -39,6 +39,14 @@ from ai_bazaar.main import create_argument_parser
 def test_lemon_market_goods():
     """LEMON_MARKET_GOODS is ['car']."""
     assert LEMON_MARKET_GOODS == ["car"]
+
+
+def test_advertised_quality_for_sybil():
+    """Sybil advertises one tier above true quality; mint stays mint."""
+    assert advertised_quality_for_sybil("poor", 0.1) == ("fair", 0.4)
+    assert advertised_quality_for_sybil("fair", 0.4) == ("good", 0.7)
+    assert advertised_quality_for_sybil("good", 0.7) == ("mint", 1.0)
+    assert advertised_quality_for_sybil("mint", 1.0) == ("mint", 1.0)
 
 
 def test_quality_dict():
@@ -352,6 +360,26 @@ def test_bazaar_world_lemon_market_goods():
     assert hasattr(world, "lemon_market_listings")
     assert hasattr(world, "lemon_market_listings_unsold")
     assert world.lemon_market_listings_unsold == []
+
+
+def test_bazaar_world_lemon_market_sybil_cluster():
+    """With LEMON_MARKET and sybil-cluster-size=2, last 2 firms are Sybil."""
+    parser = create_argument_parser()
+    args = parser.parse_args([
+        "--consumer-scenario", "LEMON_MARKET",
+        "--firm-type", "LLM",
+        "--num-firms", "4",
+        "--num-consumers", "3",
+        "--max-timesteps", "2",
+        "--sybil-cluster-size", "2",
+        "--llm", "gemini-2.5-flash",
+    ])
+    world = BazaarWorld(args, llm_model=None)
+    assert len(world.firms) == 4
+    assert getattr(world.firms[0], "sybil", False) is False
+    assert getattr(world.firms[1], "sybil", False) is False
+    assert getattr(world.firms[2], "sybil", False) is True
+    assert getattr(world.firms[3], "sybil", False) is True
 
 
 def test_main_force_num_goods_lemon():

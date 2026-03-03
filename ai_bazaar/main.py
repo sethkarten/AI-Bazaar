@@ -198,6 +198,24 @@ def create_argument_parser():
         help="LEMON_MARKET: reputation update smoothing; R_new = alpha*R_old + (1-alpha)*q; default 0.9",
     )
     parser.add_argument(
+        "--sybil-cluster-size",
+        type=int,
+        default=0,
+        help="LEMON_MARKET: number of firms that are Sybil identities (one cluster). Last K of num_firms. 0 = no Sybil.",
+    )
+    parser.add_argument(
+        "--reputation-initial",
+        type=float,
+        default=None,
+        help="LEMON_MARKET: initial reputation R_0 for all sellers and for Sybil rotation. Default 0.8 when LEMON_MARKET and sybil-cluster-size>0 else 1.0.",
+    )
+    parser.add_argument(
+        "--sybil-rho-min",
+        type=float,
+        default=0.3,
+        help="LEMON_MARKET: Sybil identity rotation threshold; when R < rho_min, reset to reputation-initial. Default 0.3",
+    )
+    parser.add_argument(
         "--consumption-interval",
         type=int,
         default=1,
@@ -279,6 +297,11 @@ def create_argument_parser():
         action="store_true",
         help="Use expected WTP (eWTP) instead of WTP when clearing the market (order max_price).",
     )
+    parser.add_argument(
+        "--dynamic-labor",
+        action="store_true",
+        help="Let CES consumers re-choose labor each timestep; if disabled, labor is chosen only at t=0 and held fixed.",
+    )
 
     return parser
 
@@ -291,6 +314,10 @@ def main():
     # LEMON_MARKET: force num_goods to 1 and only good is "car"
     if getattr(args, "consumer_scenario", None) == "LEMON_MARKET":
         args.num_goods = 1
+        if getattr(args, "reputation_initial", None) is None:
+            args.reputation_initial = 0.8  # paper R_0 = 0.8 for lemon experiments
+        if getattr(args, "sybil_cluster_size", 0) > 0 and args.num_firms < args.sybil_cluster_size:
+            args.num_firms = args.sybil_cluster_size
 
     # THE_CRASH: default Poisson demand lambda to 30 unless explicitly set
     if getattr(args, "consumer_scenario", None) == "THE_CRASH" and getattr(args, "poisson_demand_lambda", None) is None:

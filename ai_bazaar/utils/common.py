@@ -28,8 +28,33 @@ QUALITY_DICT = {
     'mint': 1.0,
     'good': 0.7,
     'fair': 0.4,
-    'poor': 0.1,                
+    'poor': 0.1,
 }
+
+# Ordered tiers for Sybil misrepresentation: advertise one tier above true quality
+QUALITY_TIERS_ORDERED = [('poor', 0.1), ('fair', 0.4), ('good', 0.7), ('mint', 1.0)]
+
+
+def advertised_quality_for_sybil(quality_key: str, quality_value: float) -> Tuple[str, float]:
+    """Return (advertised_quality_key, advertised_quality_value) with advertised > true.
+    Used by Sybil sellers to misrepresent. If already mint, returns mint (no upgrade)."""
+    i = None
+    for j, (k, v) in enumerate(QUALITY_TIERS_ORDERED):
+        if abs(v - quality_value) < 1e-6:
+            i = j
+            break
+    if i is None:
+        # Fallback: find tier with value <= quality_value, take next
+        for j, (k, v) in enumerate(QUALITY_TIERS_ORDERED):
+            if v >= quality_value:
+                i = j
+                break
+        if i is None:
+            return ('mint', 1.0)
+    if i + 1 < len(QUALITY_TIERS_ORDERED):
+        return QUALITY_TIERS_ORDERED[i + 1]
+    return QUALITY_TIERS_ORDERED[-1]
+
 
 # LEMON_MARKET scenario: single good is "car"; num_goods forced to 1
 LEMON_MARKET_GOODS = ["car"]
