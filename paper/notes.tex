@@ -89,4 +89,18 @@ The consumer utility function is \textbf{cardinal}: it uses a specific CES form,
 
 \textbf{Takeaways.} A smart firm could potentially hold out for a better price, halting production and sales until the price is at or above unit cost. This would prevent the price spiral and the market collapse. This would require firms to wait until average eWTP rebounds to above unit cost, which requires all firms to be aligned and to hold out for an extended period of time.
 
+\section{Stabilizing Firm Implementation}
+
+When \texttt{--stabilizing-firm} is set, \textbf{only one} firm (the first LLM firm, \texttt{firm\_0}) is a Stabilizing Firm; the rest are standard.
+
+\textbf{What the Stabilizing Firm gets:}
+\begin{itemize}
+    \item An augmented \textbf{system prompt}: never price below unit cost; consider market stability; avoid a race to the bottom; aim for sustainable profit.
+    \item A \textbf{price floor}: after the LLM chooses prices, they are clamped so \(P \geq c\) per good (other firms are not clamped).
+\end{itemize}
+
+\textbf{All} firms see unit cost in the price step (``Your unit cost per good: \ldots''); only the Stabilizing Firm gets the extra prompt and the clamp.
+
+\textbf{Alignment traces} (\texttt{--log-alignment-traces}): state, prompt, response, and outcome are written to \texttt{logs/<run\_name>/alignment\_traces.jsonl}. Currently every LLM firm's price decision is logged when the flag is on; the log is not restricted to the Stabilizing Firm. See \texttt{documentation/STABILIZING\_FIRM.md} for code locations and an example run.
+
 \end{document}

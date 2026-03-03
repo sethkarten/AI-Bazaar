@@ -134,8 +134,17 @@ class GeminiModel(BaseLLMModel):
                 return message, False
                 
             except Exception as e:
-                if "quota" in str(e).lower() or "rate" in str(e).lower():
-                    self.logger.warning(f"Rate limit or quota exceeded: {e}")
+                err_str = str(e).lower()
+                is_429 = (
+                    "429" in err_str
+                    or "resource exhausted" in err_str
+                    or "quota" in err_str
+                    or "rate" in err_str
+                )
+                if is_429:
+                    self.logger.warning(
+                        f"Rate limit or quota (429): {e}. Retrying with backoff..."
+                    )
                     self._handle_rate_limit(retry_count, max_retries)
                     retry_count += 1
                 else:

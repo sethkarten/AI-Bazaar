@@ -140,6 +140,16 @@ def create_argument_parser():
         action="store_true",
         help="Enable information asymmetry (firms see noisy competitor data)",
     )
+    parser.add_argument(
+        "--stabilizing-firm",
+        action="store_true",
+        help="Use Stabilizing Firm prompt and enforce price floor >= unit cost (B2C Crash).",
+    )
+    parser.add_argument(
+        "--log-alignment-traces",
+        action="store_true",
+        help="Log (state, prompt, response, outcome) per step to run_dir/alignment_traces.jsonl for SFT.",
+    )
 
     # Simulation parameters
     parser.add_argument(

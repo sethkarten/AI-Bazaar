@@ -303,7 +303,7 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         timescale_line = ""
         if getattr(self.args, "consumer_scenario", None) != "LEMON_MARKET":
             timescale_line = "\nEach timestep represents one day. Consumer income and demand are on a daily scale.\n"
-        return f"""You are a firm manager named {self.name} that produces and sells goods in a market economy.
+        base = f"""You are a firm manager named {self.name} that produces and sells goods in a market economy.
 You produce the following goods: {goods_list}.{timescale_line}
 
 Your goal is to maximize profit by making strategic decisions about:
@@ -322,6 +322,11 @@ Key metrics to consider:
 - Profit: Revenue from sales minus costs of supplies
 
 CRITICAL: Always respond with a single, valid JSON object. Do not use markdown code blocks or include explanatory text. Output only the JSON object that can be parsed directly."""
+        if getattr(self, "stabilizing_firm", False):
+            base += """
+
+STABILIZING FIRM: Never set price below your unit cost (cost to produce one unit). Pricing below cost leads to losses and bankruptcy. Consider market stability: aggressive undercutting can push the whole market below cost and cause all firms to fail. Your goal is sustainable profit; maintain a price floor at or above unit cost and avoid a race to the bottom."""
+        return base
 
     def set_price(
         self, timestep: int = None, market_data: Dict[str, Any] = None
@@ -350,7 +355,26 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         # Convert to dictionary
         price_dict = {good: price for good, price in zip(self.goods, prices)}
 
+        # Stabilizing Firm: enforce price floor >= unit cost
+        if getattr(self, "stabilizing_firm", False) and self.supply_unit_costs:
+            for good in self.goods:
+                c = self.supply_unit_costs.get(good, 0.0)
+                if price_dict.get(good, 0) < c:
+                    price_dict[good] = c
+
         self._timestep_stats[timestep]["prices"] = price_dict.copy()
+
+        # Log alignment trace for set_price (state/prompt/response/outcome collected in env)
+        if getattr(self.args, "log_alignment_traces", False):
+            user_prompt = self.get_historical_message(timestep)
+            last_traj = self.trajectory[-1] if self.trajectory else {}
+            self._last_price_trace = {
+                "system_prompt": self.system_prompt,
+                "user_prompt": user_prompt,
+                "response": last_traj.get("response"),
+                "action": dict(price_dict),
+                "unit_costs": dict(self.supply_unit_costs) if self.supply_unit_costs else {},
+            }
 
         self.add_message(timestep, Message.ACTION_PRICE, prices=price_dict)
         return price_dict
@@ -845,6 +869,14 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             self.message_history[timestep]["historical"] += (
                 f"Current inventory: {dict(self.inventory)}\n"
             )
+            # Unit cost so the firm can keep price >= cost (required for Stabilizing Firm behavior)
+            cost_str = ", ".join(
+                f"{good}: ${c:.2f}" for good, c in (self.supply_unit_costs or {}).items()
+            )
+            if cost_str:
+                self.message_history[timestep]["historical"] += (
+                    f"Your unit cost per good: {cost_str}\n"
+                )
 
             market_data = kwargs.get("market_data")
             if market_data:

@@ -44,6 +44,7 @@ class VLLMModel(BaseLLMModel):
             'llama3:8b': 'meta-llama/Llama-3.1-8B-Instruct',
             'llama3:70b': 'meta-llama/Llama-3.1-70B-Instruct',
             'gemma3:27b': 'google/gemma-3-27b-it',
+            'gemma3:4b': 'google/gemma-3-4b-it',
         }
         
         # Use mapped model name if available

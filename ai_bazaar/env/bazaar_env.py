@@ -96,6 +96,9 @@ class BazaarWorld:
                 )
             # Scale overhead by timestep length: daily (non-LEMON) = 1/7 of base; LEMON (weekly) = full base
             firm.overhead_scale = 1.0 / 7.0 if getattr(args, "consumer_scenario", None) != "LEMON_MARKET" else 1.0
+            # Only one firm is a stabilizing firm when --stabilizing-firm is set (first LLM firm)
+            if args.firm_type == "LLM" and getattr(args, "stabilizing_firm", False):
+                firm.stabilizing_firm = i == 0
             self.firms.append(firm)
 
         self.consumers = []
@@ -315,6 +318,25 @@ class BazaarWorld:
         import concurrent.futures
 
         start_ledger = self.ledger.copy()
+
+        # Snapshot state at start of step for alignment-trace logging (state, action, outcome)
+        if getattr(self.args, "log_alignment_traces", False):
+            for f in self.firms:
+                setattr(f, "_last_price_trace", None)
+            self._step_trace_state = {
+                "timestep": self.timestep,
+                "prices_last": dict(self.firm_prices_last_step),
+                "firms": [
+                    {
+                        "name": f.name,
+                        "cash": float(self.ledger.agent_money.get(f.name, 0.0)),
+                        "inventory": {k: float(v) for k, v in (self.ledger.agent_inventories.get(f.name, {}) or {}).items()},
+                        "supply_unit_costs": {k: float(v) for k, v in (getattr(f, "supply_unit_costs", None) or {}).items()},
+                        "in_business": getattr(f, "in_business", True),
+                    }
+                    for f in self.firms
+                ],
+            }
 
         # Reset step-level expenses and sales (accumulated from expenses_info / sales_info lists)
         expenses_info = []
@@ -769,6 +791,37 @@ class BazaarWorld:
         }
 
         self.save_state()
+
+        # Log alignment trace (state, prompt, response, outcome) for SFT / Stabilization Traces
+        if getattr(self.args, "log_alignment_traces", False) and hasattr(self, "_step_trace_state"):
+            step_trace = {
+                "state": self._step_trace_state,
+                "firms": [
+                    getattr(f, "_last_price_trace", None)
+                    for f in self.firms
+                    if hasattr(f, "_last_price_trace") and getattr(f, "_last_price_trace", None) is not None
+                ],
+                "outcome": {
+                    "timestep": self.timestep,
+                    "firms": [
+                        {
+                            "name": f.name,
+                            "prices": self.firm_prices_last_step.get(f.name, {}),
+                            "profit": float(getattr(f, "profit", 0.0)),
+                            "in_business": getattr(f, "in_business", True),
+                            "cash": float(self.ledger.agent_money.get(f.name, 0.0)),
+                        }
+                        for f in self.firms
+                    ],
+                },
+            }
+            log_dir = getattr(self.args, "log_dir", "logs")
+            run_name = getattr(self.args, "name", None) or "simulation"
+            run_dir = os.path.join(log_dir, run_name)
+            os.makedirs(run_dir, exist_ok=True)
+            trace_path = os.path.join(run_dir, "alignment_traces.jsonl")
+            with open(trace_path, "a", encoding="utf-8") as tf:
+                tf.write(json.dumps(step_trace, default=str) + "\n")
 
         # Consumption phase: zero consumer goods (keep cash) after every consumption_interval
         consumption_interval = getattr(self.args, "consumption_interval", 1)
