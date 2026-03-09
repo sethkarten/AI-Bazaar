@@ -3,7 +3,8 @@
 % Use state_t*.json and experiment_args.json from logs/crash_horizon_test_2/ for figures/numbers.
 
 \documentclass{article}
-\usepackage{microtype}
+\usepackage[margin=0.25in]{geometry}
+\usepackage[expansion=false]{microtype}
 \usepackage{hyperref}
 \usepackage{amsmath}
 \usepackage{amssymb}
@@ -102,5 +103,138 @@ When \texttt{--stabilizing-firm} is set, \textbf{only one} firm (the first LLM f
 \textbf{All} firms see unit cost in the price step (``Your unit cost per good: \ldots''); only the Stabilizing Firm gets the extra prompt and the clamp.
 
 \textbf{Alignment traces} (\texttt{--log-alignment-traces}): state, prompt, response, and outcome are written to \texttt{logs/<run\_name>/alignment\_traces.jsonl}. Currently every LLM firm's price decision is logged when the flag is on; the log is not restricted to the Stabilizing Firm. See \texttt{documentation/STABILIZING\_FIRM.md} for code locations and an example run.
+
+\section{Analysis: \texttt{crash\_100\_flash\_1} Run}
+
+This run used THE\_CRASH scenario with 5 LLM firms, 50 CES consumers, 100 timesteps, unit cost 1, \texttt{discovery\_limit = 3}, and the Stabilizing Firm enabled (firm\_0). Data: \texttt{logs/crash\_100\_flash\_1/} and \texttt{marketplace\_crash\_100\_flash\_1.log}.
+
+\subsection{The Price War}
+
+Firms started at a uniform price of \$1.50 (above unit cost \$1). Within a few steps they began undercutting: prices moved to 1.45, 1.40, 1.35, then into the 1.30s and 1.20s. The race continued with firms repeatedly setting prices ``slightly below the lowest competitor'' to capture sales; prices reached the 1.15--1.20 range and crossed below unit cost. Once below cost, each sale lost money; cash fell and firms went bankrupt in sequence. By timestep 20, two firms (firm\_3 and firm\_4) had zero cash; by timestep 50, four firms were at zero cash and only one (firm\_2) had any cash left; by timestep 75, all five firms had zero cash and the market had fully collapsed. So the run shows a classic price war: recursive undercutting, prices driven below cost, and cascading bankruptcies.
+
+\subsection{Effect of the Discovery Limit on Sales and the Price War}
+
+The \textbf{discovery limit} was 3: each consumer sees only \emph{three} firms when deciding where to buy (chosen by a score such as reputation/price, or a random subset if reputations are similar). Market clearing is by price: among the firms a consumer sees, demand goes to the lowest-priced firm first.
+
+This sharpens the incentive to undercut. A firm that is not among the three visible to a consumer gets no sales from that consumer. To be visible and attractive, a firm must either have a low price (so that score = rep/price is high) or get lucky in the random draw. So firms are pushed to cut price to (i) improve their ranking in the visible set and (ii) win the price tie-break. The limit also fragments demand: at any step, different consumers see different subsets of firms, so sales are concentrated among the lowest-priced firms that happen to be visible. That concentration amplifies the payoff from undercutting and speeds the race to the bottom. In short, the discovery limit of 3 increased the pressure to undercut and made the price war more aggressive.
+
+\subsection{The Stabilizing Firm: Identity, Behavior, and Outcome}
+
+\textbf{Identity.} The Stabilizing Firm is \textbf{firm\_0} (the first LLM firm). It receives an augmented prompt (never price below unit cost; consider market stability; avoid a race to the bottom) and a \textbf{price floor}: its chosen price is clamped so it never goes below unit cost \(c = 1\).
+
+\textbf{Behavior.} Firm\_0 set prices at or above the floor (e.g., 1.50 early, then 1.35, 1.31, 1.27, 1.25, 1.24, etc.); whenever the LLM proposed a price below 1, the clamp raised it to 1. So the Stabilizing Firm did not join the sub-cost undercutting. The other four firms had no floor and cut prices into the 1.15--1.20 range and below.
+
+\textbf{Effect on the market.} With discovery limit 3, many consumers did not see firm\_0 in their visible set, or saw it alongside lower-priced competitors. Because clearing is by lowest price, those consumers bought from the undercutters. So the Stabilizing Firm lost volume to firms pricing below cost and still paid overhead (and possibly supply costs). Its cash fell over time; it was bankrupt (zero cash) by timestep 50. The presence of one firm holding a price floor did not stop the others from undercutting; with only one firm committed to the floor and no way to force others to follow, the market still collapsed.
+
+\textbf{Performance.} The Stabilizing Firm (firm\_0) did not survive. It maintained a price at or above unit cost but earned insufficient sales relative to its costs and went to zero cash like the rest. So in this run, a single Stabilizing Firm was not enough to stabilize the market: the price war and discovery limit led to full collapse anyway. Stabilization would likely require either more firms committed to the floor or a different mechanism (e.g., all firms seeing the floor or coordinated pricing).
+
+\section{Analysis: \texttt{lemon\_50\_flash\_nosybil\_1} Run}
+
+This run used the LEMON\_MARKET scenario: 10 LLM firms, 50 CES consumers, 50 timesteps, discovery\_limit = 5, no Sybil firms. Each step firms are endowed with one car of random true quality (mint / good / fair / poor); they create a listing (description and price) and post it. Buyers see a subset of listings and submit at most one bid. Reputation is updated from the \emph{actual} quality delivered on sale. Data: \texttt{logs/lemon\_50\_flash\_nosybil\_1/}, \texttt{marketplace\_lemon\_50\_flash\_nosybil\_1.log}.
+
+\subsection{How Truthful Were the Sellers?}
+
+Sellers are given the \textbf{true} quality of their car in the prompt and choose a description and price. The listing stores that true quality for reputation updates after sale; the description is free text. So the design allows truthfulness (describe the car as it really is) or misrepresentation (overstate condition).
+
+In this run, sellers were largely \textbf{truthful}. In the sampled listings (e.g., timesteps 0 and 10), descriptions matched the true quality: poor cars were described as ``poor condition,'' ``fixer-upper,'' or ``quality 0.10''; good and mint cars were described as ``good condition,'' ``mint,'' ``pristine,'' etc. The LLM was instructed with the true quality and typically produced an accurate description and a price in line with that quality. There was no Sybil cluster in this run, so no firm had the code-level ``advertise one tier above'' override. So the outcome is consistent with sellers describing their cars honestly; reputation then reflects actual delivery quality.
+
+\subsection{How the Current Buyer Implementation Affects Behavior and Results}
+
+Buyers in the Lemon Market are implemented as follows. Each consumer sees only a \textbf{random sample} of \texttt{discovery\_limit} (5) listings from the full market. Visible listings are scored by \(\text{reputation} / \text{price}\) (or a random draw if reputations are similar). The consumer then picks the listing with the highest \textbf{consumer surplus} \(\text{CS} = \text{reputation} \times \text{max\_wtp} - \text{price}\), and submits \textbf{at most one order} (one bid) only if \(\text{CS} > 0\). So: (i) each buyer places 0 or 1 bid per step; (ii) choice is deterministic given the visible set and the rule; (iii) expected quality is proxied by the firm’s reputation, not by parsing the listing text.
+
+This has several effects. First, \textbf{demand is fragmented}: different consumers see different subsets of firms, so which listing ``wins'' depends on who saw what. Second, \textbf{reputation drives choice}: high-reputation firms get a higher score and a higher CS for the same price, so they attract more bids. Third, \textbf{no strategic bidding}: buyers do not shade bids or learn from past outcomes; they use a fixed rule. Fourth, \textbf{only one bid per consumer} means at most 50 bids per step; the rest of the ``slots'' (e.g., 50 consumers \(\times\) 5 visible = 250 listing views) show up as \textbf{passes} (saw a listing but did not bid, or bid on a different listing). So the high pass count is largely a consequence of the rule (one bid per consumer and CS threshold), not necessarily buyer skepticism. Overall, the mechanical rule makes outcomes highly dependent on reputation and the random discovery draw; it favors high-reputation sellers and concentrates sales.
+
+\subsection{Passes vs Bids vs Listings}
+
+\textbf{Listings} = total number of listings on the market in that step (new listings plus any unsold from the previous step). In step 0 there were 10 (one per firm); over time the count grows as unsold cars accumulate (e.g., 33 at step 10), so we see many more listings than bids.
+
+\textbf{Bids} = total orders submitted by all consumers in that step. Each consumer submits 0 or 1 order, so the maximum is 50. In step 0 there were 50 bids (every consumer placed one). So bids are ``how many consumers decided to buy from someone'' (subject to clearing).
+
+\textbf{Passes} = sum over consumers of \(\max(0, \text{listings\_seen} - \text{orders\_submitted})\). So for each consumer, passes = number of visible listings they did \emph{not} bid on. If every consumer sees 5 listings and places 1 bid, passes = \(50 \times (5 - 1) = 200\). Step 0 had 10 listings, 50 bids, 200 passes---consistent with 50 consumers each seeing 5 listings and placing 1 bid. So \textbf{passes} are mostly ``saw several listings, chose one''; they are not necessarily ``rejected as bad.'' The ratio of passes to bids is high because of the one-bid-per-consumer rule and discovery limit, not because buyers are refusing most offers.
+
+\subsection{Evolution of Reputation}
+
+Reputation is updated only when a firm \textbf{sells} a car: \(R_{t+1} = \alpha R_t + (1 - \alpha) q\), where \(q\) is the \textbf{actual} quality of the car sold (quality\_value) and \(\alpha = 0.9\). If a firm does not sell, its reputation is unchanged.
+
+At the start (step 0), all firms had \(R = 0.8\) (reputation\_initial). After step 0, the four firms that sold had updated reputations: those that sold \emph{poor} (0.1) cars dropped to about 0.73; the one that sold a \emph{good} (0.7) car stayed near 0.8. So from the first step, selling a lemon reduces \(R\) and selling a good car maintains it.
+
+Over the run, reputations \textbf{diverged}. Firms that sold many low-quality cars saw \(R\) fall (e.g., by step 49, firm\_3 had \(R \approx 0.45\), firm\_7 about 0.47, firm\_8 about 0.48). Firms that sold fewer cars or a better mix kept higher \(R\) (e.g., firm\_4 about 0.70, firm\_5 about 0.69). Firm\_0 went out of business (zero cash) and stopped selling; its \(R\) stayed at 0.8. So reputation correctly tracks delivered quality: repeated lemon sales drag \(R\) down, and high-\(R\) firms are those that have delivered better cars (or sold less). That gives buyers a signal: low-\(R\) sellers are riskier. The evolution is exactly what we expect from a lemon market with reputation: adverse selection (sellers with bad cars sell and get punished in \(R\)) and a spread between ``trusted'' and ``distrusted'' firms.
+
+\section{Analysis: \texttt{lemon\_50\_flash\_sybil\_1} Run}
+
+This run is the same as \texttt{lemon\_50\_flash\_nosybil\_1} except that the \textbf{last three} firms (firm\_7, firm\_8, firm\_9) form a \textbf{Sybil cluster}: they are programmatically set to advertise \emph{one quality tier above} the true quality (poor\(\to\)fair, fair\(\to\)good, good\(\to\)mint; mint stays mint). The listing still stores the true quality for reputation updates after sale. \texttt{sybil\_cluster\_size = 3}, \texttt{sybil\_rho\_min = 0.3}, \texttt{reputation\_initial = 0.8}. Data: \texttt{logs/lemon\_50\_flash\_sybil\_1/}, \texttt{marketplace\_lemon\_50\_flash\_sybil\_1.log}.
+
+\subsection{How Truthful Were the Sellers?}
+
+\textbf{Non-Sybil firms} (firm\_0--firm\_6) behaved as in the no-Sybil run: they were given the true quality and produced descriptions that matched it (poor as poor, good as good, mint as mint).
+
+\textbf{Sybil firms} (firm\_7, firm\_8, firm\_9) were \textbf{systematically untruthful}. The code forces their advertised tier one step above the true tier. In the run data: a car with true quality ``good'' (0.7) was described as ``mint condition''; a car with true quality ``poor'' (0.1) was described as ``fair condition.'' So buyers who chose a Sybil listing received a car worse than the description implied. Truthfulness in this run is therefore split: honest sellers (0--6) vs.\ dishonest Sybil cluster (7--9).
+
+\subsection{How the Current Buyer Implementation Affects Behavior and Results}
+
+The buyer logic is unchanged: each consumer sees a random sample of 5 listings, scores by reputation/price, and submits at most one bid for the listing with the highest CS. Buyers do \emph{not} parse the listing text for quality; they use the firm’s \textbf{reputation} as the expected-quality proxy.
+
+So Sybil firms with \textbf{high reputation} (e.g., 0.8 at the start, or after a rotation) look attractive: same \(R\) as honest firms but possibly a more appealing description/price. Once a Sybil sells a lemon, \(R\) drops and that identity becomes less attractive. The fixed rule cannot detect ``this description is too good for the seller’s history''; it only reacts to updated \(R\) after the fact. So the implementation helps Sybils when they have high \(R\), and only punishes them after buyers have already been disappointed and reputation has been updated.
+
+\subsection{Passes vs Bids vs Listings}
+
+The structure is the same as in the no-Sybil run. Step 0 had 10 listings, 50 bids, 200 passes (50 consumers \(\times\) 5 visible, 1 bid each). Listings accumulate over time (new + unsold); bids are at most 50 per step; passes are the ``saw but did not bid on'' count. So the aggregate numbers do not by themselves show Sybil activity; the impact of the Sybil cluster shows up in who gets the bids, who sells, and how reputation evolves.
+
+\subsection{Evolution of Reputation}
+
+Reputation still updates only on sale: \(R_{t+1} = \alpha R_t + (1-\alpha) q\) with actual quality \(q\). In addition, \textbf{Sybil identity rotation}: if a Sybil firm’s \(R\) falls below \texttt{sybil\_rho\_min} (0.3), it is reset to \texttt{reputation\_initial} (0.8), modeling a ``fresh identity.''
+
+In this run, reputations diverged. \textbf{Non-Sybil} firms that sold a mix of qualities had trajectories similar to the no-Sybil run (e.g., some in the 0.52--0.73 range by step 49). \textbf{Sybil firm\_9} sold repeatedly (14 cars over the run); it delivered cars that were worse than advertised, so \(R\) fell and stayed around 0.47 by the end---below the rotation threshold did not occur in the logged run for firm\_9. \textbf{Sybil firm\_7 and firm\_8} went \textbf{out of business} (zero cash) by step 25; they had \emph{zero} total sales in the recorded state (sales\_by\_good car: 0). Their stored reputation was 0.8 at exit. So they either (i) never sold and went bankrupt from overhead alone, or (ii) sold a few times, had \(R\) drop, hit rotation (reset to 0.8), then went bankrupt before selling again. In either case, the Sybil cluster did not all survive; two of the three identities exited with high \(R\) but no cash, and one (firm\_9) survived with a low, eroded reputation.
+
+\subsection{Sybil Behavior and Its Effect on the Market}
+
+\textbf{Who the Sybil is.} The Sybil is a single ``cluster'' of three firm identities (firm\_7, firm\_8, firm\_9). They share the same rule: advertise one tier above true quality. They do not share cash or inventory; each has its own balance and stock. So in effect there are three dishonest sellers who systematically overstate quality.
+
+\textbf{How the Sybil affected the market.} When a Sybil identity had high \(R\) (0.8), it competed for bids like any other high-reputation seller. Buyers choosing that listing received a car of \emph{lower} quality than advertised (e.g., fair advertised as good, poor as fair). So the Sybil captured demand that might have gone to honest sellers and delivered worse value, eroding trust in the sense that reputation for that identity fell. The presence of three such identities increased the chance that a random consumer would see and bid on a dishonest listing. So the market had more ``lemons in disguise'': same number of bids per step, but a share of those bids went to Sybils and resulted in disappointed buyers (lower delivered quality than expected).
+
+\textbf{How the Sybil eroded reputation.} Reputation is updated from \emph{delivered} quality only. So when a Sybil sold a car, \(R\) was updated with the \textbf{true} \(q\) (e.g., 0.1 or 0.4), not the advertised tier. Selling poor or fair cars repeatedly pulled \(R\) down. That is how reputation was eroded: the Sybil identities that \emph{sold} (e.g., firm\_9) saw \(R\) fall toward 0.3. Rotation (reset to 0.8 when \(R < 0.3\)) was available but did not appear in the log for this run; if it had, a Sybil could have ``started over'' and attracted more bids until its \(R\) fell again. So the mechanism that erodes reputation is the same as for honest sellers---actual quality delivered---but the Sybil \emph{causes} more low-\(q\) deliveries by design (advertise high, deliver low). The two Sybil identities that exited (firm\_7, firm\_8) did not accumulate sales in the state; they went bankrupt, so their effect on the market was limited after exit, while firm\_9 continued to sell with a low \(R\), getting fewer bids but still some demand.
+
+\section{Firm Re-Entry Instances (Out of Business \(\to\) Back in Business)}
+
+This section records the \textbf{specific instances} where the re-entry analysis script found firms that were marked out of business and later appeared in business again in CRASH runs. The code never intentionally sets \texttt{in\_business} back to \texttt{True}; re-entry was caused by \textbf{stale quotes} and \textbf{market clear crediting defunct firms}.
+
+\subsection{Identified Instances}
+
+\subsubsection{Run: \texttt{crash\_100\_flash\_1}}
+\begin{itemize}
+    \item \textbf{Dir:} \texttt{logs/crash\_100\_flash\_1}
+    \item \textbf{Firm:} \texttt{firm\_3}
+    \item \textbf{Out at:} \(t = 15\)
+    \item \textbf{Back at:} \(t = 64\)
+    \item \textbf{Out again at:} \(t = 75\)
+\end{itemize}
+So \texttt{firm\_3} was out of business from the end of step 15, then appeared in business again at the end of step 64, and went out again by step 75. That implies the firm received money (from filled orders against stale quotes) between \(t = 15\) and \(t = 64\), so it had cash when overhead was applied in later steps---but it never should have been able to receive orders once it was defunct.
+
+\subsubsection{Run: \texttt{crash\_baseline\_test\_1}}
+\begin{itemize}
+    \item \textbf{Dir:} \texttt{logs/crash\_baseline\_test\_1}
+    \item \textbf{Firm:} \texttt{firm\_0}
+    \item \textbf{Out at:} \(t = 5\)
+    \item \textbf{Back at:} \(t = 6\)
+\end{itemize}
+One-step ``re-entry'': \texttt{firm\_0} (FIXED firm) was out at end of step 5 and appeared back at end of step 6. Same mechanism: orders filled against a stale quote after the firm had been marked out, crediting the firm so it had cash at the next overhead check.
+
+\subsection{Root Cause (and Fix)}
+
+\begin{enumerate}
+    \item \textbf{Stale quotes:} Quotes were cleared only at end of step. If a firm went out of business during overhead, its quotes had already been cleared that same step---but orders had already been matched and filled earlier in the step, so the firm could still get credited in the same step where it went out. In addition, any bug or edge case that left old quotes in the market (e.g., before the purge was added) allowed defunct firms' quotes to be used in later steps.
+    \item \textbf{Market clear:} \texttt{market.clear(ledger)} did not check whether the firm was still in business before crediting it, so defunct firms could receive money from filled orders.
+    \item \textbf{Sales loop:} The env applied sales/profit updates to any firm in \texttt{sales\_info}, including firms that were already out of business.
+\end{enumerate}
+
+\subsection{Safeguards Added (to Prevent Recurrence)}
+
+\begin{itemize}
+    \item \textbf{Start-of-step quote purge:} Remove any quote whose \texttt{firm\_id} is not in the current in-business set before firm phases.
+    \item \textbf{Market clear:} \texttt{market.clear(ledger, in\_business\_firm\_ids=...)}; orders targeting a firm not in that set are not filled, so defunct firms are never credited.
+    \item \textbf{Sales loop:} Skip applying sales/profit for firms that are not in business.
+\end{itemize}
+
+With these in place, defunct firms should no longer receive money from the market or appear to ``re-enter.''
 
 \end{document}

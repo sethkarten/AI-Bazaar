@@ -289,7 +289,7 @@ python -m pytest tests/test_lemon_market.py -v
 
 ## Crash and Lemon (short, fixed labor, Gemini Flash)
 
-Short runs for crash and lemon, no dynamic labor
+Short runs for crash and lemon, no dynamic labor. Use `--llm gemini-2.5-flash` or `--llm gemini-3-flash-preview` (or other Gemini models).
 
 ### Crash (100 steps, no stabilizing firm)
 
@@ -298,6 +298,7 @@ python -m ai_bazaar.main --name crash_100_flash_1 --use-cost-pref-gen --max-supp
 ```
 
 ### Crash (100 steps, stabilizing firm)
+
 ```bash
 python -m ai_bazaar.main --name crash_100_flash_1 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 100 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --stabilizing-firm --llm gemini-2.5-flash --discovery-limit 3 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
@@ -316,7 +317,28 @@ python -m ai_bazaar.main --name lemon_50_flash_sybil_1 --use-cost-pref-gen --fir
 
 ---
 
+## Analyze firm re-entry (CRASH runs)
+
+To find specific runs and timesteps where a firm was out of business and later appeared in business again (stale-quote / crediting bug), run from project root:
+
+```bash
+# All runs whose name contains "crash" (default)
+python scripts/analyze_firm_reentry.py --log-dir logs --pattern "*crash*"
+
+# Single run
+python scripts/analyze_firm_reentry.py --log-dir logs --run crash_100_flash_1
+
+# All runs under logs
+python scripts/analyze_firm_reentry.py --log-dir logs --pattern "*"
+```
+
+Output lists each instance: run name, firm name, timestep when it was out, timestep when it appeared back, and (if applicable) timestep when it went out again.
+
+---
+
 ## Scratch
+
 ```bash
 python -m ai_bazaar.main --name gemini_test --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 5 --max-timesteps 10 --firm-initial-cash 5000 --consumer-scenario THE_CRASH --discovery-limit 3 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
+

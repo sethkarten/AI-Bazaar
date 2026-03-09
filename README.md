@@ -117,8 +117,8 @@ python -m ai_bazaar.main --llm meta-llama/Llama-3.1-8B-Instruct --service vllm -
 # Claude via OpenRouter
 python -m ai_bazaar.main --llm anthropic/claude-3.5-sonnet --use-openrouter
 
-# Google Gemini
-python -m ai_bazaar.main --llm gemini-1.5-flash
+# Google Gemini (e.g. gemini-3-flash-preview, gemini-2.5-flash, gemini-1.5-flash)
+python -m ai_bazaar.main --llm gemini-3-flash-preview
 ```
 
 ## 🏗️ Project Structure
@@ -196,7 +196,10 @@ LLMEconomist/
 - `google/gemini-flash-1.5` - Fast Google model
 
 **Google Gemini (requires GOOGLE_API_KEY):**
-- `gemini-1.5-pro` - Most capable Gemini model
+- `gemini-3-flash-preview` - Latest Gemini 3 Flash (preview)
+- `gemini-2.5-pro` - Most capable Gemini 2.5 model
+- `gemini-2.5-flash` - Fast and efficient
+- `gemini-1.5-pro` - Capable Gemini 1.5 model
 - `gemini-1.5-flash` - Fast and efficient (recommended)
 
 ### Local Deployment

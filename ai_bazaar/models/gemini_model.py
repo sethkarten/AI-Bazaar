@@ -160,7 +160,8 @@ class GeminiModel(BaseLLMModel):
     def get_available_models(cls):
         """Get list of available Gemini models."""
         return [
-        	"gemini-2.5-pro",
+            "gemini-3-flash-preview",
+            "gemini-2.5-pro",
             "gemini-2.5-flash",
             "gemini-1.5-pro",
             "gemini-1.5-flash",

@@ -354,6 +354,17 @@ class BazaarWorld:
             if hasattr(firm, "sales_info"):
                 firm.sales_info = []
 
+        # Defensive solvency guard: mark any active firm with negative cash as bankrupt
+        # before any phase runs, so it never enters active_firms.
+        for firm in self.firms:
+            if getattr(firm, "in_business", True) and firm.cash < 0:
+                firm.mark_out_of_business(
+                    reason=(
+                        f"{firm.name} entered timestep {self.timestep} with negative cash "
+                        f"(${firm.cash:.2f}). Marking out of business."
+                    )
+                )
+
         # 0. Labor Phase: CES consumers choose labor at t=0; thereafter only if --dynamic-labor
         labor_phase_active = self.timestep == 0 or getattr(
             self.args, "dynamic_labor", False

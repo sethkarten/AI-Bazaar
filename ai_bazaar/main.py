@@ -234,7 +234,8 @@ def create_argument_parser():
 
     # LLM configuration (for LLM firm agents)
     parser.add_argument(
-        "--llm", default="llama3:8b", type=str, help="Language model to use"
+        "--llm", default="llama3:8b", type=str,
+        help="Language model (e.g. llama3:8b, gemini-2.5-flash, gemini-3-flash-preview, gpt-4o)",
     )
     parser.add_argument("--port", type=int, default=8009, help="Port for LLM service")
     parser.add_argument(
