@@ -9,7 +9,7 @@ from collections import defaultdict
 from ..market_core.market_core import Ledger, Market
 from ..agents.firm import FirmAgent, FixedFirmAgent
 from ..agents.consumer import CESConsumerAgent, FixedConsumerAgent
-from ..utils.common import QUALITY_DICT, LEMON_MARKET_GOODS
+from ..utils.common import QUALITY_DICT, LEMON_MARKET_GOODS, FIRM_PERSONAS
 
 
 from ..agents.planner import TaxPlanner, FixedTaxPlanner
@@ -70,6 +70,11 @@ class BazaarWorld:
         for i in range(args.num_firms):
             name = f"firm_{i}"
             is_sybil = is_lemon and sybil_cluster_size > 0 and i >= args.num_firms - sybil_cluster_size
+            # Assign distinct personas round-robin; disabled by --disable-firm-personas
+            if getattr(args, "disable_firm_personas", False):
+                firm_persona = None
+            else:
+                firm_persona = FIRM_PERSONAS[i % len(FIRM_PERSONAS)]
             if args.firm_type == "LLM":
                 firm_kw = {
                     "llm": args.llm,
@@ -85,6 +90,7 @@ class BazaarWorld:
                     "args": args,
                     "llm_instance": llm_model,
                     "sybil": is_sybil,
+                    "persona": firm_persona,
                 }
                 firm_kw["supply_unit_costs"] = self.supply_unit_costs_by_firm[i]
                 firm = FirmAgent(**firm_kw)
@@ -243,6 +249,7 @@ class BazaarWorld:
                 "name": f.name,
                 "goods": getattr(f, "goods", None),
                 "supply_unit_costs": _to_serializable(getattr(f, "supply_unit_costs", None)),
+                "persona": getattr(f, "persona", None),
             }
             out.append(entry)
 
@@ -260,6 +267,7 @@ class BazaarWorld:
         STORE_TRUE_FLAGS = {
             "info_asymmetry", "use_gen_ces", "use_cost_pref_gen", "wandb",
             "log_firm_prompts", "use_parsing_agent", "no_diaries", "use_env",
+            "disable_firm_personas",
         }
         parts = []
         for key, val in sorted(d.items()):
@@ -954,6 +962,7 @@ class BazaarWorld:
             by_name[f.name] = {
                 "name": f.name,
                 "in_business": getattr(f, "in_business", True),
+                "persona": getattr(f, "persona", None),
                 "cash": money.get(f.name, 0.0),
                 "profit": getattr(f, "profit", 0.0),
                 "reputation": getattr(f, "reputation", 1.0),

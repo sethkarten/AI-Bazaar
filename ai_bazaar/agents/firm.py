@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from .llm_agent import LLMAgent
 import logging
 import numpy as np
-from ai_bazaar.utils.common import Message, advertised_quality_for_sybil
+from ai_bazaar.utils.common import Message, advertised_quality_for_sybil, FIRM_PERSONA_DESCRIPTIONS
 from collections import defaultdict
 
 DEFAULT_SUPPLY_UNIT_COSTS = {
@@ -227,6 +227,7 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         llm_instance=None,
         supply_unit_costs: Dict[str, float] = None,
         sybil: bool = False,
+        persona: str = None,
     ) -> None:
         BaseFirmAgent.__init__(self)
         super().__init__(
@@ -272,6 +273,9 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         # LEMON MARKET
         self.sybil = sybil
         self.listings = []
+
+        # Firm persona (behavioral archetype for differentiation)
+        self.persona = persona
 
         # Set system prompt for the firm
         self.system_prompt = self._create_system_prompt()
@@ -322,6 +326,9 @@ Key metrics to consider:
 - Profit: Revenue from sales minus costs of supplies
 
 CRITICAL: Always respond with a single, valid JSON object. Do not use markdown code blocks or include explanatory text. Output only the JSON object that can be parsed directly."""
+        persona = getattr(self, "persona", None)
+        if persona and persona in FIRM_PERSONA_DESCRIPTIONS:
+            base += f"\n\n## Your Business Strategy\n{FIRM_PERSONA_DESCRIPTIONS[persona]}"
         if getattr(self, "stabilizing_firm", False):
             base += """
 

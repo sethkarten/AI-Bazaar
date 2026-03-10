@@ -294,6 +294,11 @@ def create_argument_parser():
         help="Disable strategic diary entries for agents",
     )
     parser.add_argument(
+        "--disable-firm-personas",
+        action="store_true",
+        help="Disable heterogeneous firm personas; all LLM firms get no behavioral archetype in their prompt.",
+    )
+    parser.add_argument(
         "--use-eWTP",
         action="store_true",
         help="Use expected WTP (eWTP) instead of WTP when clearing the market (order max_price).",
