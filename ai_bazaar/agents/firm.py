@@ -327,13 +327,20 @@ Key metrics to consider:
 - Profit: Revenue from sales minus costs of supplies
 
 CRITICAL: Always respond with a single, valid JSON object. Do not use markdown code blocks or include explanatory text. Output only the JSON object that can be parsed directly."""
-        persona = getattr(self, "persona", None)
-        if persona and persona in FIRM_PERSONA_DESCRIPTIONS:
-            base += f"\n\n## Your Business Strategy\n{FIRM_PERSONA_DESCRIPTIONS[persona]}"
+        # Stabilizing firms get only the stabilizing prompt; others get endowed persona if any
         if getattr(self, "stabilizing_firm", False):
             base += """
+STABILIZING FIRM: You are a price anchor in this market. Your strategy is to hold a stable price at a target markup above your unit cost, regardless of what competitors do.
 
-STABILIZING FIRM: Never set price below your unit cost (cost to produce one unit). Pricing below cost leads to losses and bankruptcy. Consider market stability: aggressive undercutting can push the whole market below cost and cause all firms to fail. Your goal is sustainable profit; maintain a price floor at or above unit cost and avoid a race to the bottom."""
+Rules:
+1. Your minimum price is always your unit cost factoring in overhead costs. Never go below it — you will go bankrupt.
+2. When competitors drop prices below your target: DO NOT FOLLOW THEM DOWN. Hold your price.
+3. Stable prices are your brand."""
+
+        else:
+            persona = getattr(self, "persona", None)
+            if persona and persona in FIRM_PERSONA_DESCRIPTIONS:
+                base += f"\n\n## Your Business Strategy\n{FIRM_PERSONA_DESCRIPTIONS[persona]}"
         return base
 
     def set_price(
@@ -362,13 +369,6 @@ STABILIZING FIRM: Never set price below your unit cost (cost to produce one unit
 
         # Convert to dictionary
         price_dict = {good: price for good, price in zip(self.goods, prices)}
-
-        # Stabilizing Firm: enforce price floor >= unit cost
-        if getattr(self, "stabilizing_firm", False) and self.supply_unit_costs:
-            for good in self.goods:
-                c = self.supply_unit_costs.get(good, 0.0)
-                if price_dict.get(good, 0) < c:
-                    price_dict[good] = c
 
         self._timestep_stats[timestep]["prices"] = price_dict.copy()
 
@@ -622,12 +622,7 @@ STABILIZING FIRM: Never set price below your unit cost (cost to produce one unit
         # --- Record prices ---
         prices_dict = {}
         for good, price in zip(self.goods, prices_tuple):
-            p = float(price)
-            # Apply stabilizing firm floor if applicable (attribute is "stabilizing_firm")
-            if getattr(self, "stabilizing_firm", False) and self.supply_unit_costs:
-                floor = self.supply_unit_costs.get(good, 0.0)
-                p = max(p, floor)
-            prices_dict[good] = p
+            prices_dict[good] = float(price)
 
         self._timestep_stats[timestep]["prices"] = prices_dict
 

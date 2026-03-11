@@ -55,13 +55,25 @@ class LLMAgent:
         self.diary = []  # List of (timestep, entry) tuples
 
     def _create_llm_model(self, llm_type: str, port: int, args):
-        """Create the appropriate LLM model based on the type."""
+        """Create the appropriate LLM model based on the type.
+
+        OpenRouter-style IDs (provider/model, e.g. "meta-llama/llama-3.1-70b-instruct",
+        "google/gemini-2.0-flash-001", "openai/gpt-4o") are checked first so they route to
+        OpenRouter rather than being caught by keyword matches for local models.
+        Direct model names (no slash prefix, e.g. "gemini-2.5-flash", "llama3:8b") use the
+        provider-specific clients.
+        """
         if llm_type == "None":
             return None
-        elif "gpt" in llm_type.lower():
-            return OpenAIModel(model_name=llm_type, max_tokens=args.max_tokens)
-        elif "claude" in llm_type.lower() or "anthropic" in llm_type.lower():
+
+        # OpenRouter: any "provider/model" slug routes here, regardless of provider keyword.
+        # This must come before keyword checks so meta-llama/*, google/*, openai/* all work.
+        if "/" in llm_type and not llm_type.startswith("/") and not llm_type.startswith("."):
             return OpenRouterModel(model_name=llm_type, max_tokens=args.max_tokens)
+
+        # Direct provider clients (no slash in name)
+        if "gpt" in llm_type.lower():
+            return OpenAIModel(model_name=llm_type, max_tokens=args.max_tokens)
         elif "gemini" in llm_type.lower():
             return GeminiModel(model_name=llm_type, max_tokens=args.max_tokens)
         elif (
@@ -87,8 +99,6 @@ class LLMAgent:
                     base_url=f"http://localhost:{port}",
                     max_tokens=args.max_tokens,
                 )
-        elif "/" in llm_type:  # Assume it's a model path for OpenRouter
-            return OpenRouterModel(model_name=llm_type, max_tokens=args.max_tokens)
         else:
             raise ValueError(f"Invalid LLM type: {llm_type}")
 

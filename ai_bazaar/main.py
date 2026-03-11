@@ -31,6 +31,9 @@ def setup_logging(args):
     log_filename = (
         f"{args.log_dir}/marketplace_{args.name if args.name else 'simulation'}.log"
     )
+    if os.path.exists(log_filename):
+        open(log_filename, "w").close()
+
     logging.basicConfig(
         filename=log_filename,
         level=logging.INFO,
@@ -151,6 +154,11 @@ def create_argument_parser():
         type=int,
         default=0,
         help="Number of firms that use the Stabilizing Firm prompt and enforce price floor >= unit cost (B2C Crash). First N LLM firms are stabilizing.",
+    )
+    parser.add_argument(
+        "--crash-rep-scoring",
+        action="store_true",
+        help="In THE_CRASH, score quotes by reputation/price (instead of 1/price) when choosing which firm to order from among the dlc visible quotes.",
     )
     parser.add_argument(
         "--log-alignment-traces",
@@ -306,9 +314,17 @@ def create_argument_parser():
         help="Disable heterogeneous firm personas; all LLM firms get no behavioral archetype in their prompt.",
     )
     parser.add_argument(
-        "--use-eWTP",
-        action="store_true",
-        help="Use expected WTP (eWTP) instead of WTP when clearing the market (order max_price).",
+        "--firm-personas",
+        type=str,
+        default=None,
+        help="Comma-separated persona:count pairs for non-stabilizing firms (e.g. competitive:3,volume_seeker:2). If omitted, all non-stabilizing firms use competitive. Names get a numeric suffix when count>1 (e.g. competitive_1, competitive_2). Valid personas: competitive, volume_seeker, reactive, cautious.",
+    )
+    parser.add_argument(
+        "--wtp-algo",
+        type=str,
+        default="none",
+        choices=["none", "wtp", "ewtp"],
+        help="WTP algorithm when making orders: 'none' = ignore WTP (always order if a quote is chosen); 'wtp' = use CES willingness-to-pay; 'ewtp' = use expected WTP (eWTP).",
     )
     parser.add_argument(
         "--dynamic-labor",

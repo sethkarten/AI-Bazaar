@@ -237,4 +237,138 @@ One-step ``re-entry'': \texttt{firm\_0} (FIXED firm) was out at end of step 5 an
 
 With these in place, defunct firms should no longer receive money from the market or appear to ``re-enter.''
 
+% ============================================================
+\section{Design Note: Random vs.\ Reputation-Weighted Discovery in THE\_CRASH}
+% ============================================================
+
+\subsection{Question}
+
+The outer discovery filter in \texttt{consumer.py} can surface firms to consumers either (A)~\textbf{randomly} (uniform sample of \texttt{discovery\_limit} firms) or (B)~\textbf{reputation-weighted} (rank by $\text{score} = \text{rep}/\text{price}$, take top-$k$). Which is appropriate for the THE\_CRASH benchmark?
+
+\subsection{Recommendation: Random Discovery (Option A)}
+
+\textbf{Use random discovery for THE\_CRASH.} The code currently gates Option~B behind \texttt{if False and \ldots}, which is the correct choice. Below is the theoretical and empirical justification.
+
+\subsubsection{Theoretical grounding}
+
+The canonical model of consumer search with a discovery limit is Stigler's (1961) non-sequential random-sample framework, formalized as an equilibrium by Burdett \& Judd (1983). In these models consumers draw $k$ sellers uniformly at random; price dispersion and undercutting pressure are direct consequences. Critically, the Diamond (1971) paradox is \emph{resolved} only under random (not directed) search---directed search toward the cheapest or best-reputed firm collapses to a different equilibrium class (directed-search / Burdett--Mortensen models) that is not what THE\_CRASH intends to capture. THE\_CRASH simulates a Bertrand-style undercutting race; the Burdett--Judd random-sample setup is the natural micro-foundation.
+
+\subsubsection{Empirical analogy}
+
+Algorithmic price wars on real platforms (Amazon repricers: Chen et al.\ 2016; Musolff 2022; FTC v.\ Amazon 2023) arise primarily under price-competitive, not reputation-ranked, exposure. The Amazon Buy Box---which drives $\sim$80\% of purchases---is allocated mainly by price, not seller reputation. Calvano et al.\ (2020) model the same price-war dynamics under symmetric consumer access (no reputation weighting). All of these real and simulated price wars arise under access structures closer to random than to directed discovery.
+
+\subsubsection{Confound risk from reputation-weighted discovery}
+
+Reputation-weighted discovery creates a rich-get-richer feedback loop:
+\begin{enumerate}
+  \item High-reputation firms are seen more often $\to$ higher sales $\to$ reputation stays high.
+  \item Low-price firms are also ranked higher (score $\propto 1/\text{price}$), so undercutting is \emph{rewarded} with more visibility.
+\end{enumerate}
+This means the crash dynamics would be partly driven by the discovery mechanism itself, not purely by the LLM agents' pricing behavior. For a clean benchmark, we want the discovery friction to be a \emph{neutral} market imperfection---not an additional force that accelerates or dampens the crash in a way that is specific to reputation. Random sampling achieves this: every firm has equal ex-ante probability of being seen, so the crash is attributable to price competition alone.
+
+\subsubsection{Impact on interpretability}
+
+Using reputation-weighted discovery would add a second confounding dimension: the paper would need to argue that the crash is not simply an artifact of the ranking algorithm surfacing low-price firms preferentially. Random discovery eliminates that alternative explanation. The cleaner the mechanism, the crisper the contribution.
+
+\subsection{Current Code Status}
+
+Option~B is already disabled (\texttt{if False and firm\_reputations \ldots}) in \texttt{consumer.py} line~478. \textbf{Leave it disabled for THE\_CRASH.} Reputation-weighted discovery may be appropriate for the LEMON\_MARKET scenario (where reputation is the signal of interest), but not for THE\_CRASH.
+
+\subsection{Key References}
+
+\begin{itemize}
+  \item Stigler (1961). ``The Economics of Information.'' \textit{JPE} 69(3).
+  \item Burdett \& Judd (1983). ``Equilibrium Price Dispersion.'' \textit{Econometrica} 51(4).
+  \item Diamond (1971). ``A Model of Price Adjustment.'' \textit{JET} 3(2).
+  \item Chen, Mislove \& Wilson (2016). ``Algorithmic Pricing on Amazon.'' \textit{WWW}.
+  \item Calvano et al.\ (2020). ``AI, Algorithmic Pricing, and Collusion.'' \textit{AER} 110(10).
+  \item Musolff (2022). ``Algorithmic Pricing Facilitates Tacit Collusion.'' \textit{EC}.
+\end{itemize}
+
+% ============================================================
+\section{Design Note: Is eWTP a Confound in THE\_CRASH?}
+% ============================================================
+
+\subsection{Question}
+
+eWTP (expected willingness to pay) is an exponential moving-average reference-price that anchors consumers' bid ceilings. In THE\_CRASH it is forced on: \texttt{max\_wtp = eWTP} and orders are suppressed entirely when the cheapest visible price exceeds eWTP. Does this detract from the focus of THE\_CRASH the same way reputation-weighted discovery did?
+
+\subsection{Verdict: eWTP is Qualitatively Different from Discovery Ranking — Keep, but Ablate}
+
+eWTP is \emph{not} the same kind of confound as reputation-ranked discovery, but it does introduce a secondary mechanism worth acknowledging. The distinction matters for the paper's causal story.
+
+\subsection{How eWTP Works}
+
+\begin{itemize}
+  \item \textbf{Reference price} $r_{g,t}$: EMA of past transaction prices. Update rule:
+    \[
+      r_{g,t+1} = (1-B)\,r_{g,t} + B\,p_{g,t}, \quad
+      B = \begin{cases} 0.3 & \text{if } p < r \text{ (downward)} \\ 0.1 & \text{if } p \geq r \text{ (upward)} \end{cases}
+    \]
+  \item \textbf{eWTP}: $\text{eWTP}_g = \min(\text{WTP}_{g,t=0},\; r_{g,t})$ — never exceeds the initial CES-derived WTP.
+  \item \textbf{Gating}: if the cheapest visible price $> \text{eWTP}$, no order is submitted. Order max price is capped at eWTP.
+  \item When a consumer does not buy, $r_g$ drifts back toward $\text{WTP}_{t=0}$ (mean-reversion at $B=0.3$).
+\end{itemize}
+
+The asymmetric $B$ values (downward sticky: 0.3; upward resistant: 0.1) create a ratchet: consumers adapt quickly to lower prices but are slow to accept rising prices.
+
+\subsection{Why eWTP Is NOT the Same as Discovery Ranking}
+
+Reputation-ranked discovery was a confound because it \emph{directly rewarded} low prices with more exposure — the discovery mechanism itself accelerated undercutting, independent of firm strategy. Removing it gave a cleaner, neutral friction.
+
+eWTP is different in two key ways:
+
+\begin{enumerate}
+  \item \textbf{It is a consequence, not a cause.} eWTP falls \emph{because} firms have already undercut. The causal chain is: LLM undercutting $\to$ prices fall $\to$ eWTP anchors down $\to$ demand shrinks further. eWTP amplifies the crash but does not initiate it; the initiating force is still the firms' pricing strategy.
+
+  \item \textbf{It models a real demand-side phenomenon.} Reference-price anchoring is well-documented (Thaler 1985 on mental accounting; Kahneman, Knetsch \& Thaler 1986 on fairness and reference prices; Winer 1986 on reference price effects in scanner data). Consumers in real markets do adapt their willingness to pay downward when they observe sustained low prices, and they balk at prices above their historical anchor. Omitting eWTP would make consumers bid their ``true'' CES-computed WTP regardless of market history — arguably less realistic.
+\end{enumerate}
+
+\subsection{Where eWTP Does Introduce Risk}
+
+Despite the above, eWTP adds three complications that matter for the paper:
+
+\begin{enumerate}
+  \item \textbf{Free parameters.} $B_{\text{down}} = 0.3$ and $B_{\text{up}} = 0.1$ are hand-chosen. These values directly control crash speed: a higher $B_{\text{down}}$ means eWTP collapses faster, making the crash more severe regardless of how aggressively LLMs undercut. The paper's crash outcome is partially a function of these constants, not solely of LLM behavior.
+
+  \item \textbf{Dual mechanism.} THE\_CRASH now has two independent drivers: (a) supply-side — firms undercut until revenue $<$ overhead; (b) demand-side — eWTP falls until consumers stop buying even if firms would accept the price. Either driver alone can kill a firm. This muddies attribution: was the crash caused by LLM pricing strategy or by demand evaporating?
+
+  \item \textbf{Demand suppression can dominate.} If eWTP falls fast enough, even a firm that holds its price gets zero sales (consumer bids are capped below the firm's price). The crash then looks like a demand collapse, not a price war. The LLM strategy becomes irrelevant — any price schedule collapses the market once eWTP spirals down.
+\end{enumerate}
+
+\subsection{Comparison Table}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Mechanism & Role in crash & Verdict \\
+\midrule
+Reputation-ranked discovery & \emph{Cause}: directly rewards undercutting with visibility & Remove (confound) \\
+eWTP & \emph{Amplifier}: follows falling prices, suppresses demand & Keep, ablate \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Recommendation}
+
+\textbf{Keep eWTP enabled for THE\_CRASH}, but add an ablation condition (\texttt{--use-eWTP=False}) where consumers use their static CES-derived WTP. The ablation serves two purposes:
+
+\begin{enumerate}
+  \item \textbf{Identifies the supply-side floor.} Without eWTP, a crash (if it still occurs) is attributable purely to firm overhead outstripping revenue from a price war. This is the cleanest test of LLM pricing behavior.
+  \item \textbf{Quantifies the eWTP amplification.} Comparing crash speed and severity with vs.\ without eWTP shows how much the demand ratchet contributes beyond the supply-side mechanism.
+\end{enumerate}
+
+If the crash occurs even without eWTP, the paper can claim the LLM undercutting behavior alone is sufficient — a stronger result. If eWTP is necessary for the crash, the paper should be explicit that the finding is ``LLM undercutting under reference-price-sensitive demand leads to market collapse,'' and justify the $B$ parameters.
+
+\textbf{Regarding the $B$ parameters:} run a brief sensitivity check (e.g.\ $B_{\text{down}} \in \{0.1, 0.3, 0.5\}$) and report whether crash timing is robust. If crash timing is highly sensitive to $B$, the mechanism is fragile and the paper should foreground the supply-side (no-eWTP) result instead.
+
+\subsection{Key References}
+
+\begin{itemize}
+  \item Thaler (1985). ``Mental Accounting and Consumer Choice.'' \textit{Marketing Science} 4(3).
+  \item Kahneman, Knetsch \& Thaler (1986). ``Fairness as a Constraint on Profit Seeking.'' \textit{AER} 76(4).
+  \item Winer (1986). ``A Reference Price Model of Brand Choice.'' \textit{JMR} 23(3).
+  \item Kalyanaram \& Winer (1995). ``Empirical Generalizations from Reference Price Research.'' \textit{Marketing Science} 14(3).
+\end{itemize}
+
 \end{document}

@@ -148,25 +148,10 @@ class CESConsumerAgent(LLMAgent):
             return self.beta * math.log(self.epsilon + self.cash)
 
     def choose_labor(self, timestep: int, wage: float) -> float:
-        """LLM decides labor supply for the current timestep"""
+        """Set labor supply to default 40 hours (no LLM)."""
         self.wage = wage
-        # Add labor info to historical message
-        labor_info = (
-            f"Current wage: {self.wage}, Your skill: {self.v}, Last labor: {self.l}\n"
-        )
-        self.message_history[timestep]["historical"] += labor_info
-
-        user_prompt = f"Decide how many hours of LABOR to work this week. Your skill level is {self.v}, and the market wage is {self.wage}. "
-        user_prompt += "Working more increases your income but decreases your overall satisfaction. "
-        user_prompt += 'Use the JSON format: {"LABOR": "X"} and replace "X" with a value between 0 and 100.'
-
-        self.message_history[timestep]["user_prompt"] = user_prompt
-
-        # We need a parse function for labor
-        result = self.act_llm(timestep, ["LABOR"], self._parse_labor)
-        self.l = result[0]
+        self.l = 40.0
         self.z = self.l * self.v * self.wage / 10.0  # Scaling income by wage
-
         return self.l
 
     def _parse_labor(self, items: list[str]) -> list[float]:
@@ -442,7 +427,8 @@ class CESConsumerAgent(LLMAgent):
         scenario: str,
         discovery_limit: int = 5,
         firm_reputations: Dict[str, float] = None,
-        use_eWTP: bool = False,
+        wtp_algo: str = "wtp",
+        crash_rep_scoring: bool = False,
     ) -> List[Order]:
         "Make fixed list of orders (returns orders without submitting)"
 
@@ -453,6 +439,16 @@ class CESConsumerAgent(LLMAgent):
                 discovery_limit=discovery_limit,
                 firm_reputations=firm_reputations or {},
             )
+
+        def _max_wtp(good):
+            if wtp_algo == "none":
+                return float("inf")
+            if wtp_algo == "ewtp":
+                return self.eWTP.get(good, float("inf"))
+            return self.compute_willingness_to_pay(timestep).get(good, float("inf"))
+
+        # Reset per-step discovery tracking
+        self._discovery_this_step = {}
 
         demand = self.compute_demand(timestep)
         all_quotes = self.market.quotes
@@ -468,27 +464,11 @@ class CESConsumerAgent(LLMAgent):
                 continue
             visible_good_quotes = []
 
-            # If discovery_limit is set, apply search friction/recommendation
+            # Discovery: purely random sample of dlc quotes (scoring only used when choosing which to order from)
             if discovery_limit > 0 and len(all_good_quotes) > discovery_limit:
-                # Use recommendation algorithm if heterogeneity in firm reputations
-                # Simple recommendation algorithm: rank by score = (1/price) * reputation
-                if firm_reputations and len(set(firm_reputations.values())) != 1:
-                    # Normalize price for score (higher is better)
-                    scored_quotes = []
-                    for q in all_good_quotes:
-                        rep = firm_reputations.get(q.firm_id, 1.0)
-                        score = (1.0 / max(0.01, q.price)) * rep
-                        scored_quotes.append((q, score))
-
-                    # Sort by score and pick top N
-                    scored_quotes.sort(key=lambda x: x[1], reverse=True)
-                    visible_good_quotes = [x[0] for x in scored_quotes[:discovery_limit]]
-                else:
-                    # Random discovery if no useful reputation data
-                    visible_good_quotes = random.sample(all_good_quotes, discovery_limit)
-            # Else, all quotes are visible
-            else: 
-                visible_quotes = all_good_quotes
+                visible_good_quotes = random.sample(all_good_quotes, discovery_limit)
+            else:
+                visible_good_quotes = all_good_quotes
 
             visible_quotes.extend(visible_good_quotes)
 
@@ -501,11 +481,7 @@ class CESConsumerAgent(LLMAgent):
                 ]
                 if good_quotes:
                     lowest_quote = min(good_quotes, key=lambda q: q.price)
-                    if use_eWTP:
-                        max_wtp = self.eWTP.get(good, float('inf'))
-                    else:
-                        max_wtp = self.compute_willingness_to_pay(timestep).get(good, float('inf'))
-                    # do not submit order if the lowest quote is higher than the max WTP
+                    max_wtp = _max_wtp(good)
                     if lowest_quote.price > max_wtp:
                         continue
                     orders.append(
@@ -523,10 +499,7 @@ class CESConsumerAgent(LLMAgent):
                 ]
                 if good_quotes:
                     chosen_quote = good_quotes[0]
-                    if use_eWTP:
-                        max_wtp = self.eWTP.get(good, float('inf'))
-                    else:
-                        max_wtp = self.compute_willingness_to_pay(timestep).get(good, float('inf'))
+                    max_wtp = _max_wtp(good)
                     if chosen_quote.price > max_wtp:
                         continue
                     orders.append(
@@ -539,35 +512,27 @@ class CESConsumerAgent(LLMAgent):
                     )
         elif scenario == "PRICE_DISCRIMINATION":
             # compute willingness to pay for each good and submit an order without firm discrimination
-            wtp = self.compute_willingness_to_pay(timestep)
-            # When use_eWTP, use expected WTP (eWTP) in place of WTP for clearing (order max_price)
-            if use_eWTP:
-                effective_wtp = {
-                    g: self.eWTP.get(g, wtp[g]) for g in self.goods
-                }
+            if wtp_algo == "ewtp":
+                effective_wtp = {g: self.eWTP.get(g, float("inf")) for g in self.goods}
             else:
-                effective_wtp = wtp
+                effective_wtp = self.compute_willingness_to_pay(timestep)
             for good in self.goods:
                 good_str = str(good).strip()
                 good_quotes = [
                     q for q in visible_quotes if str(q.good).strip() == good_str
                 ]
                 if good_quotes:
-                    if use_eWTP:
-                        max_wtp = self.eWTP.get(good, float('inf'))
-                    else:
-                        max_wtp = self.compute_willingness_to_pay(timestep).get(good, float('inf'))
+                    max_wtp = _max_wtp(good)
                     lowest_quote = min(good_quotes, key=lambda q: q.price)
                     if lowest_quote.price > max_wtp:
                         continue
-                    # Willingness to pay varies by consumer (CES-based)
                     affordable_quotes = [q for q in good_quotes if q.price <= effective_wtp[good]]
                     if affordable_quotes:
-                        # Choose the quote with price closest to effective_wtp[good] but not exceeding it
                         chosen_quote = max(affordable_quotes, key=lambda q: q.price)
+                        order_price = chosen_quote.price if wtp_algo == "none" else effective_wtp[good]
                         orders.append(
                             self.create_order(
-                                chosen_quote.firm_id, good, demand[good], effective_wtp[good]
+                                chosen_quote.firm_id, good, demand[good], order_price
                             )
                         )
         elif scenario == "RATIONAL_BAZAAR":
@@ -578,18 +543,15 @@ class CESConsumerAgent(LLMAgent):
                     q for q in visible_quotes if str(q.good).strip() == good_str
                 ]
                 if good_quotes:
-                    if use_eWTP:
-                        max_wtp = self.eWTP.get(good, float('inf'))
-                    else:
-                        max_wtp = self.compute_willingness_to_pay(timestep).get(good, float('inf'))
+                    max_wtp = _max_wtp(good)
                     lowest_quote = min(good_quotes, key=lambda q: q.price)
                     if lowest_quote.price > max_wtp:
                         continue
                     avg_price = sum(q.price for q in good_quotes) / len(good_quotes)
-                    # Pick the cheapest firm but willing to pay up to average
+                    order_price = lowest_quote.price if wtp_algo == "none" else avg_price
                     orders.append(
                         self.create_order(
-                            lowest_quote.firm_id, good, demand[good], avg_price
+                            lowest_quote.firm_id, good, demand[good], order_price
                         )
                     )
         elif scenario == "BOUNDED_BAZAAR":
@@ -600,48 +562,50 @@ class CESConsumerAgent(LLMAgent):
                     q for q in visible_quotes if str(q.good).strip() == good_str
                 ]
                 if good_quotes:
-                    if use_eWTP:
-                        max_wtp = self.eWTP.get(good, float('inf'))
-                    else:
-                        max_wtp = self.compute_willingness_to_pay(timestep).get(good, float('inf'))
+                    max_wtp = _max_wtp(good)
                     subset_size = max(1, len(good_quotes) // 2)
                     subset = random.sample(good_quotes, subset_size)
                     avg_price = sum(q.price for q in subset) / len(subset)
-                    wtp = min(max_wtp, avg_price)
+                    wtp_val = min(max_wtp, avg_price)
                     lowest_in_subset = min(subset, key=lambda q: q.price)
                     if lowest_in_subset.price > max_wtp:
                         continue
-                    # use wtp if we are using eWTP, otherwise use avg_price
+                    order_price = lowest_in_subset.price if wtp_algo == "none" else (wtp_val if wtp_algo == "ewtp" else avg_price)
                     orders.append(
                         self.create_order(
-                            lowest_in_subset.firm_id, good, demand[good], wtp if use_eWTP else avg_price
+                            lowest_in_subset.firm_id, good, demand[good], order_price
                         )
                     )
                     
         elif scenario == "THE_CRASH":
-            # willingness to pay is eWTP
+            # Of the dlc randomly visible quotes, choose by score: 1/price or rep/price (if crash_rep_scoring)
+            reps = firm_reputations or {}
             for good in self.goods:
                 good_str = str(good).strip()
                 good_quotes = [
                     q for q in visible_quotes if str(q.good).strip() == good_str
                 ]
                 if good_quotes:
-                    if use_eWTP:
-                        max_wtp = self.eWTP.get(good, float('inf'))
-                    else: # use_eWTP should always be true in this scenario
-                        max_wtp = self.compute_willingness_to_pay(timestep).get(good, float('inf'))
-                    subset_size = max(1, len(good_quotes) // 2)
-                    subset = random.sample(good_quotes, subset_size)
-                    wtp = max_wtp
-                    lowest_in_subset = min(subset, key=lambda q: q.price)
-                    if lowest_in_subset.price > max_wtp:
+                    max_wtp = _max_wtp(good)
+                    def _crash_score(q):
+                        p = max(0.01, q.price)
+                        if crash_rep_scoring:
+                            return reps.get(q.firm_id, 1.0) / p
+                        return 1.0 / p
+                    best_quote = max(good_quotes, key=_crash_score)
+                    self._discovery_this_step[good] = {
+                        "seen": [q.firm_id for q in good_quotes],
+                        "ordered": best_quote.firm_id if best_quote.price <= max_wtp else None,
+                        "prices_seen": {q.firm_id: q.price for q in good_quotes},
+                    }
+                    if best_quote.price > max_wtp:
                         continue
-                    # use wtp if we are using eWTP, otherwise use avg_price
+                    order_price = best_quote.price if wtp_algo == "none" else max_wtp
                     orders.append(
                         self.create_order(
-                            lowest_in_subset.firm_id, good, demand[good], wtp
+                            best_quote.firm_id, good, demand[good], order_price
                         )
-                    )           
+                    )
         
         elif scenario == "LEMON_MARKET":
             for good in self.goods:
@@ -650,20 +614,16 @@ class CESConsumerAgent(LLMAgent):
                     q for q in visible_quotes if str(q.good).strip() == good_str
                 ]
                 if good_quotes:
-                    if use_eWTP:
-                        max_wtp = self.eWTP.get(good, float('inf'))
-                    else: # use_eWTP should always be true in this scenario
-                        max_wtp = self.compute_willingness_to_pay(timestep).get(good, float('inf'))
+                    max_wtp = _max_wtp(good)
                     subset_size = max(1, len(good_quotes) // 2)
                     subset = random.sample(good_quotes, subset_size)
-                    wtp = max_wtp
                     lowest_in_subset = min(subset, key=lambda q: q.price)
                     if lowest_in_subset.price > max_wtp:
                         continue
-                    # use wtp if we are using eWTP, otherwise use avg_price
+                    order_price = lowest_in_subset.price if wtp_algo == "none" else max_wtp
                     orders.append(
                         self.create_order(
-                            lowest_in_subset.firm_id, good, demand[good], wtp
+                            lowest_in_subset.firm_id, good, demand[good], order_price
                         )
                     ) 
         

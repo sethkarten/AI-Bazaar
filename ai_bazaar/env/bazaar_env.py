@@ -9,7 +9,15 @@ from collections import defaultdict
 from ..market_core.market_core import Ledger, Market
 from ..agents.firm import FirmAgent, FixedFirmAgent
 from ..agents.consumer import CESConsumerAgent, FixedConsumerAgent
-from ..utils.common import QUALITY_DICT, LEMON_MARKET_GOODS, FIRM_PERSONAS, firm_name_from_persona
+from ..utils.common import (
+    QUALITY_DICT,
+    LEMON_MARKET_GOODS,
+    FIRM_PERSONAS,
+    FIRM_PERSONA_DESCRIPTIONS,
+    firm_name_from_persona,
+    firm_name_and_persona_from_list,
+    parse_firm_personas,
+)
 
 
 from ..agents.planner import TaxPlanner, FixedTaxPlanner
@@ -67,13 +75,35 @@ class BazaarWorld:
         self.firms = []
         sybil_cluster_size = getattr(args, "sybil_cluster_size", 0)
         is_lemon = getattr(args, "consumer_scenario", None) == "LEMON_MARKET"
+        num_stabilizing = getattr(args, "num_stabilizing_firms", 0)
+        num_non_stabilizing = args.num_firms - num_stabilizing
+        # Build persona list for non-stabilizing firms: from --firm-personas (persona:count pairs) or default all competitive
+        if getattr(args, "disable_firm_personas", False):
+            persona_list_for_non_stab = []
+        elif getattr(args, "firm_personas", None):
+            persona_list_for_non_stab = parse_firm_personas(
+                args.firm_personas,
+                num_non_stabilizing,
+                list(FIRM_PERSONA_DESCRIPTIONS.keys()),
+            )
+        else:
+            persona_list_for_non_stab = ["competitive"] * num_non_stabilizing
+
         for i in range(args.num_firms):
-            # Assign distinct personas round-robin; disabled by --disable-firm-personas
-            if getattr(args, "disable_firm_personas", False):
+            is_stabilizing = args.firm_type == "LLM" and num_stabilizing > 0 and i < num_stabilizing
+            if is_stabilizing:
+                # Stabilizing firms: name only (no persona); persona is the stabilizing prompt
+                name = "stabilizing_firm" if num_stabilizing == 1 else f"stabilizing_firm_{i + 1}"
                 firm_persona = None
             else:
-                firm_persona = FIRM_PERSONAS[i % len(FIRM_PERSONAS)]
-            name = firm_name_from_persona(i, firm_persona, FIRM_PERSONAS)
+                if not persona_list_for_non_stab:
+                    firm_persona = None
+                    name = f"firm_{i}"
+                else:
+                    offset = i - num_stabilizing
+                    name, firm_persona = firm_name_and_persona_from_list(
+                        persona_list_for_non_stab, offset
+                    )
             is_sybil = is_lemon and sybil_cluster_size > 0 and i >= args.num_firms - sybil_cluster_size
             if args.firm_type == "LLM":
                 firm_kw = {
@@ -106,8 +136,7 @@ class BazaarWorld:
                 )
             # Scale overhead by timestep length: daily (non-LEMON) = 1/7 of base; LEMON (weekly) = full base
             firm.overhead_scale = 1.0 / 7.0 if getattr(args, "consumer_scenario", None) != "LEMON_MARKET" else 1.0
-            # First num_stabilizing_firms LLM firms are stabilizing firms
-            num_stabilizing = getattr(args, "num_stabilizing_firms", 0)
+            # First num_stabilizing_firms LLM firms are stabilizing firms (already set name/persona above)
             if args.firm_type == "LLM" and num_stabilizing > 0:
                 firm.stabilizing_firm = i < num_stabilizing
             # LEMON_MARKET: initial reputation R_0 (paper uses 0.8)
@@ -251,6 +280,7 @@ class BazaarWorld:
                 "goods": getattr(f, "goods", None),
                 "supply_unit_costs": _to_serializable(getattr(f, "supply_unit_costs", None)),
                 "persona": getattr(f, "persona", None),
+                "system_prompt": getattr(f, "system_prompt", None),
             }
             out.append(entry)
 
@@ -543,14 +573,17 @@ class BazaarWorld:
         discovery_limit_consumers = getattr(
             self.args, "discovery_limit_consumers", 5
         )
-        use_eWTP = getattr(self.args, "use_eWTP", False) or (
-            getattr(self.args, "consumer_scenario", None) == "THE_CRASH"
-        )
+        wtp_algo = getattr(self.args, "wtp_algo", "wtp")
         if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
             self.lemon_market_bids_count = 0
             self.lemon_market_passes_count = 0
 
+        views_by_firm = {}
         participating = self._consumers_participating_this_step()
+        participating_set = set(id(c) for c in participating)
+        for c in self.consumers:
+            if id(c) not in participating_set:
+                c._discovery_this_step = {}
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=max(1, len(participating))
         ) as executor:
@@ -564,7 +597,8 @@ class BazaarWorld:
                             self.args.consumer_scenario,
                             discovery_limit=discovery_limit_consumers,
                             firm_reputations=reputations,
-                            use_eWTP=use_eWTP,
+                            wtp_algo=wtp_algo,
+                            crash_rep_scoring=getattr(self.args, "crash_rep_scoring", False),
                         )
                     ] = consumer
                 else:
@@ -578,11 +612,18 @@ class BazaarWorld:
                 consumer = future_to_cons[future]
                 orders = future.result()
                 consumer.submit_orders(orders)
+                # Aggregate discovery views
+                disc = getattr(consumer, '_discovery_this_step', {})
+                for good, data in disc.items():
+                    for firm_id in data.get('seen', []):
+                        views_by_firm[firm_id] = views_by_firm.get(firm_id, 0) + 1
                 if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
                     n_seen = getattr(consumer, "_lemon_listings_seen", 0)
                     n_bids = len(orders)
                     self.lemon_market_bids_count += n_bids
                     self.lemon_market_passes_count += max(0, n_seen - n_bids)
+
+        self.views_by_firm = views_by_firm
 
         pre_clearing_ledger = self.ledger.copy()
 
@@ -886,6 +927,7 @@ class BazaarWorld:
             "lemon_market_listings_count": getattr(self, "lemon_market_listings_count", 0),
             "lemon_market_bids_count": getattr(self, "lemon_market_bids_count", 0),
             "lemon_market_passes_count": getattr(self, "lemon_market_passes_count", 0),
+            "views_by_firm": getattr(self, "views_by_firm", {}),
         }
         if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
             # New listings posted this step (with timestep for dashboard "all listings" table)
@@ -942,6 +984,8 @@ class BazaarWorld:
                             "total_cost": supply_cost,
                         })
                 exp_info["supply_by_good"] = supply_by_good
+            views = getattr(self, "views_by_firm", {}).get(f.name, 0)
+            sales_count = len(getattr(f, "sales_info", []))
             by_name[f.name] = {
                 "name": f.name,
                 "in_business": getattr(f, "in_business", True),
@@ -959,6 +1003,8 @@ class BazaarWorld:
                     .get(self.timestep, {})
                 ),
                 "diary": getattr(f, "diary", [])[-1:] if hasattr(f, "diary") else [],
+                "views_this_step": views,
+                "conversion_rate": round(sales_count / views, 3) if views > 0 else None,
             }
         def is_firm_key(key: str) -> bool:
             if key.startswith("firm_"):
@@ -1008,6 +1054,7 @@ class BazaarWorld:
                 "eWTP": ewtp,
                 "consumer_surplus": getattr(self, "consumer_surplus_this_step", {}).get(c.name, 0.0),
                 "diary": getattr(c, "diary", [])[-1:] if hasattr(c, "diary") else [],
+                "discovery_this_step": getattr(c, "_discovery_this_step", {}),
             }
         for key in money:
             if key.startswith("consumer_") and key not in by_name:

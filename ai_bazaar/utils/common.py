@@ -84,13 +84,9 @@ ROLE_MESSAGES = {
 
 FIRM_PERSONAS = [
     'competitive',
-    'margin_conscious',
     'volume_seeker',
     'reactive',
     'cautious',
-    'inventory_optimizer',
-    'momentum_follower',
-    'breakeven_focused',
 ]
 
 
@@ -107,6 +103,51 @@ def firm_name_from_persona(
     if index < n:
         return persona
     return f"{persona}_{index // n}"
+
+
+def firm_name_and_persona_from_list(
+    persona_list: Sequence[str], index: int
+) -> Tuple[str, str]:
+    """Return (name, persona) for the index-th non-stabilizing firm.
+    When multiple firms share a persona, the name gets a numeric suffix
+    (e.g. competitive_1, competitive_2). Single-occurrence personas use
+    the bare name (e.g. volume_seeker)."""
+    if not persona_list or index >= len(persona_list):
+        return f"firm_{index}", "competitive"
+    persona = persona_list[index]
+    count = sum(1 for j in range(index + 1) if persona_list[j] == persona)
+    total_of_this = sum(1 for p in persona_list if p == persona)
+    name = f"{persona}_{count}" if total_of_this > 1 else persona
+    return name, persona
+
+
+def parse_firm_personas(
+    spec: str,
+    target_length: int,
+    valid_personas: Sequence[str],
+) -> List[str]:
+    """Parse --firm-personas string (e.g. 'competitive:3,volume_seeker:2') into a list of persona names.
+    Each pair is persona_name:count. Invalid persona names become 'competitive'.
+    If sum of counts < target_length, pad with 'competitive'; if > target_length, truncate."""
+    valid = set(valid_personas)
+    out: List[str] = []
+    for part in (s.strip() for s in spec.split(",") if s.strip()):
+        if ":" in part:
+            name, _, count_str = part.partition(":")
+            persona = name.strip()
+            if persona not in valid:
+                persona = "competitive"
+            try:
+                n = max(0, int(count_str.strip()))
+            except ValueError:
+                n = 1
+            out.extend([persona] * n)
+        else:
+            persona = part.strip() if part.strip() in valid else "competitive"
+            out.append(persona)
+    if len(out) < target_length:
+        out.extend(["competitive"] * (target_length - len(out)))
+    return out[:target_length]
 
 
 FIRM_PERSONA_DESCRIPTIONS = {

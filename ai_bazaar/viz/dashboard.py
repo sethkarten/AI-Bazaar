@@ -100,8 +100,8 @@ else:
         f"{pd.DataFrame(state['consumers'])['utility'].mean():.2f}",
     )
 
-    # Tab 0: General. Tab 1–3: single-timestep view. Tab 4: Charts. Tab 5: Lemon Market.
-    tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 General", "💰 Wealth Distribution", "🏢 Firms", "👥 Consumers", "📊 Charts", "🍋 Lemon Market"])
+    # Tab 0: General. Tab 1–3: single-timestep view. Tab 4: Charts. Tab 5: Lemon Market. Tab 6: Discovery.
+    tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📋 General", "💰 Wealth Distribution", "🏢 Firms", "👥 Consumers", "📊 Charts", "🍋 Lemon Market", "🔍 Discovery"])
 
     # GENERAL TAB: Experiment arguments.
     with tab0:
@@ -194,13 +194,25 @@ else:
         else:
             st.caption("No firm_attributes.json found in this run. Run a simulation with --use-env to generate it.")
 
-        st.subheader("Supply purchases by good (selected firm)")
         firm_names = [f["name"] for f in state["firms"]]
         selected_firm = st.selectbox(
             "Select firm",
             firm_names,
             key="tab2_firm_select",
         )
+
+        st.subheader("System prompt (selected firm)")
+        if firm_attributes_list is not None:
+            fa_for_firm = next((fa for fa in firm_attributes_list if fa.get("name") == selected_firm), None)
+            prompt_text = fa_for_firm.get("system_prompt") if fa_for_firm else None
+            if prompt_text:
+                st.text_area("", value=prompt_text, height=300, key="tab2_system_prompt", disabled=True)
+            else:
+                st.caption("No system prompt for this firm (e.g. fixed-price firm).")
+        else:
+            st.caption("No firm_attributes.json; system prompts not available.")
+
+        st.subheader("Supply purchases by good (selected firm)")
         df_builder_firm = DataFrameBuilder(state_files=state_files)
         supply_by_good_df = df_builder_firm.supply_purchases_by_good_over_time(selected_firm)
         if not supply_by_good_df.empty:
@@ -986,3 +998,244 @@ else:
                 st.dataframe(df_listings, use_container_width=True)
             else:
                 st.caption("No lemon market listings found in state files.")
+
+    # DISCOVERY TAB: Consumer-firm exposure (THE_CRASH discovery-limit mechanic).
+    with tab6:
+        import altair as alt
+
+        views_by_firm_state = state.get("views_by_firm", {})
+        has_discovery = bool(views_by_firm_state)
+
+        if not has_discovery:
+            st.info("No discovery data at this timestep. Discovery tracking is active for THE_CRASH scenario runs.")
+        else:
+            # --- Section 1: Exposure summary table ---
+            st.subheader("Exposure summary")
+            summary_rows = []
+            for f in state["firms"]:
+                if not f.get("in_business", True):
+                    continue
+                prices = f.get("prices") or {}
+                price_val = list(prices.values())[0] if prices else None
+                views = f.get("views_this_step", 0)
+                sales = len(f.get("sales_info") or [])
+                conv = f.get("conversion_rate")
+                summary_rows.append({
+                    "Firm": f["name"],
+                    "Price": f"${price_val:.2f}" if isinstance(price_val, (int, float)) else "—",
+                    "Views": views,
+                    "Orders": sales,
+                    "Conversion %": f"{conv * 100:.1f}%" if conv is not None else "—",
+                })
+            if summary_rows:
+                st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
+
+            # --- Section 2: Bipartite discovery graph ---
+            st.subheader("Bipartite discovery graph")
+
+            # Determine good to display (support multi-good runs)
+            goods_with_data = set()
+            for c in state["consumers"]:
+                for g in (c.get("discovery_this_step") or {}).keys():
+                    goods_with_data.add(g)
+            goods_list_disc = sorted(goods_with_data)
+
+            if not goods_list_disc:
+                st.caption("No per-consumer discovery data (discovery_this_step not recorded for this run).")
+            else:
+                if len(goods_list_disc) > 1:
+                    selected_good_disc = st.selectbox("Good", options=goods_list_disc, key="disc_good_select")
+                else:
+                    selected_good_disc = goods_list_disc[0]
+
+                active_firms = [f for f in state["firms"] if f.get("in_business", True)]
+                all_consumers_disc = state["consumers"]
+                n_firms = max(1, len(active_firms))
+                n_cons = max(1, len(all_consumers_disc))
+
+                # Stable y positions — compress into [0.2, 0.8] so nodes cluster visually
+                def _spread(i, n, lo=0.2, hi=0.8):
+                    if n <= 1:
+                        return (lo + hi) / 2
+                    return lo + (hi - lo) * i / (n - 1)
+
+                firm_y = {f["name"]: _spread(i, n_firms) for i, f in enumerate(active_firms)}
+                consumer_y = {c["name"]: _spread(i, n_cons) for i, c in enumerate(all_consumers_disc)}
+
+                # Firm nodes
+                firm_node_rows = []
+                for f in active_firms:
+                    prices = f.get("prices") or {}
+                    price_val = list(prices.values())[0] if prices else 0.0
+                    if not isinstance(price_val, (int, float)):
+                        price_val = 0.0
+                    views = f.get("views_this_step", 0) or 0
+                    conv = f.get("conversion_rate") or 0.0
+                    firm_node_rows.append({
+                        "x": 1.0, "y": firm_y[f["name"]], "label": f["name"],
+                        "views": float(views), "conversion": float(conv),
+                        "price": float(price_val), "node_type": "firm",
+                    })
+                firm_nodes = pd.DataFrame(firm_node_rows)
+
+                # Consumer nodes
+                consumer_node_rows = []
+                for c in all_consumers_disc:
+                    disc = (c.get("discovery_this_step") or {}).get(selected_good_disc, {})
+                    ordered_from = disc.get("ordered")
+                    participating = bool(c.get("discovery_this_step"))
+                    consumer_node_rows.append({
+                        "x": 0.0, "y": consumer_y[c["name"]], "label": c["name"],
+                        "ordered_from": str(ordered_from) if ordered_from else "",
+                        "participating": participating,
+                        "node_type": "consumer",
+                    })
+                consumer_nodes = pd.DataFrame(consumer_node_rows)
+
+                # Edges
+                edge_rows = []
+                for c in all_consumers_disc:
+                    disc = (c.get("discovery_this_step") or {}).get(selected_good_disc, {})
+                    c_y = consumer_y.get(c["name"], 0.0)
+                    for firm_id in disc.get("seen", []):
+                        if firm_id not in firm_y:
+                            continue
+                        is_ordered = (firm_id == disc.get("ordered"))
+                        edge_id = f"{c['name']}__{firm_id}"
+                        for xval, yval in [(0.0, c_y), (1.0, firm_y[firm_id])]:
+                            edge_rows.append({
+                                "edge_id": edge_id, "x": xval, "y": yval,
+                                "firm": firm_id, "ordered": is_ordered,
+                            })
+                edges_df = pd.DataFrame(edge_rows) if edge_rows else pd.DataFrame(columns=["edge_id", "x", "y", "firm", "ordered"])
+
+                chart_height = max(300, 40 * max(n_firms, n_cons))
+
+                layers = []
+
+                if not edges_df.empty:
+                    seen_edges_df = edges_df[~edges_df["ordered"]].copy()
+                    ordered_edges_df = edges_df[edges_df["ordered"]].copy()
+
+                    if not seen_edges_df.empty:
+                        seen_layer = alt.Chart(seen_edges_df).mark_line(
+                            strokeDash=[4, 4], opacity=0.25, strokeWidth=1, color="#aaaaaa"
+                        ).encode(
+                            x=alt.X("x:Q", axis=None),
+                            y=alt.Y("y:Q", axis=None),
+                            detail="edge_id:N",
+                        )
+                        layers.append(seen_layer)
+
+                    if not ordered_edges_df.empty:
+                        ordered_layer = alt.Chart(ordered_edges_df).mark_line(
+                            strokeWidth=2.5, opacity=0.85
+                        ).encode(
+                            x=alt.X("x:Q", axis=None),
+                            y=alt.Y("y:Q", axis=None),
+                            detail="edge_id:N",
+                            color=alt.Color("firm:N", title="Firm"),
+                        )
+                        layers.append(ordered_layer)
+
+                if not firm_nodes.empty:
+                    firm_chart = alt.Chart(firm_nodes).mark_circle(stroke="white", strokeWidth=1.5).encode(
+                        x=alt.X("x:Q", axis=None),
+                        y=alt.Y("y:Q", axis=None),
+                        size=alt.Size("views:Q", scale=alt.Scale(range=[200, 1200]), title="Views"),
+                        color=alt.Color("conversion:Q",
+                                        scale=alt.Scale(scheme="redyellowgreen", domain=[0, 1]),
+                                        title="Conversion rate"),
+                        tooltip=["label:N", alt.Tooltip("price:Q", format="$.2f"),
+                                 alt.Tooltip("views:Q"), alt.Tooltip("conversion:Q", format=".1%")],
+                    )
+                    firm_labels = alt.Chart(firm_nodes).mark_text(dx=14, align="left", fontSize=11).encode(
+                        x=alt.X("x:Q", axis=None),
+                        y=alt.Y("y:Q", axis=None),
+                        text="label:N",
+                    )
+                    layers.extend([firm_chart, firm_labels])
+
+                if not consumer_nodes.empty:
+                    consumer_chart = alt.Chart(consumer_nodes).mark_circle(size=80).encode(
+                        x=alt.X("x:Q", axis=None),
+                        y=alt.Y("y:Q", axis=None),
+                        color=alt.condition(
+                            alt.datum.participating,
+                            alt.Color("ordered_from:N", title="Ordered from"),
+                            alt.value("#e0e0e0"),
+                        ),
+                        opacity=alt.condition(
+                            alt.datum.participating,
+                            alt.value(0.9),
+                            alt.value(0.3),
+                        ),
+                        tooltip=["label:N", "ordered_from:N"],
+                    )
+                    participating_nodes = consumer_nodes[consumer_nodes["participating"]].copy()
+                    if not participating_nodes.empty:
+                        consumer_labels = alt.Chart(participating_nodes).mark_text(
+                            dx=-14, align="right", fontSize=10
+                        ).encode(
+                            x=alt.X("x:Q", axis=None),
+                            y=alt.Y("y:Q", axis=None),
+                            text="label:N",
+                        )
+                        layers.extend([consumer_chart, consumer_labels])
+                    else:
+                        layers.append(consumer_chart)
+
+                if layers:
+                    graph = alt.layer(*layers).properties(
+                        width=600,
+                        height=chart_height,
+                        title=f"Consumer Discovery — Timestep {state['timestep']} ({selected_good_disc})",
+                    ).configure_axis(grid=False).configure_view(strokeWidth=0)
+                    st.altair_chart(graph, use_container_width=True)
+
+            # --- Section 3: Consumer-firm interaction matrix ---
+            st.subheader("Consumer-firm interaction matrix")
+            if goods_list_disc:
+                matrix_good = goods_list_disc[0] if len(goods_list_disc) == 1 else st.selectbox(
+                    "Good (matrix)", options=goods_list_disc, key="disc_matrix_good"
+                )
+                firm_names_active = [f["name"] for f in state["firms"] if f.get("in_business", True)]
+                consumer_names_all = [c["name"] for c in state["consumers"]]
+                matrix_rows = []
+                for c in state["consumers"]:
+                    disc = (c.get("discovery_this_step") or {}).get(matrix_good, {})
+                    seen_set = set(disc.get("seen", []))
+                    ordered = disc.get("ordered")
+                    row = {"Consumer": c["name"]}
+                    for fname in firm_names_active:
+                        if fname == ordered:
+                            row[fname] = "ordered"
+                        elif fname in seen_set:
+                            row[fname] = "seen"
+                        else:
+                            row[fname] = ""
+                    matrix_rows.append(row)
+                if matrix_rows:
+                    matrix_df = pd.DataFrame(matrix_rows).set_index("Consumer")
+                    st.dataframe(matrix_df, use_container_width=True)
+                else:
+                    st.caption("No matrix data available.")
+            else:
+                st.caption("No discovery data to build matrix.")
+
+            # --- Section 4: Views over time ---
+            st.subheader("Views per firm over time")
+            df_builder_disc = DataFrameBuilder(state_files=state_files)
+            views_df = df_builder_disc.views_per_firm_over_time()
+            if not views_df.empty:
+                chart_views = (
+                    AltairChartBuilder(views_df)
+                    .x("timestep", title="Timestep")
+                    .y("value", title="Consumer views")
+                    .color("firm", legend_title="Firm")
+                    .mark_line(strokeWidth=2)
+                    .build()
+                )
+                st.altair_chart(chart_views, use_container_width=True)
+            else:
+                st.caption("No views-over-time data (only populated for THE_CRASH scenario).")

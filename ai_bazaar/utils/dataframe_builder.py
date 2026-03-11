@@ -569,6 +569,18 @@ class DataFrameBuilder:
                 rows.append({"timestep": t, "metric": "Total utility", "value": c.get("utility", 0.0)})
         return pd.DataFrame(rows)
 
+    def views_per_firm_over_time(self) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, firm). Value is number of consumer views
+        for that firm that step. Uses state["views_by_firm"]; 0 if missing (e.g. non-THE_CRASH runs).
+        """
+        rows = []
+        for state in self.states:
+            t = state["timestep"]
+            for firm_id, count in state.get("views_by_firm", {}).items():
+                rows.append({"timestep": t, "firm": firm_id, "value": count})
+        return pd.DataFrame(rows, columns=["timestep", "firm", "value"]) if rows else pd.DataFrame(columns=["timestep", "firm", "value"])
+
     @staticmethod
     def value_by_agent(
         state: Dict[str, Any], 
