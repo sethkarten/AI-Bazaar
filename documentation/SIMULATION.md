@@ -43,11 +43,12 @@ After this, the next timestep starts from phase 0 (or 1 in main). The simulation
 
 ### Discovery limit (polling cap)
 
-Consumers do not see every firm’s quotes when forming orders. The **discovery limit** (`--discovery-limit`, default 5) caps how many **firms** (per good) a consumer can “poll” for prices before submitting orders:
+Consumers do not see every firm’s quotes when forming orders. The **consumer discovery limit** (`--discovery-limit-consumers`, default 5) caps how many **firms** (per good) a consumer can “poll” for prices before submitting orders:
 
-- For each good, the consumer only considers up to `discovery_limit` quotes (each quote is one firm). If there are more quotes than the limit, the subset is chosen at random, or by a simple score (e.g. reputation × 1/price) when reputation data is available (CES scenario).
-- Set `--discovery-limit 0` for no cap (consumer sees all firms’ quotes for each good).
+- For each good, the consumer only considers up to `discovery_limit_consumers` quotes (each quote is one firm). If there are more quotes than the limit, the subset is chosen at random, or by a simple score (e.g. reputation × 1/price) when reputation data is available (CES scenario).
+- Set `--discovery-limit-consumers 0` for no cap (consumer sees all firms’ quotes for each good).
 - This creates search friction and can reduce price competition when there are many firms.
+- **Firm discovery limit** (`--discovery-limit-firms`, default 0): caps how many competitor firms' (last-step) prices each firm sees when setting prices; 0 = no limit. Applies with and without `--info-asymmetry`.
 - **Firm reputations:** When choosing which firms to “see” (under the cap), CES consumers rank by score = (1/price) × reputation. Reputation is each firm’s **fulfillment rate** (quantity delivered / quantity requested) over the last 10 transactions. After each market clear, firms are updated via `update_reputation(quantity_sold, requested_quantity)`; then the current `firm.reputation` map is passed into `make_orders` as `firm_reputations`, so the next timestep’s orders use the latest reputations.
 
 ---

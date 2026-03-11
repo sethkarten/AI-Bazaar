@@ -46,7 +46,7 @@ def submit_job(config):
         "--num_episodes", "50",
         "--num_iterations", "50",
         "--reward-type", config["reward"],
-        "--discovery-limit", str(config["discovery"]),
+        "--discovery-limit-consumers", str(config["discovery"]),
         "--run_name", f"v3-ablation-{config['name']}",
         "--log-dir", f"logs/results_{config['name']}",
         "--wandb_mode", "online",

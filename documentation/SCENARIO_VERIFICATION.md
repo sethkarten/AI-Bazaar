@@ -47,7 +47,7 @@
 
 ---
 
-## Price Discrimination (w/ Discovery Limit = 3)
+## Price Discrimination (w/ Discovery Limit (consumers) = 3)
 
 **Settings:**
 - 40 timesteps
@@ -55,7 +55,7 @@
 - 5 Gemini 2.5 Flash Firms
 - 10 CES Consumers
 - PRICE DISCRIMINATION Scenario
-- Discovery Limit = 3
+- Discovery Limit (consumers) = 3
 - No diaries
 - Max 2000 tokens
 - Consumption Interval = 1 day
@@ -69,7 +69,7 @@
 - Had the highest reputation throughout entire run. Started very high. Likely led to it winning sales over other firms in the beginning stages.
 - Discovery limit impact
 
-**Verdict:** Indicates that reputation and discovery limit have an impact on the market.
+**Verdict:** Indicates that reputation and consumer discovery limit have an impact on the market.
 
 ---
 
@@ -169,7 +169,7 @@
 |----------|---------|
 | Baseline (RACE TO BOTTOM) | Very good result for the most part |
 | Price Discrimination | Looks good |
-| Price Discrimination (w/ Discovery Limit = 3) | Indicates that reputation and discovery limit have an impact on the market |
+| Price Discrimination (w/ Discovery Limit (consumers) = 3) | Indicates that reputation and consumer discovery limit have an impact on the market |
 | Early Bird | Not a great outcome but sim appears to work okay |
 | Early Bird (w/ Discovery Limit = 2) | Result might be significant; firms should recognize and exploit monopoly |
 | Bounded Bazaar | Ideal run: rational firms, competitive market, consumer benefit |

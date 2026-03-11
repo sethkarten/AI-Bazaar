@@ -544,7 +544,7 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
         if (
             hasattr(self.args, "log_firm_prompts")
             and self.args.log_firm_prompts
-            and self.name.startswith("firm_")
+            and (getattr(self, "persona", None) is not None or self.name.startswith("firm_"))
             and depth == 0
         ):
             # Log the initial message that will be sent

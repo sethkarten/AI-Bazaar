@@ -119,7 +119,7 @@ ollama pull llama3.1:8b
 From the **project root**, with your conda env activated:
 
 ```bash
-python -m ai_bazaar.main   --firm-type LLM --num-firms 2 --num-consumers 10 --discovery-limit 2 --name local_test --max-timesteps 10 --prompt-algo cot --llm llama3.1:8b --service ollama --port 11434
+python -m ai_bazaar.main   --firm-type LLM --num-firms 2 --num-consumers 10 --discovery-limit-consumers 2 --name local_test --max-timesteps 10 --prompt-algo cot --llm llama3.1:8b --service ollama --port 11434
 ```
 
 **Important:** Use `--service ollama` and `--port 11434` (Ollama's default). The `--llm` value must match a model you pulled (e.g. `llama3.1:8b`, `mistral:7b`).
@@ -130,7 +130,7 @@ python -m ai_bazaar.main   --firm-type LLM --num-firms 2 --num-consumers 10 --di
 
 ```bash
 ollama pull llama3.2:3b
-python -m ai_bazaar.main   --firm-type LLM --num-firms 2 --num-consumers 10 --discovery-limit 2 --name local_fast --max-timesteps 5 --prompt-algo cot --llm llama3.2:3b --service ollama --port 11434
+python -m ai_bazaar.main   --firm-type LLM --num-firms 2 --num-consumers 10 --discovery-limit-consumers 2 --name local_fast --max-timesteps 5 --prompt-algo cot --llm llama3.2:3b --service ollama --port 11434
 ```
 
 ### Use more GPU (VRAM and utilization)
@@ -168,7 +168,7 @@ If you have access to a model on Hugging Face (e.g. **google/gemma-3-4b-it**), r
    If the model is gated and you didn't use `huggingface-cli login`, set `HF_TOKEN` in that terminal before this command. On **Windows**, vLLM often works best in **WSL2**.
 4. **Run the simulation** with vLLM and the same model id (or the short name `gemma3:4b`, which is mapped to `google/gemma-3-4b-it` in the app):
   ```bash
-   python -m ai_bazaar.main   --firm-type LLM --num-firms 2 --num-consumers 10 --discovery-limit 2 --name gemma4b_test --max-timesteps 10 --prompt-algo cot --llm google/gemma-3-4b-it --service vllm --port 8009
+   python -m ai_bazaar.main   --firm-type LLM --num-firms 2 --num-consumers 10 --discovery-limit-consumers 2 --name gemma4b_test --max-timesteps 10 --prompt-algo cot --llm google/gemma-3-4b-it --service vllm --port 8009
   ```
    Or use the short name: `--llm gemma3:4b`.
 
@@ -198,7 +198,7 @@ Logs go to `logs/crash_tests/` (summary + per-run logs).
 Start Ollama with `OLLAMA_NUM_PARALLEL=4` (e.g. via your Ollama conda env or `$env:OLLAMA_NUM_PARALLEL="4"; ollama serve`), then from project root with your app conda env activated:
 
 ```bash
-python -m ai_bazaar.main --name crash_test_ollama_4parallel --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 2 --consumer-type CES --num-consumers 10 --max-timesteps 10 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm llama3.2:3b --service ollama --port 11434 --discovery-limit 2 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+python -m ai_bazaar.main --name crash_test_ollama_4parallel --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 2 --consumer-type CES --num-consumers 10 --max-timesteps 10 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm llama3.2:3b --service ollama --port 11434 --discovery-limit-consumers 2 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
 
 Use a model you have (e.g. `llama3.1:8b`).
@@ -206,7 +206,7 @@ Use a model you have (e.g. `llama3.1:8b`).
 ### Baseline (LLM vs FIXED firm)
 
 ```bash
-python -m ai_bazaar.main --name crash_baseline_test_1 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type FIXED --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 50 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --discovery-limit 3 --firm-markup 50 --llm gemma3:4b --service ollama --port 11434 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+python -m ai_bazaar.main --name crash_baseline_test_1 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type FIXED --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 50 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --firm-markup 50 --llm gemma3:4b --service ollama --port 11434 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
 
 ### THE CRASH 365 timesteps (no stabilizing firm)
@@ -214,23 +214,23 @@ python -m ai_bazaar.main --name crash_baseline_test_1 --use-cost-pref-gen --max-
 Three runs varying the seed (same setup, different seeds for replication):
 
 ```bash
-python -m ai_bazaar.main --name crash_365_seed8 --use-cost-pref-gen --max-supply-unit-cost 1   --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 5000 --consumer-scenario THE_CRASH --discovery-limit 3 --llm gemma3:4b --service ollama --port 11434 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+python -m ai_bazaar.main --name crash_365_seed8 --use-cost-pref-gen --max-supply-unit-cost 1   --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 5000 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --llm gemma3:4b --service ollama --port 11434 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
 
 ```bash
-python -m ai_bazaar.main --name crash_365_seed42 --use-cost-pref-gen --max-supply-unit-cost 1   --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 5000 --consumer-scenario THE_CRASH --discovery-limit 3 --llm gemma3:4b --service ollama --port 11434 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 9
+python -m ai_bazaar.main --name crash_365_seed42 --use-cost-pref-gen --max-supply-unit-cost 1   --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 5000 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --llm gemma3:4b --service ollama --port 11434 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 9
 ```
 
 ```bash
-python -m ai_bazaar.main --name crash_365_seed123 --use-cost-pref-gen --max-supply-unit-cost 1   --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 5000 --consumer-scenario THE_CRASH --discovery-limit 3 --llm gemma3:4b --service ollama --port 11434 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 10
+python -m ai_bazaar.main --name crash_365_seed123 --use-cost-pref-gen --max-supply-unit-cost 1   --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 5000 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --llm gemma3:4b --service ollama --port 11434 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 10
 ```
 
 ### THE CRASH with stabilizing firm
 
-One firm is a stabilizing firm (volatility dampener); use `--stabilizing-firm`. Same scale as the 365-step runs for comparison:
+One firm is a stabilizing firm (volatility dampener); use `--num-stabilizing-firms 1`. Same scale as the 365-step runs for comparison:
 
 ```bash
-python -m ai_bazaar.main --name crash_stabilizing_365 --use-cost-pref-gen --max-supply-unit-cost 1   --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 5000 --consumer-scenario THE_CRASH --discovery-limit 3 --llm gemma3:4b --service ollama --port 11434 --max-tokens 2000 --prompt-algo cot --no-diaries --stabilizing-firm --seed 8
+python -m ai_bazaar.main --name crash_stabilizing_365 --use-cost-pref-gen --max-supply-unit-cost 1   --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 5000 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --llm gemma3:4b --service ollama --port 11434 --max-tokens 2000 --prompt-algo cot --no-diaries --num-stabilizing-firms 1 --seed 8
 ```
 
 ---
@@ -294,13 +294,13 @@ Short runs for crash and lemon, no dynamic labor. Use `--llm gemini-2.5-flash` o
 ### Crash (100 steps, no stabilizing firm)
 
 ```bash
-python -m ai_bazaar.main --name crash_100_flash_1 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 100 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm gemini-2.5-flash --discovery-limit 3 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+python -m ai_bazaar.main --name crash_100_flash_1 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 100 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --llm gemini-2.5-flash --discovery-limit-consumers 3 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
 
 ### Crash (100 steps, stabilizing firm)
 
 ```bash
-python -m ai_bazaar.main --name crash_100_flash_1 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 100 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --stabilizing-firm --llm gemini-2.5-flash --discovery-limit 3 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+python -m ai_bazaar.main --name crash_100_flash_1 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 100 --firm-initial-cash 1000 --consumer-scenario THE_CRASH --num-stabilizing-firms 1 --llm gemini-2.5-flash --discovery-limit-consumers 3 --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
 
 ### Lemon (50 steps): no Sybil
@@ -313,6 +313,70 @@ python -m ai_bazaar.main --name lemon_50_flash_nosybil_1 --use-cost-pref-gen --f
 
 ```bash
 python -m ai_bazaar.main --name lemon_50_flash_sybil_1 --use-cost-pref-gen --firm-type LLM --num-firms 10 --consumer-type CES --num-consumers 50 --max-timesteps 50 --firm-initial-cash 5000 --consumer-scenario LEMON_MARKET --sybil-cluster-size 3 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+
+---
+
+## EXPERIMENT 1
+
+Seed **8** and **Gemini 2.5 Flash** for all runs. Run from project root.
+
+**Common settings:** 5 LLM firms, 50 CES consumers, 100 timesteps, firm personas (round robin), THE_CRASH, `--use-cost-pref-gen`, `--no-diaries`, `--prompt-algo cot`, `--max-tokens 2000`, `--llm gemini-2.5-flash`, `--seed 8`.
+
+### Baseline (no stabilizing firm)
+
+Discovery limit consumers = 3, discovery limit firms = 3. No stabilizing firm.
+
+```bash
+python -m ai_bazaar.main --name exp1_baseline --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --discovery-limit-firms 3 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+
+### Stabilizing firm sweep (dlc = 3, default dlf)
+
+Discovery limit consumers = 3; discovery limit firms = default (0). Vary number of stabilizing firms 1–5.
+
+```bash
+python -m ai_bazaar.main --name exp1_stab_1 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --num-stabilizing-firms 1 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+
+```bash
+python -m ai_bazaar.main --name exp1_stab_2 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --num-stabilizing-firms 2 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+
+```bash
+python -m ai_bazaar.main --name exp1_stab_3 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --num-stabilizing-firms 3 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+
+```bash
+python -m ai_bazaar.main --name exp1_stab_4 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --num-stabilizing-firms 4 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+
+```bash
+python -m ai_bazaar.main --name exp1_stab_5 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --num-stabilizing-firms 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+
+### Stabilizing firm sweep (dlc = 3, dlf = 3)
+
+Same as above with discovery limit firms = 3.
+
+```bash
+python -m ai_bazaar.main --name exp1_stab_dlf3_1 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --discovery-limit-firms 3 --num-stabilizing-firms 1 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+
+```bash
+python -m ai_bazaar.main --name exp1_stab_dlf3_2 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --discovery-limit-firms 3 --num-stabilizing-firms 2 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+
+```bash
+python -m ai_bazaar.main --name exp1_stab_dlf3_3 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --discovery-limit-firms 3 --num-stabilizing-firms 3 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+
+```bash
+python -m ai_bazaar.main --name exp1_stab_dlf3_4 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --discovery-limit-firms 3 --num-stabilizing-firms 4 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+
+```bash
+python -m ai_bazaar.main --name exp1_stab_dlf3_5 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --discovery-limit-firms 3 --num-stabilizing-firms 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
 
 ---
@@ -339,6 +403,6 @@ Output lists each instance: run name, firm name, timestep when it was out, times
 ## Scratch
 
 ```bash
-python -m ai_bazaar.main --name gemini_test --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 5 --max-timesteps 10 --firm-initial-cash 5000 --consumer-scenario THE_CRASH --discovery-limit 3 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+python -m ai_bazaar.main --name gemini_test --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 5 --max-timesteps 10 --firm-initial-cash 5000 --consumer-scenario THE_CRASH --discovery-limit-consumers 3 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
 

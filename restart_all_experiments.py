@@ -101,7 +101,7 @@ def submit_experiment(exp):
         "--num_episodes", "50",
         "--num_iterations", "50",
         "--reward-type", exp["reward"],
-        "--discovery-limit", str(exp["discovery"]),
+        "--discovery-limit-consumers", str(exp["discovery"]),
         "--run_name", f"v3-ablation-{exp['name']}",
         "--log-dir", f"logs/results_{exp['name']}",
         "--wandb_mode", "online",

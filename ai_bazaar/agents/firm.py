@@ -24,7 +24,8 @@ class BaseFirmAgent:
 
     EXPENSE_KEYS = ("supply_cost", "overhead_costs", "taxes_paid", "platform_fees")
 
-    def __init__(self):
+    def __init__(self, args = None):
+        self.args = args
         self.in_business = True
         self.reputation = 1.0  # Default perfect reputation
         self.fulfillment_history = []  # List of (successful_qty, requested_qty)
@@ -172,7 +173,7 @@ class BaseFirmAgent:
 
     def get_overhead_costs(self, timestep: int) -> float:
         """Get overhead costs. Base is 50 per timestep; overhead_scale (set by env) scales this for daily vs weekly timesteps."""
-        base = 50.0
+        base = self.args.overhead_costs
         scale = getattr(self, "overhead_scale", 1.0)
         return base * scale
 
@@ -495,6 +496,163 @@ STABILIZING FIRM: Never set price below your unit cost (cost to produce one unit
         self.add_message(
             timestep, Message.ACTION_PRODUCTION, production=production_dict
         )
+
+    def parse_firm_action(self, items: List[str]) -> tuple:
+        n = len(self.goods)
+        try:
+            supply = self.parse_supply_purchase(items[:n])
+        except (ValueError, TypeError):
+            supply = tuple(0.0 for _ in self.goods)
+
+        try:
+            production = self.parse_production(items[n:2*n])
+        except (ValueError, TypeError):
+            production = tuple(100.0 / n for _ in self.goods)
+
+        try:
+            prices = self.parse_prices(items[2*n:])
+        except (ValueError, TypeError):
+            prev = self._timestep_stats.get(self._last_timestep, {}).get("prices", {})
+            prices = tuple(prev.get(g, 1.0) for g in self.goods)
+
+        return supply + production + prices
+
+    def decide_firm_action(self, timestep: int, market_data: Dict[str, Any] = None) -> Dict:
+        """Make supply, production, and pricing decisions in a single LLM call."""
+        self._last_timestep = timestep
+        n = len(self.goods)
+
+        # Build combined context message
+        self.add_message(timestep, Message.UPDATE_FIRM_ACTION, market_data=market_data, supply_unit_costs=self.supply_unit_costs)
+
+        # Build keys for all three decisions
+        supply_keys = [f"supply_quantity_{good}" for good in self.goods]
+        production_keys = [f"produce_{good}" for good in self.goods]
+        price_keys = [f"price_{good}" for good in self.goods]
+        all_keys = supply_keys + production_keys + price_keys
+
+        # Build noop fallback
+        prev_prices = self._timestep_stats.get(timestep - 1, {}).get("prices", {})
+        noop = (
+            tuple(0.0 for _ in self.goods)          # supply: buy nothing
+            + tuple(100.0 / n for _ in self.goods)  # production: equal split
+            + tuple(prev_prices.get(g, 1.0) for g in self.goods)  # prices: last or 1.0
+        )
+
+        result = self.act_llm(timestep, all_keys, self.parse_firm_action, on_parse_failure_return=noop)
+
+        supply_quantities = result[:n]
+        production_pcts = result[n:2*n]
+        prices_tuple = result[2*n:]
+
+        # --- Execute supply (same logic as purchase_supplies) ---
+        cash = self.cash
+        supply_entries = []
+        total_cost = sum(
+            qty * self.supply_unit_costs.get(g, 1.0)
+            for g, qty in zip(self.goods, supply_quantities)
+        )
+        if total_cost > cash and total_cost > 0:
+            scale = cash / total_cost
+            supply_quantities = tuple(q * scale for q in supply_quantities)
+            total_cost = cash
+
+        total_supply = 0.0
+        supply_by_good_list = []
+        by_good_dict = {}
+        for good, qty in zip(self.goods, supply_quantities):
+            qty = max(0.0, float(qty))
+            unit_cost = self.supply_unit_costs.get(good, 1.0)
+            cost = qty * unit_cost
+            by_good_dict[good] = {
+                "quantity": qty,
+                "unit_price": unit_cost,
+                "cost": cost,
+            }
+            supply_by_good_list.append({
+                "good": good,
+                "quantity": qty,
+                "unit_cost": unit_cost,
+                "total_cost": cost,
+                "firm_name": self.name,
+            })
+            supply_entries.append({
+                "firm_id": self.name,
+                "expense_type": "supply",
+                "good": good,
+                "amount": cost,
+                "quantity": qty,
+                "unit_price": unit_cost,
+            })
+            total_supply += qty
+
+        if total_cost > 0:
+            self.ledger.credit(self.name, -total_cost)
+            self.ledger.add_good(self.name, "supply", total_supply)
+
+        avg_unit = total_cost / total_supply if total_supply > 0 else 0.0
+        self._timestep_stats.setdefault(timestep, {})
+        self._timestep_stats[timestep]["supply"] = {
+            "by_good": by_good_dict,
+            "total_quantity": total_supply,
+            "total_cost": total_cost,
+            "quantity": total_supply,
+            "unit_price": avg_unit,
+            "cost": total_cost,
+        }
+
+        # --- Execute production (same logic as produce_goods) ---
+        supply_available = self.supplies
+        pct_sum = sum(production_pcts)
+        if pct_sum > 0:
+            norm_pcts = [p / pct_sum for p in production_pcts]
+        else:
+            norm_pcts = [1.0 / n for _ in self.goods]
+
+        production_by_good = {}
+        if supply_available > 0:
+            for good, pct in zip(self.goods, norm_pcts):
+                quantity = supply_available * pct
+                self.ledger.add_good(self.name, good, quantity)
+                production_by_good[good] = quantity
+            self.ledger.add_good(self.name, "supply", -supply_available)
+
+        self._timestep_stats[timestep]["production"] = production_by_good
+
+        # --- Record prices ---
+        prices_dict = {}
+        for good, price in zip(self.goods, prices_tuple):
+            p = float(price)
+            # Apply stabilizing firm floor if applicable (attribute is "stabilizing_firm")
+            if getattr(self, "stabilizing_firm", False) and self.supply_unit_costs:
+                floor = self.supply_unit_costs.get(good, 0.0)
+                p = max(p, floor)
+            prices_dict[good] = p
+
+        self._timestep_stats[timestep]["prices"] = prices_dict
+
+        # Log alignment trace (same pattern as set_price: set _last_price_trace)
+        if getattr(self.args, "log_alignment_traces", False):
+            user_prompt = self.get_historical_message(timestep)
+            last_traj = self.trajectory[-1] if self.trajectory else {}
+            self._last_price_trace = {
+                "system_prompt": self.system_prompt,
+                "user_prompt": user_prompt,
+                "response": last_traj.get("response"),
+                "action": dict(prices_dict),
+                "unit_costs": dict(self.supply_unit_costs) if self.supply_unit_costs else {},
+            }
+
+        # Record combined action in message history
+        self.add_message(
+            timestep,
+            Message.ACTION_FIRM_ACTION,
+            supply_by_good=supply_by_good_list,
+            production_by_good=production_by_good,
+            prices=prices_dict,
+        )
+
+        return {"supply_entries": supply_entries, "prices": prices_dict}
 
     def create_listings(self, timestep: int = None, max_price: float = 5000.0) -> List[Dict[str, Any]]:
         """Create listings for all unposted cars: use add_message + act_llm (same structure as set_price).
@@ -1068,6 +1226,109 @@ STABILIZING FIRM: Never set price below your unit cost (cost to produce one unit
             )
             self.message_history[timestep]["action"] += (
                 f"Listing: price=${price:.2f}\n"
+            )
+            self.message_history[timestep]["user_prompt"] = ""
+
+        elif m_type == Message.UPDATE_FIRM_ACTION:
+            # Combined context: cash, inventory, supply available, unit costs, market data
+            self.message_history[timestep]["historical"] += f"Cash: ${self.cash:.2f}\n"
+            self.message_history[timestep]["historical"] += (
+                f"Current inventory: {dict(self.inventory)}\n"
+            )
+            self.message_history[timestep]["historical"] += (
+                f"Available supply: {self.supplies:.2f}\n"
+            )
+            supply_unit_costs = kwargs.get("supply_unit_costs", {})
+            cost_str = ", ".join(
+                f"{good}: ${c:.2f}" for good, c in supply_unit_costs.items()
+            )
+            if cost_str:
+                self.message_history[timestep]["historical"] += (
+                    f"Supply unit costs per good: {cost_str}\n"
+                )
+
+            market_data = kwargs.get("market_data")
+            if market_data:
+                self.message_history[timestep]["historical"] += (
+                    f"Market data from previous step: {market_data}\n"
+                )
+
+            supply_keys = [f"supply_quantity_{good}" for good in self.goods]
+            production_keys = [f"produce_{good}" for good in self.goods]
+            price_keys = [f"price_{good}" for good in self.goods]
+            all_keys = supply_keys + production_keys + price_keys
+
+            if self.prompt_algo == "cot" or self.prompt_algo == "sc":
+                combined_format = (
+                    '{'
+                    + '"thought":"<one short reasoning sentence>", '
+                    + ", ".join([f'"{k}":"X"' for k in supply_keys])
+                    + ", "
+                    + ", ".join([f'"{k}":"X%"' for k in production_keys])
+                    + ", "
+                    + ", ".join([f'"{k}":"X"' for k in price_keys])
+                    + "}"
+                )
+            else:
+                combined_format = (
+                    "{"
+                    + ", ".join([f'"{k}":"X"' for k in supply_keys])
+                    + ", "
+                    + ", ".join([f'"{k}":"X%"' for k in production_keys])
+                    + ", "
+                    + ", ".join([f'"{k}":"X"' for k in price_keys])
+                    + "}"
+                )
+
+            keys_str = ", ".join(all_keys)
+            self.message_history[timestep]["user_prompt"] += (
+                "Decide supply quantities, production allocations, and prices for all goods in a single response. "
+                f"You must include exactly these keys: {keys_str}. "
+            )
+            if self.prompt_algo == "cot" or self.prompt_algo == "sc":
+                self.message_history[timestep]["user_prompt"] += (
+                    "Keep the thought value to one short sentence; do not use quotes or newlines inside it. "
+                )
+            self.message_history[timestep]["user_prompt"] += (
+                f"Use the JSON format: {combined_format}\n"
+            )
+            self.message_history[timestep]["expected_format"] = combined_format
+
+        elif m_type == Message.ACTION_FIRM_ACTION:
+            supply_by_good = kwargs.get("supply_by_good", [])
+            production_by_good = kwargs.get("production_by_good", {})
+            prices = kwargs.get("prices", {})
+
+            # Supply summary
+            total_supply_cost = sum(e.get("total_cost", 0.0) for e in supply_by_good)
+            total_supply_qty = sum(e.get("quantity", 0.0) for e in supply_by_good)
+            supply_parts = [
+                f"{e['good']}: {e.get('quantity', 0.0):.2f} units @ ${e.get('unit_cost', 0.0):.2f}"
+                for e in supply_by_good
+            ]
+            if supply_parts:
+                self.message_history[timestep]["historical"] += (
+                    f"Purchased supply: {'; '.join(supply_parts)} (total qty={total_supply_qty:.2f}, cost=${total_supply_cost:.2f})\n"
+                )
+            else:
+                self.message_history[timestep]["historical"] += "Purchased supply: none\n"
+
+            # Production summary
+            prod_str = ", ".join(
+                f"{good}: {qty:.2f}" for good, qty in production_by_good.items()
+            )
+            if prod_str:
+                self.message_history[timestep]["historical"] += f"Produced: {prod_str}\n"
+
+            # Price summary
+            price_str = ", ".join(
+                f"{good}: ${p:.2f}" for good, p in prices.items()
+            )
+            if price_str:
+                self.message_history[timestep]["historical"] += f"Set prices: {price_str}\n"
+
+            self.message_history[timestep]["action"] += (
+                f"Supply: {total_supply_qty:.2f} | Production: {prod_str} | Prices: {price_str}\n"
             )
             self.message_history[timestep]["user_prompt"] = ""
 

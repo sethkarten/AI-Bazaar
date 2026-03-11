@@ -26,7 +26,7 @@ def submit_local_test(name, reward):
             "50",
             "--reward-type",
             reward,
-            "--discovery-limit",
+            "--discovery-limit-consumers",
             "5",
             "--run_name",
             f"local-{name}-{ts}",

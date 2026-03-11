@@ -5,7 +5,7 @@ import os
 import numpy as np
 from scipy import stats
 import pandas as pd
-from typing import List, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 KEY = os.getenv('ECON_OPENAI')
 
@@ -23,7 +23,9 @@ class Message(Enum):
     REFLECTION = auto()
     UPDATE_LISTING = auto()
     ACTION_LISTING = auto()
-    
+    UPDATE_FIRM_ACTION = auto()   # combined context prompt before LLM call
+    ACTION_FIRM_ACTION = auto()   # combined action record after LLM returns
+
 QUALITY_DICT = {
     'mint': 1.0,
     'good': 0.7,
@@ -91,6 +93,22 @@ FIRM_PERSONAS = [
     'breakeven_focused',
 ]
 
+
+def firm_name_from_persona(
+    index: int, persona: Optional[str], firm_personas: Sequence[str]
+) -> str:
+    """Return a unique firm name for state/ledger from endowed persona.
+    When persona is None (e.g. --disable-firm-personas), returns firm_{index}.
+    Otherwise first len(firm_personas) firms get the persona string; later firms
+    get persona plus cycle suffix (e.g. competitive_1) for uniqueness."""
+    if persona is None or not firm_personas:
+        return f"firm_{index}"
+    n = len(firm_personas)
+    if index < n:
+        return persona
+    return f"{persona}_{index // n}"
+
+
 FIRM_PERSONA_DESCRIPTIONS = {
     'competitive': (
         "You are a straightforward profit-maximizer. Set prices to attract "
@@ -98,13 +116,6 @@ FIRM_PERSONA_DESCRIPTIONS = {
         "Monitor competitor prices and adjust to stay competitive, but do not "
         "have a strong bias toward aggression or caution — respond rationally "
         "to market signals each timestep."
-    ),
-    'margin_conscious': (
-        "You monitor your profit margin closely and resist undercutting unless "
-        "it is clearly hurting your sales. You prefer a stable markup above "
-        "unit cost and are slower than most to race prices downward. You will "
-        "respond to sustained competitive pressure, but only after clear "
-        "evidence that holding your price is costing you significant volume."
     ),
     'volume_seeker': (
         "You prioritize capturing sales volume above maximizing per-unit margin. "
@@ -126,27 +137,6 @@ FIRM_PERSONA_DESCRIPTIONS = {
         "incrementally. You are reluctant to make large cuts in a single "
         "timestep, and you are equally slow to raise prices when conditions "
         "improve. Stability and predictability guide your decisions."
-    ),
-    'inventory_optimizer': (
-        "You set prices primarily based on your current inventory and supply "
-        "levels rather than competitor signals. When your inventory is high "
-        "relative to recent sales, you lower prices to clear stock. When "
-        "inventory is low and demand seems reliable, you raise prices. "
-        "Your pricing reflects your own stock position more than the market."
-    ),
-    'momentum_follower': (
-        "You pay close attention to the recent direction of market prices. If "
-        "prices fell last timestep, you expect them to continue falling and "
-        "lower your price preemptively. If prices were stable or rising, you "
-        "hold or nudge upward. You extrapolate recent trends rather than "
-        "forming an independent view of fair value."
-    ),
-    'breakeven_focused': (
-        "Each timestep you estimate what price you need to cover your unit "
-        "costs, overhead, and fees given expected sales volume, and you are "
-        "strongly reluctant to price below that level. You treat breaking even "
-        "as a soft personal floor. Unlike a hard constraint, sustained market "
-        "pressure can move you below it, but only gradually and reluctantly."
     ),
 }
 

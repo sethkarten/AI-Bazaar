@@ -9,7 +9,7 @@ from collections import defaultdict
 from ..market_core.market_core import Ledger, Market
 from ..agents.firm import FirmAgent, FixedFirmAgent
 from ..agents.consumer import CESConsumerAgent, FixedConsumerAgent
-from ..utils.common import QUALITY_DICT, LEMON_MARKET_GOODS, FIRM_PERSONAS
+from ..utils.common import QUALITY_DICT, LEMON_MARKET_GOODS, FIRM_PERSONAS, firm_name_from_persona
 
 
 from ..agents.planner import TaxPlanner, FixedTaxPlanner
@@ -68,13 +68,13 @@ class BazaarWorld:
         sybil_cluster_size = getattr(args, "sybil_cluster_size", 0)
         is_lemon = getattr(args, "consumer_scenario", None) == "LEMON_MARKET"
         for i in range(args.num_firms):
-            name = f"firm_{i}"
-            is_sybil = is_lemon and sybil_cluster_size > 0 and i >= args.num_firms - sybil_cluster_size
             # Assign distinct personas round-robin; disabled by --disable-firm-personas
             if getattr(args, "disable_firm_personas", False):
                 firm_persona = None
             else:
                 firm_persona = FIRM_PERSONAS[i % len(FIRM_PERSONAS)]
+            name = firm_name_from_persona(i, firm_persona, FIRM_PERSONAS)
+            is_sybil = is_lemon and sybil_cluster_size > 0 and i >= args.num_firms - sybil_cluster_size
             if args.firm_type == "LLM":
                 firm_kw = {
                     "llm": args.llm,
@@ -106,9 +106,10 @@ class BazaarWorld:
                 )
             # Scale overhead by timestep length: daily (non-LEMON) = 1/7 of base; LEMON (weekly) = full base
             firm.overhead_scale = 1.0 / 7.0 if getattr(args, "consumer_scenario", None) != "LEMON_MARKET" else 1.0
-            # Only one firm is a stabilizing firm when --stabilizing-firm is set (first LLM firm)
-            if args.firm_type == "LLM" and getattr(args, "stabilizing_firm", False):
-                firm.stabilizing_firm = i == 0
+            # First num_stabilizing_firms LLM firms are stabilizing firms
+            num_stabilizing = getattr(args, "num_stabilizing_firms", 0)
+            if args.firm_type == "LLM" and num_stabilizing > 0:
+                firm.stabilizing_firm = i < num_stabilizing
             # LEMON_MARKET: initial reputation R_0 (paper uses 0.8)
             if is_lemon and getattr(args, "reputation_initial", None) is not None:
                 firm.reputation = float(args.reputation_initial)
@@ -400,105 +401,84 @@ class BazaarWorld:
                 if getattr(f, "in_business", True)
             ]
 
-            def do_firm_supply(firm):
-                """Run one firm's supply phase; returns list of expense dicts. Each firm only touches its own ledger keys."""
-                if self.args.firm_type == "LLM":
-                    firm.purchase_supplies(self.timestep)
-                    supply_stats = getattr(firm, "_timestep_stats", {}).get(self.timestep, {}).get("supply", {})
-                    by_good = supply_stats.get("by_good", {})
-                    entries = []
-                    for good, bg in by_good.items():
-                        cost = bg.get("cost", 0.0)
-                        if cost <= 0:
-                            continue
-                        entries.append({
-                            "firm_id": firm.name,
-                            "expense_type": "supply",
-                            "good": good,
-                            "amount": cost,
-                            "quantity": bg.get("quantity", 0.0),
-                            "unit_price": bg.get("unit_price", 0.0),
-                        })
-                    return entries
-                else:
-                    quantity = firm.cash * 0.5 / supply_unit_price
-                    quantity = firm.purchase_supplies(quantity, supply_unit_price, self.timestep)
-                    cost = quantity * supply_unit_price
-                    return [{
-                        "firm_id": firm.name,
-                        "expense_type": "supply",
-                        "good": "supply",
-                        "amount": cost,
-                        "quantity": quantity,
-                        "unit_price": supply_unit_price,
-                    }]
-
-            # 1. Supply Phase (parallel: each firm only modifies its own ledger keys)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(active_firms))) as executor:
-                supply_futures = {executor.submit(do_firm_supply, firm): firm for firm in active_firms}
-                for future in concurrent.futures.as_completed(supply_futures):
-                    entries = future.result()
-                    expenses_info.extend(entries)
-
-            # 2. Production Phase (parallel: each firm only modifies its own ledger keys)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(active_firms))) as executor:
-                prod_futures = [
-                    executor.submit(firm.produce_goods, self.timestep)
-                    for firm in active_firms
+            # Build market contexts for all active firms (Information Asymmetry + discovery_limit_firms)
+            discovery_limit_firms = getattr(
+                self.args, "discovery_limit_firms", 0
+            )
+            for firm in active_firms:
+                competitor_names = [
+                    f.name
+                    for f in self.firms
+                    if f.name != firm.name and getattr(f, "in_business", True)
                 ]
-                concurrent.futures.wait(prod_futures)
-
-            # 3. Pricing Phase (Parallel)
-
-            # Prepare market context for each firm (Information Asymmetry)
-            for firm in self.firms:
-                if not getattr(firm, "in_business", True):
-                    continue
-
+                if discovery_limit_firms > 0 and len(competitor_names) > discovery_limit_firms:
+                    competitor_names = random.sample(
+                        competitor_names, discovery_limit_firms
+                    )
                 if getattr(self.args, "info_asymmetry", False):
-                    # Firm only sees a noisy average of competitor prices
+                    # Firm only sees a noisy average of (possibly limited) competitor prices
                     noisy_context = {"competitor_summary": {}}
                     for good in self.goods:
                         comp_prices = [
-                            self.firm_prices_last_step.get(f.name, {}).get(good, 10.0)
-                            for f in self.firms
-                            if f.name != firm.name and getattr(f, "in_business", True)
+                            self.firm_prices_last_step.get(n, {}).get(good, 10.0)
+                            for n in competitor_names
                         ]
                         if comp_prices:
                             avg = np.mean(comp_prices)
                             # Add 10% noise
                             noisy_avg = avg * (1.0 + np.random.uniform(-0.1, 0.1))
-                            noisy_context["competitor_summary"][good] = round(noisy_avg, 2)
+                            noisy_context["competitor_summary"][good] = round(
+                                noisy_avg, 2
+                            )
                     market_contexts[firm.name] = noisy_context
                 else:
-                    # Full information (as before)
-                    market_contexts[firm.name] = {"last_prices": self.firm_prices_last_step}
+                    # Full information: own last_prices + up to discovery_limit_firms competitors
+                    last_prices = {
+                        firm.name: self.firm_prices_last_step.get(
+                            firm.name, {}
+                        )
+                    }
+                    for n in competitor_names:
+                        last_prices[n] = self.firm_prices_last_step.get(n, {})
+                    market_contexts[firm.name] = {"last_prices": last_prices}
 
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=len(self.firms)
-            ) as executor:
+            # Single combined parallel phase for LLM firms; FixedFirmAgent runs three methods sequentially
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(active_firms))) as executor:
                 future_to_firm = {}
-                for firm in self.firms:
-                    if not getattr(firm, "in_business", True):
-                        continue
+                for firm in active_firms:
                     if self.args.firm_type == "LLM":
                         future_to_firm[
                             executor.submit(
-                                firm.set_price,
+                                firm.decide_firm_action,
                                 self.timestep,
-                                market_data=market_contexts.get(firm.name, {}),
+                                market_contexts.get(firm.name, {}),
                             )
                         ] = firm
                     else:
+                        # FixedFirmAgent: run supply, production, and pricing sequentially (unchanged)
+                        quantity = firm.cash * 0.5 / supply_unit_price
+                        quantity = firm.purchase_supplies(quantity, supply_unit_price, self.timestep)
+                        cost = quantity * supply_unit_price
+                        expenses_info.append({
+                            "firm_id": firm.name,
+                            "expense_type": "supply",
+                            "good": "supply",
+                            "amount": cost,
+                            "quantity": quantity,
+                            "unit_price": supply_unit_price,
+                        })
+                        firm.produce_goods(self.timestep)
                         prices = firm.set_price(timestep=self.timestep)
                         firm_prices[firm.name] = prices
                         firm.post_quotes(prices)
 
-                for future in concurrent.futures.as_completed(future_to_firm):
-                    firm = future_to_firm[future]
-                    prices = future.result()
-                    firm_prices[firm.name] = prices
-                    firm.post_quotes(prices)
+                if self.args.firm_type == "LLM":
+                    for future in concurrent.futures.as_completed(future_to_firm):
+                        firm = future_to_firm[future]
+                        result = future.result()
+                        expenses_info.extend(result["supply_entries"])
+                        firm_prices[firm.name] = result["prices"]
+                        firm.post_quotes(result["prices"])
         # C2C Lemon Market: endow sequentially (RNG order), then create_listings in parallel (like Crash pricing)
         def lemon_market_firm_phases():
             active_firms = [
@@ -560,7 +540,9 @@ class BazaarWorld:
             for f in self.firms
             if getattr(f, "in_business", True)
         }
-        discovery_limit = getattr(self.args, "discovery_limit", 5)
+        discovery_limit_consumers = getattr(
+            self.args, "discovery_limit_consumers", 5
+        )
         use_eWTP = getattr(self.args, "use_eWTP", False) or (
             getattr(self.args, "consumer_scenario", None) == "THE_CRASH"
         )
@@ -580,14 +562,15 @@ class BazaarWorld:
                             consumer.make_orders,
                             self.timestep,
                             self.args.consumer_scenario,
-                            discovery_limit=discovery_limit,
+                            discovery_limit=discovery_limit_consumers,
                             firm_reputations=reputations,
                             use_eWTP=use_eWTP,
                         )
                     ] = consumer
                 else:
                     orders = consumer.make_orders(
-                        self.timestep, discovery_limit=discovery_limit
+                        self.timestep,
+                        discovery_limit=discovery_limit_consumers,
                     )
                     consumer.submit_orders(orders)
 
@@ -977,8 +960,15 @@ class BazaarWorld:
                 ),
                 "diary": getattr(f, "diary", [])[-1:] if hasattr(f, "diary") else [],
             }
+        def is_firm_key(key: str) -> bool:
+            if key.startswith("firm_"):
+                return True
+            if key in FIRM_PERSONAS:
+                return True
+            return any(key.startswith(p + "_") for p in FIRM_PERSONAS)
+
         for key in money:
-            if key.startswith("firm_") and key not in by_name:
+            if is_firm_key(key) and key not in by_name:
                 by_name[key] = {
                     "name": key,
                     "in_business": False,

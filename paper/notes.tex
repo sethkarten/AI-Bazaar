@@ -92,7 +92,7 @@ The consumer utility function is \textbf{cardinal}: it uses a specific CES form,
 
 \section{Stabilizing Firm Implementation}
 
-When \texttt{--stabilizing-firm} is set, \textbf{only one} firm (the first LLM firm, \texttt{firm\_0}) is a Stabilizing Firm; the rest are standard.
+When \texttt{--num-stabilizing-firms} $N$ is set ($N \geq 1$), the \textbf{first $N$} LLM firms (e.g.\ \texttt{firm\_0}, \texttt{firm\_1}, \ldots) are Stabilizing Firms; the rest are standard. Use \texttt{--num-stabilizing-firms 1} for a single stabilizing firm.
 
 \textbf{What the Stabilizing Firm gets:}
 \begin{itemize}

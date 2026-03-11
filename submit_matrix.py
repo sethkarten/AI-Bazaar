@@ -109,7 +109,7 @@ def submit_job(config, test_mode=True):
         "1" if test_mode else "50",
         "--reward-type",
         config["reward"],
-        "--discovery-limit",
+        "--discovery-limit-consumers",
         str(config["discovery"]),
         "--run_name",
         f"v3-ablation-{config['name']}",

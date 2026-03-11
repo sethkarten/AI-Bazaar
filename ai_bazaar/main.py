@@ -124,10 +124,16 @@ def create_argument_parser():
         help="Type of reward signal for firms (PROFIT for bankruptcy avoidance)",
     )
     parser.add_argument(
-        "--discovery-limit",
+        "--discovery-limit-consumers",
         type=int,
         default=5,
         help="Max firms (per good) a consumer can poll for prices before ordering (0 = no limit)",
+    )
+    parser.add_argument(
+        "--discovery-limit-firms",
+        type=int,
+        default=0,
+        help="Max competitor firms whose prices each firm sees when setting prices (0 = no limit). Applies with and without --info-asymmetry.",
     )
     parser.add_argument(
         "--poisson-demand-lambda",
@@ -141,9 +147,10 @@ def create_argument_parser():
         help="Enable information asymmetry (firms see noisy competitor data)",
     )
     parser.add_argument(
-        "--stabilizing-firm",
-        action="store_true",
-        help="Use Stabilizing Firm prompt and enforce price floor >= unit cost (B2C Crash).",
+        "--num-stabilizing-firms",
+        type=int,
+        default=0,
+        help="Number of firms that use the Stabilizing Firm prompt and enforce price floor >= unit cost (B2C Crash). First N LLM firms are stabilizing.",
     )
     parser.add_argument(
         "--log-alignment-traces",
@@ -156,7 +163,7 @@ def create_argument_parser():
         "--max-timesteps", type=int, default=100, help="Maximum number of timesteps"
     )
     parser.add_argument(
-        "--firm-initial-cash", type=float, default=1000.0, help="Initial cash for firms"
+        "--firm-initial-cash", type=float, default=500.0, help="Initial cash for firms"
     )
     
     parser.add_argument(
@@ -307,6 +314,12 @@ def create_argument_parser():
         "--dynamic-labor",
         action="store_true",
         help="Let CES consumers re-choose labor each timestep; if disabled, labor is chosen only at t=0 and held fixed.",
+    )
+    parser.add_argument(
+        "--overhead-costs",
+        type=float,
+        default=50.0,
+        help="Overhead costs per week for firms; default 50.0",
     )
 
     return parser

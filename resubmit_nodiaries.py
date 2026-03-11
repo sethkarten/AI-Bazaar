@@ -18,7 +18,7 @@ config = {
         "--num_episodes", "50",
         "--num_iterations", "50",
         "--reward-type", "PROFIT",
-        "--discovery-limit", "5",
+        "--discovery-limit-consumers", "5",
         "--run_name", "v3-ablation-nodiaries",
         "--log-dir", "logs/results_nodiaries",
         "--wandb_mode", "online",
