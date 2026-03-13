@@ -229,6 +229,7 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         supply_unit_costs: Dict[str, float] = None,
         sybil: bool = False,
         persona: str = None,
+        stabilizing: bool = False,
     ) -> None:
         BaseFirmAgent.__init__(self)
         super().__init__(
@@ -270,13 +271,16 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         self.total_quantity_sold_by_good_this_timestep: Dict[int, Dict[str, float]] = (
             defaultdict(lambda: {good: 0.0 for good in goods})
         )
-        
+
         # LEMON MARKET
         self.sybil = sybil
         self.listings = []
 
         # Firm persona (behavioral archetype for differentiation)
         self.persona = persona
+
+        # Must be set before _create_system_prompt() so the stabilizing branch is taken
+        self.stabilizing_firm = stabilizing
 
         # Set system prompt for the firm
         self.system_prompt = self._create_system_prompt()
@@ -307,40 +311,39 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         goods_list = ", ".join(self.goods)
         timescale_line = ""
         if getattr(self.args, "consumer_scenario", None) != "LEMON_MARKET":
-            timescale_line = "\nEach timestep represents one day. Consumer income and demand are on a daily scale.\n"
+            timescale_line = "\nEach timestep represents one day. Consumer income and demand are on a daily scale."
+        n_consumers = getattr(self.args, "num_consumers", None)
+        market_size_line = f"\nThis market has {n_consumers} consumers in total." if n_consumers else ""
         base = f"""You are a firm manager named {self.name} that produces and sells goods in a market economy.
-You produce the following goods: {goods_list}.{timescale_line}
+You produce the following goods: {goods_list}.{timescale_line}{market_size_line}
 
-Your goal is to maximize profit by making strategic decisions about:
-1. Pricing: Set competitive prices for your goods to maximize revenue
+Your goal is to sustain your business by making strategic decisions about:
+1. Pricing: Set prices for your goods to earn revenue and sustain your business
 2. Supply purchasing: Buy raw supplies to produce goods
 3. Production: Convert supplies into finished goods efficiently
 
 You must balance inventory management, cash flow, and market demand to succeed.
 You make decisions based on historical data about your performance, market conditions, and available resources.
-
-Key metrics to consider:
-- Cash: Your available money to purchase supplies
-- Supply: Raw materials available for production
-- Inventory: Finished goods available to sell
-- Prices: Current market prices affect demand
-- Profit: Revenue from sales minus costs of supplies
-
-CRITICAL: Always respond with a single, valid JSON object. Do not use markdown code blocks or include explanatory text. Output only the JSON object that can be parsed directly."""
+Track your cash, inventory, prices, and competitor behavior each step."""
         # Stabilizing firms get only the stabilizing prompt; others get endowed persona if any
         if getattr(self, "stabilizing_firm", False):
             base += """
-STABILIZING FIRM: You are a price anchor in this market. Your strategy is to hold a stable price at a target markup above your unit cost, regardless of what competitors do.
+
+## Your Business Strategy
+You are a **stabilizing firm** — a price anchor in this market. Your strategy is to hold a stable price at a target markup above your unit cost, regardless of what competitors do.
 
 Rules:
-1. Your minimum price is always your unit cost factoring in overhead costs. Never go below it — you will go bankrupt.
+1. Your minimum price is always your unit cost factoring in overhead costs. Never sell below it — you will go bankrupt.
 2. When competitors drop prices below your target: DO NOT FOLLOW THEM DOWN. Hold your price.
-3. Stable prices are your brand."""
+3. Buy supply conservatively — purchase only what you expect to sell at your target price.
+4. Stable prices are your brand and your competitive advantage."""
 
         else:
             persona = getattr(self, "persona", None)
             if persona and persona in FIRM_PERSONA_DESCRIPTIONS:
                 base += f"\n\n## Your Business Strategy\n{FIRM_PERSONA_DESCRIPTIONS[persona]}"
+
+        base += "\n\nCRITICAL: Always respond with a single, valid JSON object. Do not use markdown code blocks or include explanatory text. Output only the JSON object that can be parsed directly."
         return base
 
     def set_price(

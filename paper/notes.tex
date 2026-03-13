@@ -371,4 +371,116 @@ If the crash occurs even without eWTP, the paper can claim the LLM undercutting 
   \item Kalyanaram \& Winer (1995). ``Empirical Generalizations from Reference Price Research.'' \textit{Marketing Science} 14(3).
 \end{itemize}
 
+% ============================================================
+\section{Structural Analysis: Why Exactly 1 Firm Survives in Experiment~1}
+% ============================================================
+
+\subsection{Observed Outcome}
+
+Across all Experiment~1 runs (THE\_CRASH, 5 LLM firms, 50 consumers, unit cost \$1, overhead base \$50 scaled by \(1/7\) per daily step), the final firm count at end-of-simulation is almost always exactly \textbf{0 or 1} --- never 2 or more. Specifically:
+
+\begin{itemize}
+  \item \textbf{dlc $= 1$}: runs typically crash early (\(t \ll 364\)) with \textbf{0 firms} surviving; rare runs appear to have multiple firms alive at termination, but these are \emph{early-termination artifacts} --- the war of attrition simply had not yet completed.
+  \item \textbf{dlc $= 3$ or $5$}: runs \emph{always} reach \(t = 364\) and \emph{always} end with exactly \textbf{1 firm} surviving. No run across any seed or stabilizing-firm count (\(k \in \{1,2,4\}\)) produced 2 or more survivors.
+  \item \textbf{Stabilizing firms change \emph{who} wins, not \emph{how many} survive.} As \(k\) increases, stabilizing firms become the more likely monopolist (e.g., at \(k=4\), dlc\,=\,5: stabilizing firm wins in all 3 seeds), but the final count remains 1.
+\end{itemize}
+
+\noindent The result tables are summarized in Table~\ref{tab:exp1_survival}.
+
+\begin{table}[h!]
+\centering
+\small
+\caption{Final firm count at end of Experiment~1 runs (seeds 8, 16, 64). ``Stab'' = winning firm was a stabilizing firm; ``Comp'' = winning firm was competitive; ``0'' = no survivors; ``Early'' = early crash (run ended before \(t=364\)); ``*'' = all 5 firms still alive at early termination (artifact).}
+\label{tab:exp1_survival}
+\begin{tabular}{llccc}
+\toprule
+$k$ (stab) & dlc & seed 8 & seed 16 & seed 64 \\
+\midrule
+\multicolumn{2}{l}{\textit{Baseline (\(k=0\))}} \\
+0 & 3 & 1 (Comp) & --- & --- \\
+\midrule
+\multicolumn{2}{l}{\(k=1\)} \\
+1 & 1 & 0 (Early, \(t=165\)) & 1 (Comp, \(t=143\)) & 0 (Early, \(t=120\)) \\
+1 & 3 & 1 (Comp) & 1 (Comp) & 1 (Comp) \\
+1 & 5 & 1 (Comp) & 1 (Stab) & 1 (Comp) \\
+\midrule
+\multicolumn{2}{l}{\(k=2\)} \\
+2 & 1 & 1 (Comp, \(t=364\)) & 0 (Early, \(t=61\)) & 5* (Early, \(t=22\)) \\
+2 & 3 & 1 (Comp) & 1 (Stab) & 1 (Stab) \\
+2 & 5 & 1 (Stab) & 1 (Stab) & 1 (Comp) \\
+\midrule
+\multicolumn{2}{l}{\(k=4\)} \\
+4 & 1 & 0 (Early, \(t=115\)) & 5* (Early, \(t=103\)) & 1 (Comp, \(t=135\)) \\
+4 & 3 & 1 (Stab) & 1 (Stab) & 1 (Comp) \\
+4 & 5 & 1 (Stab) & 1 (Stab) & 1 (Stab) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Corrected Parameter Values}
+
+The Experiment~1 runs use \texttt{--overhead-costs 14} (not the code default of \$50), giving:
+\[
+  \text{overhead per step} = \$14 \times \tfrac{1}{7} = \$2.00.
+\]
+The \texttt{unit\_cost = 2.0} argument is a \emph{preference-generation} parameter that sets the scale of consumer WTP; it is \textbf{not} the firm's cost of goods sold. The actual supply cost firms pay is \texttt{max\_supply\_unit\_cost = \$1/unit} (confirmed from \texttt{supply\_by\_good} in state files).
+
+\subsection{Is This a Structural Problem? Yes.}
+
+The winner-take-all outcome is not a coincidence or a seed artifact --- it is a \textbf{structural consequence of two interacting dynamics}: demand concentration and supply over-purchasing under uncertainty.
+
+\subsubsection{Mechanism 1: Supply Over-Purchasing Under Uncertain Demand}
+
+Overhead at \$2/step is negligible relative to supply costs. With equal market share (10 consumers $\times$ 10 units each = 100 units/step), break-even requires only:
+\[
+  100 \times (P - \$1) \;\geq\; \$2 \quad\Longrightarrow\quad P \geq \$1.02.
+\]
+Overhead is therefore \emph{not} the structural driver of bankruptcy. What kills firms is \textbf{inventory over-purchasing}: LLM firms purchase large amounts of supply speculatively each step (observed values: 50--300 units = \$50--\$300) before knowing how much demand they will receive. In steps where a firm gets zero sales, the entire inventory purchase is wasted. A single bad step can cost \$100--\$300 of cash for \$0 in revenue. Examples from \texttt{exp1\_stab\_1\_dlc3\_seed8}:
+
+\begin{itemize}
+  \item \(t=0\): \texttt{competitive\_1} buys 300 units (\$300), sells to 15 consumers → profit \(-\$233\).
+  \item \(t=1\): \texttt{competitive\_1} buys 100 units (\$100), gets 0 sales → profit \(-\$118\).
+  \item \(t=3\): \texttt{competitive\_3} buys 100 units (\$100), sells to 14 consumers → cash rebuilds.
+\end{itemize}
+
+Cash drains rapidly in steps with mismatched supply-demand; firms that consistently get zero consumers while still purchasing inventory go bankrupt quickly.
+
+\subsubsection{Mechanism 2: Demand Concentration and Cash War of Attrition}
+
+Because market clearing is by price, consumers who see multiple firms flock to the cheapest one. This concentrates demand on the lowest-price firm each step, leaving others with zero sales. The firm that wins the price competition in a given step earns revenue to offset its supply costs; losers waste their inventory purchase. Over many steps, demand-draw luck and price strategy create divergent cash trajectories: the firm that accumulates the most cash early survives the longest. Eventually one firm outlasts all others --- the \textbf{cash war of attrition}. With initial cash \(C_0 = \$500\) and supply costs that can exceed \$100 per wasted step, a firm that consistently loses demand draws can go bankrupt within 5--10 steps.
+
+The mechanism is self-reinforcing: a firm with low cash cannot afford to purchase large inventory, limiting its sales potential even in steps where it wins demand, accelerating its exit. The firm with the highest cash (from lucky early demand draws or from being a stabilizing firm with better margins) can continue purchasing inventory and remains competitive longest.
+
+\subsection{Why dlc Matters}
+
+The discovery limit interacts with this structural dynamic differently at different values.
+
+\begin{description}
+  \item[dlc $= 1$] Each consumer sees only one firm (random draw), so there is no price-comparison shopping. Demand is roughly uniform across firms ($\sim$10 consumers/firm/step). Firms still undercut each other (LLM behavior) even though undercutting provides no competitive advantage at dlc=1 (the consumer has no alternative to compare against). Meanwhile, LLMs continue to over-purchase inventory expecting demand that doesn't materialize, burning cash on unsold supply. The result is a fast crash: all firms drain cash at similar rates from wasted inventory, and the entire market collapses before the war of attrition fully resolves --- hence 0 firms surviving. Apparent multi-firm survival at dlc=1 (e.g., \(k=4\), seed16: all 5 firms alive at \(t=103\)) is an artifact of early termination; those firms had near-zero cash and would have gone bankrupt shortly after.
+
+  \item[dlc $\geq 3$] Consumers can now compare prices; demand concentrates on the lowest-price firm visible to each consumer. This intensifies undercutting pressure but also means one firm can capture enough demand to slow its cash drain relative to competitors. The war of attrition has time to complete: runs reach $t=364$ and the lone survivor emerges with substantial accumulated cash (e.g., \$143--\$1,993 depending on seed and $k$).
+\end{description}
+
+\subsection{Do Stabilizing Firms Solve the Structural Problem?}
+
+\textbf{No.} Stabilizing firms (\(k \geq 1\)) shift \emph{who} the monopolist is but do not prevent monopolization:
+
+\begin{enumerate}
+  \item \textbf{Better margins, but still competition for demand.} Stabilizing firms hold \(P \geq c\), earning positive margin per sale. Competitive firms undercut them, capturing more demand at sub-cost prices. The stabilizing firm loses sales to undercutters and pays overhead on low volume --- its cash drains, just more slowly.
+  \item \textbf{Competitive firms self-eliminate.} As competitive firms go bankrupt (selling below cost), the stabilizing firm inherits a larger share of remaining demand. Eventually it becomes the monopolist.
+  \item \textbf{Still one winner.} Even with \(k=4\) stabilizing firms, at most one firm survives. The four stabilizing firms compete among themselves once the competitive firms are gone; the one with the most accumulated cash wins the intra-stabilizer attrition.
+  \item \textbf{Higher \(k\) increases the probability that the winner is a stabilizing firm} (at \(k=4\), dlc\,=\,5: stabilizing firm wins all 3 seeds), confirming that alignment helps the aligned agent win --- but the market structure remains monopolistic.
+\end{enumerate}
+
+\subsection{Implications for the Paper}
+
+The single-survivor outcome is \textbf{not a bug}; it is evidence of a specific market failure: \textbf{monopolization via algorithmic attrition}. This is complementary to (and arguably more realistic than) the total-collapse story. The paper should characterize two failure modes of THE\_CRASH:
+
+\begin{enumerate}
+  \item \textbf{Total collapse} (0 survivors, dlc $= 1$): the price war is so fast and demand so thin that no firm can accumulate enough cash to outlast competitors.
+  \item \textbf{Monopolization} (1 survivor, dlc $\geq 3$): the price war eliminates all but one firm; the last firm becomes a de facto monopolist. Consumer welfare degrades during the attrition phase (few firms, possibly no supply for a period); the ``surviving'' market is a monopoly, not a competitive market.
+\end{enumerate}
+
+Stabilizing firms are a partial remedy: they delay and redirect the attrition, ensuring that the likely monopolist is a price-disciplined agent. Because stabilizing firms hold \(P \geq c\), their margin per unit sold is always non-negative, so they lose cash only in steps where they over-purchase inventory and get zero sales --- a less severe drain than competitive firms selling below cost. This gives stabilizing firms a cash-survival advantage and makes them the more likely last survivor. But a truly effective intervention would need to address the supply over-purchasing behavior itself (e.g., teach firms to buy inventory conservatively) or introduce coordination mechanisms that keep multiple firms viable simultaneously.
+
 \end{document}

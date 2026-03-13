@@ -29,6 +29,12 @@ class BaseLLMModel(ABC):
         self.temperature = temperature
         self.logger = logging.getLogger(__name__)
         self.stop_tokens = ["}"]
+        self.usage_stats = {"input_tokens": 0, "output_tokens": 0, "requests": 0}
+
+    def _record_usage(self, input_tokens: int, output_tokens: int) -> None:
+        self.usage_stats["input_tokens"] += input_tokens
+        self.usage_stats["output_tokens"] += output_tokens
+        self.usage_stats["requests"] += 1
 
     @abstractmethod
     def send_msg(

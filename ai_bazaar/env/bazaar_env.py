@@ -121,6 +121,7 @@ class BazaarWorld:
                     "llm_instance": llm_model,
                     "sybil": is_sybil,
                     "persona": firm_persona,
+                    "stabilizing": is_stabilizing,
                 }
                 firm_kw["supply_unit_costs"] = self.supply_unit_costs_by_firm[i]
                 firm = FirmAgent(**firm_kw)
@@ -136,9 +137,6 @@ class BazaarWorld:
                 )
             # Scale overhead by timestep length: daily (non-LEMON) = 1/7 of base; LEMON (weekly) = full base
             firm.overhead_scale = 1.0 / 7.0 if getattr(args, "consumer_scenario", None) != "LEMON_MARKET" else 1.0
-            # First num_stabilizing_firms LLM firms are stabilizing firms (already set name/persona above)
-            if args.firm_type == "LLM" and num_stabilizing > 0:
-                firm.stabilizing_firm = i < num_stabilizing
             # LEMON_MARKET: initial reputation R_0 (paper uses 0.8)
             if is_lemon and getattr(args, "reputation_initial", None) is not None:
                 firm.reputation = float(args.reputation_initial)
@@ -346,11 +344,12 @@ class BazaarWorld:
         self.logger.info("Wrote experiment args to %s", path)
 
     def _consumers_participating_this_step(self):
-        """Return the list of consumers who participate this timestep. If poisson_demand_lambda is set, k = min(Poisson(lam), N) consumers are chosen at random; else all participate. THE_CRASH scenario defaults lambda to 30 if not set."""
+        """Return the list of consumers who participate this timestep. If poisson_demand_lambda is set, k = min(Poisson(lam), N) consumers are chosen at random; else all participate. THE_CRASH scenario defaults lambda to 0.6 * num_consumers if not set."""
         lam = getattr(self.args, "poisson_demand_lambda", None)
         if lam is None:
             if getattr(self.args, "consumer_scenario", None) == "THE_CRASH":
-                lam = 30
+                # Default: 60% of total consumers for THE_CRASH
+                lam = 0.6 * getattr(self.args, "num_consumers", len(self.consumers))
             else:
                 return self.consumers
         k = np.random.poisson(lam)

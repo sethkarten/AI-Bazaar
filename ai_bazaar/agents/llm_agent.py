@@ -102,6 +102,12 @@ class LLMAgent:
         else:
             raise ValueError(f"Invalid LLM type: {llm_type}")
 
+    @property
+    def token_usage(self) -> dict:
+        if self.llm is None:
+            return {"input_tokens": 0, "output_tokens": 0, "requests": 0}
+        return self.llm.usage_stats
+
     def act(self) -> str:
         raise NotImplementedError
 

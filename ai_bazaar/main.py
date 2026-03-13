@@ -7,6 +7,7 @@ This simulation consists of:
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -86,6 +87,27 @@ def run_marketplace_simulation(args, llm_instance=None):
     finally:
         if args.wandb:
             wandb.finish()
+
+    # Collect token usage from all agents
+    all_agents = list(world.firms) + list(world.consumers)
+    total = {"input_tokens": 0, "output_tokens": 0, "requests": 0}
+    for agent in all_agents:
+        if hasattr(agent, "token_usage"):
+            for k in total:
+                total[k] += agent.token_usage[k]
+
+    print(f"\n=== Token Usage ===")
+    print(f"  Input tokens:  {total['input_tokens']:,}")
+    print(f"  Output tokens: {total['output_tokens']:,}")
+    print(f"  Requests:      {total['requests']:,}")
+
+    usage_path = os.path.join(
+        args.log_dir, f"{args.name or 'simulation'}_token_usage.json"
+    )
+    with open(usage_path, "w") as f:
+        json.dump(total, f, indent=2)
+    print(f"Token usage saved to {usage_path}")
+
     logger.info("Marketplace simulation completed successfully!")
     print("Simulation completed!")
     return
@@ -142,7 +164,7 @@ def create_argument_parser():
         "--poisson-demand-lambda",
         type=float,
         default=None,
-        help="If set, each timestep the number of consumers who participate is min(Poisson(lambda), num_consumers). If None, all consumers participate.",
+        help="If set, each timestep the number of consumers who participate is min(Poisson(lambda), num_consumers). If None, all consumers participate (except THE_CRASH, which defaults lambda to 0.6 * num_consumers).",
     )
     parser.add_argument(
         "--info-asymmetry",
@@ -354,9 +376,9 @@ def main():
         if getattr(args, "sybil_cluster_size", 0) > 0 and args.num_firms < args.sybil_cluster_size:
             args.num_firms = args.sybil_cluster_size
 
-    # THE_CRASH: default Poisson demand lambda to 30 unless explicitly set
+    # THE_CRASH: default Poisson demand lambda to 60% of num_consumers unless explicitly set
     if getattr(args, "consumer_scenario", None) == "THE_CRASH" and getattr(args, "poisson_demand_lambda", None) is None:
-        args.poisson_demand_lambda = 30
+        args.poisson_demand_lambda = 0.6 * args.num_consumers
 
     setup_logging(args)
     logger = logging.getLogger("main")

@@ -121,16 +121,22 @@ class GeminiModel(BaseLLMModel):
                         config=config
                     )
                     message = response.text
-                
+
+                _um = getattr(response, "usage_metadata", None)
+                _input_t = getattr(_um, "prompt_token_count", 0) if _um else 0
+                _output_t = getattr(_um, "candidates_token_count", 0) if _um else 0
+
                 if not self._validate_response(message):
                     self.logger.warning(f"Invalid response received: {message}")
                     retry_count += 1
                     continue
-                
+
+                self._record_usage(_input_t, _output_t)
+
                 # Extract JSON if requested
                 if json_format:
                     return self._extract_json(message)
-                
+
                 return message, False
                 
             except Exception as e:

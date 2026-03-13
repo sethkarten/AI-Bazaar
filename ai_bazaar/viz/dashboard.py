@@ -61,6 +61,13 @@ if firm_attributes_path and os.path.isfile(firm_attributes_path):
     with open(firm_attributes_path, "r") as f:
         firm_attributes_list = json.load(f)
 
+# Token usage summary for this run (optional; written by ai_bazaar.main)
+token_usage_files = (
+    sorted(glob.glob(os.path.join(run_dir, "*_token_usage.json")))
+    if run_dir
+    else []
+)
+
 if not state_files:
     st.warning("No state files found in logs/ (or in any logs/<run_name>/ folder). Run a simulation first!")
 else:
@@ -100,8 +107,19 @@ else:
         f"{pd.DataFrame(state['consumers'])['utility'].mean():.2f}",
     )
 
-    # Tab 0: General. Tab 1–3: single-timestep view. Tab 4: Charts. Tab 5: Lemon Market. Tab 6: Discovery.
-    tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📋 General", "💰 Wealth Distribution", "🏢 Firms", "👥 Consumers", "📊 Charts", "🍋 Lemon Market", "🔍 Discovery"])
+    # Tab 0: General. Tab 1–3: single-timestep view. Tab 4: Charts. Tab 5: Lemon Market. Tab 6: Discovery. Tab 7: Token usage.
+    tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+        [
+            "📋 General",
+            "💰 Wealth Distribution",
+            "🏢 Firms",
+            "👥 Consumers",
+            "📊 Charts",
+            "🍋 Lemon Market",
+            "🔍 Discovery",
+            "🧮 Token Usage",
+        ]
+    )
 
     # GENERAL TAB: Experiment arguments.
     with tab0:
@@ -1239,3 +1257,51 @@ else:
                 st.altair_chart(chart_views, use_container_width=True)
             else:
                 st.caption("No views-over-time data (only populated for THE_CRASH scenario).")
+
+    # TOKEN USAGE TAB: Aggregate and per-run token usage statistics.
+    with tab7:
+        st.subheader("Token usage summary")
+        if not token_usage_files:
+            st.caption(
+                "No *_token_usage.json files found in this run directory. "
+                "Run a simulation with LLM firms to generate token usage logs."
+            )
+        else:
+            # If multiple usage files exist (e.g., multiple experiments in same folder),
+            # allow the user to pick which one to inspect.
+            usage_labels = [os.path.basename(p) for p in token_usage_files]
+            selected_label = st.selectbox(
+                "Token usage file",
+                options=usage_labels,
+                index=0,
+                key="token_usage_file_select",
+            )
+            selected_path = next(
+                p for p in token_usage_files if os.path.basename(p) == selected_label
+            )
+
+            try:
+                with open(selected_path, "r") as f:
+                    usage_data = json.load(f)
+            except Exception as e:
+                st.error(f"Failed to load token usage from {selected_label}: {e}")
+                usage_data = None
+
+            if isinstance(usage_data, dict):
+                input_tokens = float(usage_data.get("input_tokens", 0) or 0)
+                output_tokens = float(usage_data.get("output_tokens", 0) or 0)
+                requests = int(usage_data.get("requests", 0) or 0)
+                total_tokens = input_tokens + output_tokens
+
+                col_a, col_b, col_c, col_d = st.columns(4)
+                col_a.metric("Input tokens", f"{int(input_tokens):,}")
+                col_b.metric("Output tokens", f"{int(output_tokens):,}")
+                col_c.metric("Total tokens", f"{int(total_tokens):,}")
+                col_d.metric("LLM requests", f"{requests:,}")
+
+                st.subheader("Raw JSON")
+                st.code(json.dumps(usage_data, indent=2), language="json")
+            else:
+                st.caption(
+                    f"{selected_label} does not contain a JSON object with token usage totals."
+                )

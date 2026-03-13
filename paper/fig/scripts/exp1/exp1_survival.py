@@ -5,7 +5,6 @@ Fig: Experiment 1 Survival — side-by-side heatmaps of:
 
 Grid: dlc ∈ {1, 3, 5}  ×  n_stab ∈ {0, 1, 2, 4, 5}
   n_stab=0: baseline (no stabilizing firm), exists only for dlc=3 seed=8 → "exp1_baseline"
-  n_stab=5: stab baseline (all 5 firms stabilizing), exists only for dlc=3 seed=8 → "exp1_stab_baseline"
   All others: "exp1_stab_{n_stab}_dlc{dlc}_seed{seed}", averaged over seeds 8, 16, 64.
 
 Survival = last timestep recorded.  365 → survived full horizon.
@@ -60,7 +59,7 @@ MAX_TIMESTEPS = 365
 N_FIRMS_TOTAL = 5
 
 # Whether a (n_stab, dlc) cell is a "special case" with only one seed available
-_SPECIAL_SINGLE_SEED = {(0, 3), (5, 3)}
+_SPECIAL_SINGLE_SEED = {(0, 3)}
 
 
 def resolve_run_dir(logs_dir, dlc, n_stab, seed):
@@ -71,9 +70,6 @@ def resolve_run_dir(logs_dir, dlc, n_stab, seed):
             return path if os.path.isdir(path) else None
         return None
     if n_stab == 5:
-        if dlc == 3 and seed == 8:
-            path = os.path.join(logs_dir, "exp1_stab_baseline")
-            return path if os.path.isdir(path) else None
         path = os.path.join(logs_dir, f"exp1_stab_5_dlc{dlc}_seed{seed}")
         return path if os.path.isdir(path) else None
     path = os.path.join(logs_dir, f"exp1_stab_{n_stab}_dlc{dlc}_seed{seed}")

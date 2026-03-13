@@ -98,16 +98,22 @@ class OpenRouterModel(BaseLLMModel):
                     raise Exception(f"No response choices returned: {result}")
                 
                 message = result['choices'][0]['message']['content']
-                
+
                 if not self._validate_response(message):
                     self.logger.warning(f"Invalid response received: {message}")
                     retry_count += 1
                     continue
-                
+
+                usage = result.get("usage", {})
+                self._record_usage(
+                    usage.get("prompt_tokens", 0),
+                    usage.get("completion_tokens", 0),
+                )
+
                 # Extract JSON if requested
                 if json_format:
                     return self._extract_json(message)
-                
+
                 return message, False
                 
             except requests.exceptions.HTTPError as e:

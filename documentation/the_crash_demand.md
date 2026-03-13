@@ -19,14 +19,14 @@ participating = random.sample(all_consumers, k)
 
 where $N$ is the total number of consumers in the simulation.
 
-**Default for THE_CRASH:** `lambda = 30`. This is hardcoded as the scenario default in two places:
+**Default for THE_CRASH:** `lambda = 0.6 * num_consumers`. This is hardcoded as the scenario default in two places:
 
-- `main.py` sets `args.poisson_demand_lambda = 30` at startup if the scenario is `THE_CRASH` and no explicit value was passed.
-- `_consumers_participating_this_step()` independently checks: if `poisson_demand_lambda` is `None` and the scenario is `THE_CRASH`, it uses `lam = 30`.
+- `main.py` sets `args.poisson_demand_lambda = 0.6 * num_consumers` at startup if the scenario is `THE_CRASH` and no explicit value was passed.
+- `_consumers_participating_this_step()` independently checks: if `poisson_demand_lambda` is `None` and the scenario is `THE_CRASH`, it uses `lam = 0.6 * num_consumers`.
 
 **Overriding the default:** Pass `--poisson-demand-lambda <value>` at the CLI. Setting it to `None` (the default for all other scenarios) causes all consumers to participate every timestep.
 
-**Effect:** With `lambda = 30` and (say) $N = 100$ consumers, the expected number of buyers per timestep is 30, with standard deviation $\sqrt{30} \approx 5.5$. This creates aggregate demand volatility that firms experience as unpredictable order volume, contributing to the crash dynamic.
+**Effect:** With `lambda = 0.6 N` and (say) $N = 100$ consumers (so $\lambda = 60$), the expected number of buyers per timestep is 60, with standard deviation $\sqrt{60} \approx 7.7$. This creates aggregate demand volatility that firms experience as unpredictable order volume, contributing to the crash dynamic.
 
 ---
 

@@ -87,16 +87,21 @@ class VLLMModel(BaseLLMModel):
                 )
                 
                 message = response.choices[0].text
-                
+
                 if not self._validate_response(message):
                     self.logger.warning(f"Invalid response received: {message}")
                     retry_count += 1
                     continue
-                
+
+                if response.usage:
+                    self._record_usage(response.usage.prompt_tokens, response.usage.completion_tokens)
+                else:
+                    self._record_usage(0, 0)
+
                 # Extract JSON if requested
                 if json_format:
                     return self._extract_json(message)
-                
+
                 return message, False
                 
             except RateLimitError as e:
@@ -196,16 +201,21 @@ class OllamaModel(BaseLLMModel):
                 )
                 
                 message = response['message']['content']
-                
+
                 if not self._validate_response(message):
                     self.logger.warning(f"Invalid response received: {message}")
                     retry_count += 1
                     continue
-                
+
+                self._record_usage(
+                    response.get("prompt_eval_count", 0),
+                    response.get("eval_count", 0),
+                )
+
                 # Extract JSON if requested
                 if json_format:
                     return self._extract_json(message)
-                
+
                 return message, False
                 
             except Exception as e:
