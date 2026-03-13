@@ -319,7 +319,92 @@ python -m ai_bazaar.main --name lemon_50_flash_sybil_1 --use-cost-pref-gen --fir
 
 ## EXPERIMENT 1
 
-**Common settings:** 5 LLM firms, 50 CES consumers, 100 timesteps, firm personas (round robin), THE_CRASH, `--use-cost-pref-gen`, `--no-diaries`, `--prompt-algo cot`, `--max-tokens 2000`, `--llm gemini-2.5-flash`
+**Common settings:** 5 LLM firms, 50 CES consumers, 365 timesteps, THE_CRASH, `--use-cost-pref-gen`, `--no-diaries`, `--prompt-algo cot`, `--max-tokens 2000`, `--llm gemini-2.5-flash`, `--overhead-costs 14`.
+
+### `scripts/exp1.py` — Experiment 1 runner
+
+`scripts/exp1.py` runs the full Experiment 1 matrix and supports flexible subsetting so you can re-run individual cells, switch models, or skip completed runs. Always run from the **project root**.
+
+**Full matrix:** 37 runs total — 1 baseline (no stabilizing firm, dlc=3, seed=8) plus stabilizing-firm sweeps over dlc ∈ {1, 3, 5} × n_stab ∈ {1, 2, 4, 5} × seeds {8, 16, 64}.
+
+**Fixed settings:** `--wtp-algo none`, competitive persona for all non-stabilizing firms, price-only consumer scoring (no `--crash-rep-scoring`), `--overhead-costs 14`. Run names are the log labels (e.g. `exp1_baseline`, `exp1_stab_2_dlc3_seed8`). Per-run logs go to `logs/exp1/`; state files and artifacts go to `logs/<run_name>/`.
+
+#### Basic usage
+
+```bash
+# Run everything sequentially (default)
+python scripts/exp1.py
+
+# Run in parallel — keep workers low (2–4) to respect Gemini rate limits
+python scripts/exp1.py --workers 3
+```
+
+#### Model / service
+
+By default the script uses `gemini-2.5-flash`. Override with the same flags as a normal run:
+
+```bash
+# Different Gemini model
+python scripts/exp1.py --llm gemini-2.0-flash
+
+# Ollama (local GPU) — start Ollama first with OLLAMA_NUM_PARALLEL=4
+python scripts/exp1.py --llm gemma3:4b --service ollama --port 11434
+
+# vLLM local server
+python scripts/exp1.py --llm google/gemma-3-4b-it --service vllm --port 8009
+```
+
+#### Filtering runs
+
+All filters combine with AND logic. Use `--list` to preview before committing.
+
+```bash
+# Preview what would run without executing
+python scripts/exp1.py --list
+
+# Only dlc=3 cells
+python scripts/exp1.py --dlc 3
+
+# Only n_stab=4 and n_stab=5
+python scripts/exp1.py --n-stab 4 5
+
+# Only seed=8
+python scripts/exp1.py --seeds 8
+
+# Combine filters: dlc=1, n_stab=1 or 2, all seeds
+python scripts/exp1.py --dlc 1 --n-stab 1 2
+
+# Specific runs by exact label
+python scripts/exp1.py --run exp1_baseline exp1_stab_2_dlc3_seed8
+
+# Skip runs whose log directory already exists (resume a partial run)
+python scripts/exp1.py --skip-existing
+
+# Common pattern: run only the new n_stab=5 sweep, in parallel, skip done
+python scripts/exp1.py --n-stab 5 --workers 3 --skip-existing
+```
+
+#### Experiment 1 figures
+
+After runs have produced state files under `logs/<run_name>/`, generate figures from the **project root**. Figure scripts live in `paper/fig/scripts/exp1/` and write PDFs to `paper/fig/exp1/` by default.
+
+```bash
+# Regenerate all four Exp1 figures (heatmap, interaction, timeseries, score)
+python paper/fig/scripts/exp1/exp1_run_all.py
+
+# Optional arguments
+#   --logs-dir DIR   directory containing run folders (default: logs/)
+#   --good NAME      good name for price/volume metrics (default: food)
+#   --fig-dir DIR    output directory for PDFs (default: paper/fig/exp1/)
+
+# Single figure
+python paper/fig/scripts/exp1/exp1_heatmap.py --logs-dir logs/
+python paper/fig/scripts/exp1/exp1_score.py   --logs-dir logs/
+```
+
+Figure scripts expect run names produced by `exp1.py` (e.g. `exp1_baseline`, `exp1_stab_1_dlc1_seed8`). They read `state_t*.json` and `firm_attributes.json` from each run directory.
+
+---
 
 ### Baseline (no stabilizing firm)
 
@@ -328,6 +413,7 @@ Discovery limit consumers = 3, discovery limit firms = default. No stabilizing f
 ```bash
 python -m ai_bazaar.main --name exp1_baseline --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --overhead-costs 14 --consumer-scenario THE_CRASH --discovery-limit-consumers 3  --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
 ```
+
 ### Discovery Limit Consumer sweep 
 
 ### Stabilizing Firm sweep (dlc = 1, default dlf)
@@ -442,6 +528,46 @@ python -m ai_bazaar.main --name exp1_stab_2 --use-cost-pref-gen --max-supply-uni
 ```
 ```bash
 python -m ai_bazaar.main --name exp1_stab_2 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --overhead-costs 14 --consumer-scenario THE_CRASH --discovery-limit-consumers 5  --num-stabilizing-firms 4 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 64
+```
+
+### 5 Stabilizing Firms
+
+DLC 1, 3, 5 sweep; 3 seeds (8, 16, 64) each.
+
+#### 5 Stabilizing Firms (dlc = 1)
+
+```bash
+python -m ai_bazaar.main --name exp1_stab_5_dlc1_seed8 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --overhead-costs 14 --consumer-scenario THE_CRASH --discovery-limit-consumers 1  --num-stabilizing-firms 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+```bash
+python -m ai_bazaar.main --name exp1_stab_5 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --overhead-costs 14 --consumer-scenario THE_CRASH --discovery-limit-consumers 1  --num-stabilizing-firms 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 16
+```
+```bash
+python -m ai_bazaar.main --name exp1_stab_5 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --overhead-costs 14 --consumer-scenario THE_CRASH --discovery-limit-consumers 1  --num-stabilizing-firms 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 64
+```
+
+#### 5 Stabilizing Firms (dlc = 3)
+
+```bash
+python -m ai_bazaar.main --name exp1_stab_5 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --overhead-costs 14 --consumer-scenario THE_CRASH --discovery-limit-consumers 3  --num-stabilizing-firms 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+```bash
+python -m ai_bazaar.main --name exp1_stab_5 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --overhead-costs 14 --consumer-scenario THE_CRASH --discovery-limit-consumers 3  --num-stabilizing-firms 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 16
+```
+```bash
+python -m ai_bazaar.main --name exp1_stab_5 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --overhead-costs 14 --consumer-scenario THE_CRASH --discovery-limit-consumers 3  --num-stabilizing-firms 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 64
+```
+
+#### 5 Stabilizing Firms (dlc = 5)
+
+```bash
+python -m ai_bazaar.main --name exp1_stab_5 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --overhead-costs 14 --consumer-scenario THE_CRASH --discovery-limit-consumers 5  --num-stabilizing-firms 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 8
+```
+```bash
+python -m ai_bazaar.main --name exp1_stab_5 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --overhead-costs 14 --consumer-scenario THE_CRASH --discovery-limit-consumers 5  --num-stabilizing-firms 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 16
+```
+```bash
+python -m ai_bazaar.main --name exp1_stab_5 --use-cost-pref-gen --max-supply-unit-cost 1 --firm-type LLM --num-goods 1 --num-firms 5 --consumer-type CES --num-consumers 50 --max-timesteps 365 --firm-initial-cash 500 --overhead-costs 14 --consumer-scenario THE_CRASH --discovery-limit-consumers 5  --num-stabilizing-firms 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 64
 ```
 
 ---
