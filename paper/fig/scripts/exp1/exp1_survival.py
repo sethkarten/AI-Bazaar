@@ -30,6 +30,7 @@ import matplotlib.patches as mpatches
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
+from exp1_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data
 
 plt.rcParams.update({
     "font.family":        "serif",
@@ -60,6 +61,39 @@ N_FIRMS_TOTAL = 5
 
 # Whether a (n_stab, dlc) cell is a "special case" with only one seed available
 _SPECIAL_SINGLE_SEED = {(0, 3)}
+
+
+def collect_run_dirs(logs_dir):
+    dirs = []
+    for n_stab in N_STAB_VALUES:
+        for dlc in DLC_VALUES:
+            for seed in SEEDS:
+                d = resolve_run_dir(logs_dir, dlc, n_stab, seed)
+                if d:
+                    dirs.append(d)
+    return dirs
+
+
+def _serialize(grid, annotations, grid_firms, annotations_firms, available, single_seed):
+    return {
+        "grid":              grid.tolist(),
+        "annotations":       annotations,
+        "grid_firms":        grid_firms.tolist(),
+        "annotations_firms": annotations_firms,
+        "available":         available.tolist(),
+        "single_seed":       single_seed.tolist(),
+    }
+
+
+def _deserialize(data):
+    return (
+        np.array(data["grid"]),
+        data["annotations"],
+        np.array(data["grid_firms"]),
+        data["annotations_firms"],
+        np.array(data["available"],    dtype=bool),
+        np.array(data["single_seed"],  dtype=bool),
+    )
 
 
 def resolve_run_dir(logs_dir, dlc, n_stab, seed):
@@ -374,10 +408,23 @@ def main():
     parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
 
-    print(f"Loading runs from: {args.logs_dir}")
-    grid, annotations, grid_firms, annotations_firms, available, single_seed = build_grid(
-        args.logs_dir, workers=args.workers
-    )
+    data_dir   = get_data_dir(args.output)
+    cache_path = get_cache_path(data_dir, "exp1_survival", args.good)
+    run_dirs   = collect_run_dirs(args.logs_dir)
+
+    if is_cache_fresh(cache_path, run_dirs, args.logs_dir, args.good):
+        print(f"Using cached data: {cache_path}", flush=True)
+        grid, annotations, grid_firms, annotations_firms, available, single_seed = \
+            _deserialize(load_cache_data(cache_path))
+    else:
+        print(f"Loading runs from: {args.logs_dir}")
+        grid, annotations, grid_firms, annotations_firms, available, single_seed = build_grid(
+            args.logs_dir, workers=args.workers
+        )
+        save_cache(cache_path,
+                   _serialize(grid, annotations, grid_firms, annotations_firms, available, single_seed),
+                   args.logs_dir, args.good)
+        print(f"Cached data: {cache_path}", flush=True)
 
     n_available = int(available.sum())
     print(f"Cells with data: {n_available} / {len(N_STAB_VALUES) * len(DLC_VALUES)}")

@@ -31,6 +31,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
 from ai_bazaar.utils.dataframe_builder import DataFrameBuilder
+from exp1_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data
 
 plt.rcParams.update({
     "font.family":        "serif",
@@ -56,6 +57,32 @@ plt.rcParams.update({
 DLC_VALUES    = [1, 3, 5]
 N_STAB_VALUES = [0, 1, 2, 4, 5]
 SEEDS         = [8, 16, 64]
+
+
+def collect_run_dirs(logs_dir):
+    dirs = []
+    for n_stab in N_STAB_VALUES:
+        for dlc in DLC_VALUES:
+            for seed in SEEDS:
+                d = resolve_run_dir(logs_dir, dlc, n_stab, seed)
+                if d:
+                    dirs.append(d)
+    return dirs
+
+
+def _serialize(grids, annotations, available, unit_cost):
+    return {
+        "grids":       {k: v.tolist() for k, v in grids.items()},
+        "annotations": annotations,
+        "available":   available.tolist(),
+        "unit_cost":   unit_cost,
+    }
+
+
+def _deserialize(data):
+    grids      = {k: np.array(v) for k, v in data["grids"].items()}
+    available  = np.array(data["available"], dtype=bool)
+    return grids, data["annotations"], available, data["unit_cost"]
 
 
 def resolve_run_dir(logs_dir, dlc, n_stab, seed):
@@ -246,8 +273,19 @@ def main():
     parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
 
-    print(f"Loading runs from: {args.logs_dir}")
-    grids, annotations, available, unit_cost = build_grid(args.logs_dir, args.good, workers=args.workers)
+    data_dir   = get_data_dir(args.output)
+    cache_path = get_cache_path(data_dir, "exp1_heatmap", args.good)
+    run_dirs   = collect_run_dirs(args.logs_dir)
+
+    if is_cache_fresh(cache_path, run_dirs, args.logs_dir, args.good):
+        print(f"Using cached data: {cache_path}", flush=True)
+        grids, annotations, available, unit_cost = _deserialize(load_cache_data(cache_path))
+    else:
+        print(f"Loading runs from: {args.logs_dir}")
+        grids, annotations, available, unit_cost = build_grid(args.logs_dir, args.good, workers=args.workers)
+        save_cache(cache_path, _serialize(grids, annotations, available, unit_cost),
+                   args.logs_dir, args.good)
+        print(f"Cached data: {cache_path}", flush=True)
     print(f"Unit cost: {unit_cost:.3f}")
 
     # Panel config: (title, metric_key, colormap, diverging)

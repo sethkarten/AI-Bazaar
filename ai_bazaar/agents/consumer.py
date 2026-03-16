@@ -217,14 +217,14 @@ class CESConsumerAgent(LLMAgent):
         cost_of_living = 0.0
         total = 0.0
         quotes = self.market.quotes
-        for quote in quotes:
-            self.logger.info(f"Quote: {quote.good}: {quote.price}")
+        # for quote in quotes:
+            # self.logger.info(f"Quote: {quote.good}: {quote.price}")
 
         for good in self.goods:
             good_str = str(good).strip()
             good_quotes = [q for q in quotes if str(q.good).strip() == good_str]
-            self.logger.info(f"Good quotes: {good_quotes}")
-            self.logger.info(f"# Good quotes: {len(good_quotes)}")
+            # self.logger.info(f"Good quotes: {good_quotes}")
+            # self.logger.info(f"# Good quotes: {len(good_quotes)}")
             if good_quotes:
                 self.prices_dict[good] = sum(q.price for q in good_quotes) / len(
                     good_quotes

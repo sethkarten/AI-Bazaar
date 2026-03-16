@@ -101,9 +101,10 @@ def run_marketplace_simulation(args, llm_instance=None):
     print(f"  Output tokens: {total['output_tokens']:,}")
     print(f"  Requests:      {total['requests']:,}")
 
-    usage_path = os.path.join(
-        args.log_dir, f"{args.name or 'simulation'}_token_usage.json"
-    )
+    run_name = getattr(args, "name", None) or "simulation"
+    run_dir = os.path.join(args.log_dir, run_name)
+    os.makedirs(run_dir, exist_ok=True)
+    usage_path = os.path.join(run_dir, f"{run_name}_token_usage.json")
     with open(usage_path, "w") as f:
         json.dump(total, f, indent=2)
     print(f"Token usage saved to {usage_path}")

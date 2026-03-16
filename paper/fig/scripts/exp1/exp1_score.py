@@ -4,6 +4,9 @@ Fig 4: Experiment 1 Multi-Dimensional Performance Score
 Combines bankruptcy rate, final price deviation from unit cost, and price volatility
 into a composite market health score and a multi-metric trade-off visualization.
 
+Grid: n_stab ∈ {0, 1, 2, 4, 5} × dlc ∈ {1, 3, 5} × seeds {8, 16, 64}.
+Includes all n_stab=5 runs (exp1_stab_5_dlc{dlc}_seed{seed}).
+
 Panel A — Trade-off scatter:
   x: Price volatility σ (lower = more stable)
   y: |Final price / unit cost − 1| (deviation from break-even; lower = better)
@@ -37,6 +40,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
 from ai_bazaar.utils.dataframe_builder import DataFrameBuilder
+from exp1_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data
 
 plt.rcParams.update({
     "font.family":        "serif",
@@ -80,6 +84,29 @@ DLC_LABELS  = {1: "dlc=1", 3: "dlc=3", 5: "dlc=5"}
 
 
 # ── Data loading (mirrors exp1_heatmap.py) ────────────────────────────────────
+
+def collect_run_dirs(logs_dir):
+    dirs = []
+    for n_stab in N_STAB_VALUES:
+        for dlc in DLC_VALUES:
+            for seed in SEEDS:
+                d = resolve_run_dir(logs_dir, dlc, n_stab, seed)
+                if d:
+                    dirs.append(d)
+    return dirs
+
+
+def _serialize(cell_data):
+    # tuple keys → "n_stab,dlc" strings; values are lists of plain dicts (already JSON-safe)
+    return {f"{ns},{dlc}": runs for (ns, dlc), runs in cell_data.items()}
+
+
+def _deserialize(data):
+    return {
+        (int(k.split(",")[0]), int(k.split(",")[1])): runs
+        for k, runs in data.items()
+    }
+
 
 def resolve_run_dir(logs_dir, dlc, n_stab, seed):
     if n_stab == 0:
@@ -421,7 +448,18 @@ def main():
     parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
 
-    cell_data  = load_all_metrics(args.logs_dir, args.good, workers=args.workers)
+    data_dir   = get_data_dir(args.output)
+    cache_path = get_cache_path(data_dir, "exp1_score", args.good)
+    run_dirs   = collect_run_dirs(args.logs_dir)
+
+    if is_cache_fresh(cache_path, run_dirs, args.logs_dir, args.good):
+        print(f"Using cached data: {cache_path}", flush=True)
+        cell_data = _deserialize(load_cache_data(cache_path))
+    else:
+        cell_data = load_all_metrics(args.logs_dir, args.good, workers=args.workers)
+        save_cache(cache_path, _serialize(cell_data), args.logs_dir, args.good)
+        print(f"Cached data: {cache_path}", flush=True)
+
     cell_means = compute_composite(cell_data)
 
     print("\nComposite scores:")
@@ -430,8 +468,8 @@ def main():
               f"(br={agg['br_mean']:.2f}, pstd={agg['pstd_mean']:.3f}, "
               f"pdev={agg['pdev_mean']:.3f})")
 
-    # ── Layout: left scatter (wider) + right heatmap ─────────────────────
-    fig = plt.figure(figsize=(7.0, 4.2))
+    # ── Layout: left scatter (wider) + right heatmap (5 n_stab rows) ───────
+    fig = plt.figure(figsize=(7.0, 4.8))
     gs  = gridspec.GridSpec(
         1, 2, figure=fig,
         width_ratios=[5, 3],
