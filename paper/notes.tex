@@ -483,4 +483,261 @@ The single-survivor outcome is \textbf{not a bug}; it is evidence of a specific 
 
 Stabilizing firms are a partial remedy: they delay and redirect the attrition, ensuring that the likely monopolist is a price-disciplined agent. Because stabilizing firms hold \(P \geq c\), their margin per unit sold is always non-negative, so they lose cash only in steps where they over-purchase inventory and get zero sales --- a less severe drain than competitive firms selling below cost. This gives stabilizing firms a cash-survival advantage and makes them the more likely last survivor. But a truly effective intervention would need to address the supply over-purchasing behavior itself (e.g., teach firms to buy inventory conservatively) or introduce coordination mechanisms that keep multiple firms viable simultaneously.
 
+
+% ==============================================================================
+\newpage
+\section{Experiment 1 Revision Report: Discrepancies Between \texttt{root.pdf} and Current Implementation}
+\label{sec:exp1-revision}
+% Written 2026-03-17. Cross-references root.pdf (Section 5.1, 6.1) against
+% the actual codebase (exp1_heatmap.py, exp1_survival.py, exp1_timeseries.py,
+% exp1_score.py, exp1_phase.py, exp1_collapse_timing.py).
+% ==============================================================================
+
+The current draft of \texttt{root.pdf} describes Experiment~1 in terms of a
+model-family ablation (5 LLMs $\times$ \{base, Stabilizing Firm\}).
+The implemented experiment is structurally different: it is a two-dimensional
+grid ablation over the \emph{number of stabilizing firms} $k$ and the
+\emph{consumer discovery limit} $\mathrm{dlc}$, using a \emph{single fixed LLM}.
+The table, figure, and prose in Sections~5.1 and~6.1 need to be rewritten from scratch.
+The items below enumerate each specific discrepancy and the required correction.
+
+\subsection{Structural Discrepancy: Experiment Design}
+
+\begin{tabular}{p{0.46\linewidth} p{0.46\linewidth}}
+\toprule
+\textbf{Current draft (root.pdf)} & \textbf{Actual implementation} \\
+\midrule
+Independent variable: model family (Gemma~3, Qwen~3, Ministral~3, OLMo~3, Llama~3.2) $\times$ configuration (base / Stabilizing Firm). 10 conditions. &
+Independent variables: $k \in \{0,1,2,4,5\}$ (number of stabilizing firms) $\times$ $\mathrm{dlc} \in \{1,3,5\}$ (consumer discovery limit). 15 cells in a 5$\times$3 grid. \\
+\midrule
+LLM model is a treatment variable. &
+LLM model is fixed (single model family). The experiment characterises the \emph{mechanism} (how many stabilizing firms and how much search friction) rather than the \emph{model}. \\
+\midrule
+Table~1 rows: model family. &
+Correct structure: heatmap grid (rows $= k$, columns $= \mathrm{dlc}$) for each metric. \\
+\bottomrule
+\end{tabular}
+
+\medskip
+\textbf{Required fix:} Rewrite the Experiment~1 setup paragraph to describe the
+$(k,\mathrm{dlc})$ ablation.  Replace Table~1 with the 2D heatmap figures
+already generated (\texttt{exp1\_heatmap.pdf}).  If a model-family comparison is
+still desired, it should be a separate experiment.
+
+\subsection{Episode Length $T$}
+
+\begin{itemize}
+  \item \textbf{Draft:} $T = 50$ timesteps.
+  \item \textbf{Implementation:} $T = 365$ timesteps (\texttt{MAX\_TIMESTEPS = 365}
+        in \texttt{exp1\_survival.py}; the timeseries x-axis is forced to $[0, 365]$
+        in \texttt{exp1\_timeseries.py}).
+  \item \textbf{Fix:} Change every occurrence of ``$T=50$'' in Section~5.1,
+        Table~1 caption, and Figure~3 caption to $T=365$.
+\end{itemize}
+
+\subsection{Seeds / Episodes}
+
+\begin{itemize}
+  \item \textbf{Draft:} ``We run 10 independent episodes per condition and report
+        mean $\pm$ standard deviation.''
+  \item \textbf{Implementation:} Three seeds (\texttt{SEEDS = [8, 16, 64]}) per
+        $(k,\mathrm{dlc})$ cell; mean is averaged across seeds. The baseline
+        (\texttt{exp1\_baseline}) has only one seed (seed~8).
+  \item \textbf{Fix:} Replace ``10 independent episodes'' with ``3 random seeds''.
+        Note that the $k=0$ baseline is single-seed (dlc$=3$ only).
+\end{itemize}
+
+\subsection{Unit Cost $c$}
+
+\begin{itemize}
+  \item \textbf{Draft:} $c = \$5.00$ (fixed).
+  \item \textbf{Implementation:} $c$ is read from \texttt{firm\_attributes.json}
+        (\texttt{supply\_unit\_costs}) and averaged across firms; empirical value
+        is approximately $c \approx 1.0$.
+  \item \textbf{Fix:} Replace ``$c = \$5.00$'' with the actual mean unit cost from
+        the run logs.  Remove the dollar sign; prices are dimensionless in the
+        simulator.  Also correct the $\delta = \$0.50$ margin in the FixedFirmAgent
+        description accordingly.
+\end{itemize}
+
+\subsection{Discovery Limit $\mathrm{dlc}$ — Omitted Variable}
+
+\begin{itemize}
+  \item \textbf{Draft:} Mentions a static token budget $\tau = 3$ once, in the
+        setup paragraph.  The dlc is never identified as a treatment variable.
+  \item \textbf{Implementation:} \texttt{DLC\_VALUES = [1, 3, 5]} is one of the
+        two primary ablation axes.  All figures display dlc on the x-axis of every
+        heatmap.  The timeseries panels are also organized by dlc.
+  \item \textbf{Fix:} Add a description of dlc (consumer discovery limit) as an
+        independent variable alongside $k$.  Explain that $\mathrm{dlc}$ controls
+        how many distinct firm prices each consumer compares before purchasing,
+        modulating competitive pressure.
+\end{itemize}
+
+\subsection{Baseline Agent}
+
+\begin{itemize}
+  \item \textbf{Draft:} ``A rule-based \textit{FixedFirmAgent} that always posts
+        $P_t = c + \delta$ ($\delta = \$0.50$) regardless of market conditions.''
+  \item \textbf{Implementation:} The $k=0$ condition is the baseline --- a single
+        run called \texttt{exp1\_baseline} (dlc$=3$, seed$=8$) with \emph{no}
+        stabilizing firm present, not a rule-based agent.  There is no
+        FixedFirmAgent in the actual code.
+  \item \textbf{Fix:} Remove the FixedFirmAgent description.  Reframe the baseline
+        as the $k=0$ condition (no stabilizing firm), which exists for dlc$=3$,
+        seed$=8$ only, and note that it serves as the collapse reference point
+        rather than a stability ceiling.
+\end{itemize}
+
+\subsection{Bankruptcy Definition}
+
+\begin{itemize}
+  \item \textbf{Draft:} ``Bankruptcy Rate: Fraction of firms with $C_T^i < 0$ at
+        episode end'' (cash balance negative).
+  \item \textbf{Implementation:} Bankruptcy is determined by the \texttt{in\_business}
+        flag in each state file (\texttt{exp1\_heatmap.py}: \texttt{last\_active =
+        firms where in\_business = True}; \texttt{exp1\_survival.py}: same).
+        The cash balance threshold is an \emph{internal} trigger that sets this
+        flag, but the metric is the flag, not the cash balance directly.
+  \item \textbf{Fix:} Restate as ``Fraction of firms that exited the market
+        (\texttt{in\_business} = False) by the end of the episode.''  This is
+        consistent with the cash-depletion rule but more precise.
+\end{itemize}
+
+\subsection{Final Price Direction}
+
+\begin{itemize}
+  \item \textbf{Draft:} Table~1 marks Final Price with $\uparrow$ (higher is
+        better).
+  \item \textbf{Implementation / Correct framing:} The desired outcome is a price
+        \emph{at or above} unit cost $c$ (solvency floor), not maximally high.
+        The composite health score rewards $|\bar{p}/c - 1|$ being small (close to
+        break-even), not large.  Reporting Final Price as simply ``higher is
+        better'' is misleading and contradicts the paper's own stability criterion.
+  \item \textbf{Fix:} Change the column header annotation to something like
+        ``Final Price $\geq c$'' or add a footnote clarifying that prices should
+        stay near $c$, not race to infinity.  Alternatively, replace the raw price
+        column with $|\bar{p}/c - 1|$ (price distortion) $\downarrow$.
+\end{itemize}
+
+\subsection{Figure~3 (Price Trajectory) Description}
+
+\begin{itemize}
+  \item \textbf{Draft caption:} ``Average market price $\bar{P}_t$ over
+        \emph{50 timesteps} for base and Stabilizing Firm agents \emph{across
+        model families}.''
+  \item \textbf{Implementation:} \texttt{exp1\_timeseries.pdf} shows price
+        trajectories over \emph{365 timesteps}, organized in a $3\times3$
+        panel grid: rows = (price, active firms, volume); columns = $(k=0,\;
+        k=2,\; k=4)$ all at dlc$=3$.  Individual seed lines are shown with a
+        gradient colormap matching the heatmap (blue = low price, red = high / below
+        cost).  There is no model-family dimension.
+  \item \textbf{Fix:} Replace Figure~3 caption and description to match the
+        actual 3$\times$3 layout.  Update the x-axis label to $t \in [0, 365]$.
+        Remove references to model families.
+\end{itemize}
+
+\subsection{Results Table Structure}
+
+\begin{itemize}
+  \item \textbf{Draft:} Table~1 has 11 rows (5 models $\times$ 2 configs $+$
+        FixedFirmAgent) and 4 metric columns; all cells marked TBD.
+  \item \textbf{Correct structure:} The primary results for Exp~1 are the
+        heatmap figures (\texttt{exp1\_heatmap.pdf}): a $5 \times 3$ grid
+        ($k \times \mathrm{dlc}$) for each of four metrics (bankruptcy rate, final
+        avg price, market volume, price volatility).  A summary table, if retained,
+        should have rows $= k$ values and columns $= \mathrm{dlc}$ values, not
+        rows $=$ model families.
+  \item \textbf{Fix:} Either (a) replace Table~1 with a condensed version of the
+        heatmap data (e.g.\ one metric, all 15 cells, mean $\pm$ sd across 3
+        seeds), or (b) remove Table~1 and let the heatmap figures carry the
+        quantitative results.
+\end{itemize}
+
+\subsection{New Figures Not Yet Referenced in the Paper}
+
+The following figures have been generated but are not yet described or cited
+anywhere in \texttt{root.pdf}.  Each requires a new paragraph or figure
+environment in Section~6.1 (or an appendix):
+
+\begin{enumerate}
+  \item \textbf{\texttt{exp1\_heatmap.pdf}} --- 2$\times$2 grid of metric heatmaps
+        (bankruptcy rate, final avg price, market volume, price volatility) over the
+        $k \times \mathrm{dlc}$ grid.  Stability zones are outlined with black
+        borders; volume is normalised to the baseline.
+  \item \textbf{\texttt{exp1\_survival.pdf}} --- Two heatmaps: (A) collapse
+        probability (\% of seeds where any firm went bankrupt); (B) mean firms
+        surviving at episode end.
+  \item \textbf{\texttt{exp1\_timeseries.pdf}} --- $3\times3$ panel timeseries
+        (price / active firms / volume $\times$ $k = 0/2/4$ at dlc$=3$) with
+        per-seed lines, $\pm 1\sigma$ bands, and collapse markers.
+  \item \textbf{\texttt{exp1\_score.pdf}} --- Three scatter panels (one per dlc)
+        showing the price-volatility / price-distortion trade-off with bankruptcy
+        rate encoded as colour, k-trajectory arrows, and a Pareto frontier; plus a
+        composite health score heatmap with formula annotation.
+  \item \textbf{\texttt{exp1\_phase.pdf}} --- Phase diagram: (A) binary stable /
+        collapse map with contour boundary; (B) stability margin
+        $\min(0.5 - b_r,\; \bar{p}/c - 1)$ diverging heatmap; (C) $k^*(\mathrm{dlc})$
+        bar chart (minimum $k$ achieving stability per discovery limit).
+  \item \textbf{\texttt{exp1\_collapse\_timing.pdf}} --- Median first-collapse
+        timestep heatmap; stable cells shown in green; per-seed dots indicating
+        which seeds collapsed.
+\end{enumerate}
+
+\subsection{Composite Health Score}
+
+\begin{itemize}
+  \item \textbf{Draft:} EAS (Economic Alignment Score) is defined in Section~3.4
+        and referenced for Exp~4 only.
+  \item \textbf{Implementation:} \texttt{exp1\_score.py} computes a per-cell
+        composite health score:
+        \[
+          s = \tfrac{1}{3}\bigl[(1-b_r) + (1 - \sigma/\sigma_{\max}) +
+              (1 - |\bar{p}/c - 1|/d_{\max})\bigr]
+        \]
+        displayed as a $k \times \mathrm{dlc}$ heatmap.  This is the Exp~1-specific
+        operationalisation of EAS, but it is never mentioned in the paper.
+  \item \textbf{Fix:} Add a sentence in Section~5.1 defining the Exp~1 health
+        score $s$ and reference \texttt{exp1\_score.pdf} in Section~6.1.
+\end{itemize}
+
+\subsection{Stability Criterion}
+
+\begin{itemize}
+  \item \textbf{Draft:} No explicit stability criterion is stated for Exp~1
+        (Section~5.1 lists metrics but no pass/fail boundary).
+  \item \textbf{Implementation:} The figures define \emph{stable} as
+        $b_r < 0.5$ \emph{and} $\bar{p} \geq c$.  Stable cells are outlined with
+        a bold black border in \texttt{exp1\_heatmap.pdf} and coloured green in
+        \texttt{exp1\_phase.pdf}.
+  \item \textbf{Fix:} State the stability criterion explicitly in Section~5.1,
+        e.g.\ ``A configuration is deemed \emph{stable} if fewer than 50\% of
+        firms exit the market and the mean surviving price remains above unit cost:
+        $b_r < 0.5$ and $\bar{p} \geq c$.''
+\end{itemize}
+
+\subsection{Summary Checklist for Paper Revisions}
+
+\begin{enumerate}
+  \item[$\square$] Reframe Exp~1 as a $(k, \mathrm{dlc})$ ablation, not a
+        model-family comparison.
+  \item[$\square$] Fix $T = 50 \to T = 365$ in all captions and prose.
+  \item[$\square$] Fix ``10 episodes'' $\to$ ``3 seeds ([8, 16, 64])''.
+  \item[$\square$] Fix unit cost: remove $c = \$5.00$; use empirical $c$ from logs.
+  \item[$\square$] Add dlc as an independent variable; explain search-friction role.
+  \item[$\square$] Remove FixedFirmAgent; redefine baseline as $k=0$ condition.
+  \item[$\square$] Fix bankruptcy definition to \texttt{in\_business} flag.
+  \item[$\square$] Fix ``Final Price $\uparrow$'' to reflect proximity to $c$.
+  \item[$\square$] Add stability criterion ($b_r < 0.5$ and $\bar{p} \geq c$).
+  \item[$\square$] Add composite health score formula and reference to
+        \texttt{exp1\_score.pdf}.
+  \item[$\square$] Replace Table~1 with heatmap figure references or a
+        correctly structured $(k \times \mathrm{dlc})$ table.
+  \item[$\square$] Rewrite Figure~3 caption for the 3$\times$3 timeseries layout.
+  \item[$\square$] Add \texttt{exp1\_phase.pdf} (phase diagram + $k^*$) figure
+        and description.
+  \item[$\square$] Add \texttt{exp1\_survival.pdf} (collapse probability) figure.
+  \item[$\square$] Add \texttt{exp1\_collapse\_timing.pdf} (collapse timing) figure.
+\end{enumerate}
+
 \end{document}

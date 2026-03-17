@@ -18,9 +18,11 @@ SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 SCRIPTS = [
     "exp1_heatmap.py",
-    "exp1_interaction.py",
+    "exp1_score.py",
     "exp1_timeseries.py",
     "exp1_survival.py",
+    "exp1_phase.py",
+    "exp1_collapse_timing.py",
 ]
 
 
@@ -36,10 +38,12 @@ def main():
     os.makedirs(fig_dir, exist_ok=True)
 
     outputs = {
-        "exp1_heatmap.py":    os.path.join(fig_dir, "exp1_heatmap.pdf"),
-        "exp1_interaction.py": os.path.join(fig_dir, "exp1_interaction.pdf"),
-        "exp1_timeseries.py": os.path.join(fig_dir, "exp1_timeseries.pdf"),
-        "exp1_survival.py":   os.path.join(fig_dir, "exp1_survival.pdf"),
+        "exp1_heatmap.py":          os.path.join(fig_dir, "exp1_heatmap.pdf"),
+        "exp1_score.py":            os.path.join(fig_dir, "exp1_score.pdf"),
+        "exp1_timeseries.py":       os.path.join(fig_dir, "exp1_timeseries.pdf"),
+        "exp1_survival.py":         os.path.join(fig_dir, "exp1_survival.pdf"),
+        "exp1_phase.py":            os.path.join(fig_dir, "exp1_phase.pdf"),
+        "exp1_collapse_timing.py":  os.path.join(fig_dir, "exp1_collapse_timing.pdf"),
     }
 
     # Launch all scripts in parallel

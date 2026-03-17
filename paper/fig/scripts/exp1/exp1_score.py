@@ -4,17 +4,15 @@ Fig 4: Experiment 1 Multi-Dimensional Performance Score
 Combines bankruptcy rate, final price deviation from unit cost, and price volatility
 into a composite market health score and a multi-metric trade-off visualization.
 
-Grid: n_stab ∈ {0, 1, 2, 4, 5} × dlc ∈ {1, 3, 5} × seeds {8, 16, 64}.
-Includes all n_stab=5 runs (exp1_stab_5_dlc{dlc}_seed{seed}).
-
-Panels A, B, C — Per-dlc scatter (one panel per dlc value):
+Panel A — Trade-off scatter:
   x: Price volatility σ (lower = more stable)
   y: |Final price / unit cost − 1| (deviation from break-even; lower = better)
-  color: bankruptcy rate (RdYlGn_r colormap)
+  bubble size: bankruptcy rate (larger = worse)
+  color: n_stab (Okabe-Ito)
+  marker: dlc (●=1, ■=3, ▲=5)
   error bars: min/max range across seeds
-  Pareto frontier overlaid as dashed line
 
-Panel D — Composite health score heatmap:
+Panel B — Composite health score heatmap:
   score = mean(survival_score, price_level_score, stability_score)
   all components normalized to [0, 1]; higher = healthier market
   YlGn colormap; missing cells hatched
@@ -35,21 +33,19 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.gridspec as gridspec
-import matplotlib.colors as mcolors
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
 from ai_bazaar.utils.dataframe_builder import DataFrameBuilder
-from exp1_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data
 
 plt.rcParams.update({
     "font.family":        "serif",
-    "font.size":          11,
-    "axes.labelsize":     11,
-    "axes.titlesize":     12,
-    "xtick.labelsize":    10,
-    "ytick.labelsize":    10,
-    "legend.fontsize":    10,
+    "font.size":          9,
+    "axes.labelsize":     9,
+    "axes.titlesize":     10,
+    "xtick.labelsize":    8,
+    "ytick.labelsize":    8,
+    "legend.fontsize":    8,
     "lines.linewidth":    1.5,
     "axes.linewidth":     0.8,
     "axes.grid":          True,
@@ -71,34 +67,23 @@ DLC_VALUES    = [1, 3, 5]
 N_STAB_VALUES = [0, 1, 2, 4, 5]
 SEEDS         = [8, 16, 64]
 
+# Okabe-Ito palette, one color per n_stab level
+STAB_COLORS = {
+    0: "#000000",  # Black   — baseline (no stab)
+    1: "#E69F00",  # Orange
+    2: "#0072B2",  # Blue
+    4: "#009E73",  # Bluish Green
+    5: "#CC79A7",  # Reddish Purple — stab baseline (all stab)
+}
+DLC_MARKERS = {1: "o", 3: "s", 5: "^"}
+DLC_LABELS  = {1: "dlc=1", 3: "dlc=3", 5: "dlc=5"}
+
 
 # ── Data loading (mirrors exp1_heatmap.py) ────────────────────────────────────
 
-def collect_run_dirs(logs_dir):
-    dirs = []
-    for n_stab in N_STAB_VALUES:
-        for dlc in DLC_VALUES:
-            for seed in SEEDS:
-                d = resolve_run_dir(logs_dir, dlc, n_stab, seed)
-                if d:
-                    dirs.append(d)
-    return dirs
-
-
-def _serialize(cell_data):
-    # tuple keys → "n_stab,dlc" strings; values are lists of plain dicts (already JSON-safe)
-    return {f"{ns},{dlc}": runs for (ns, dlc), runs in cell_data.items()}
-
-
-def _deserialize(data):
-    return {
-        (int(k.split(",")[0]), int(k.split(",")[1])): runs
-        for k, runs in data.items()
-    }
-
-
 def resolve_run_dir(logs_dir, dlc, n_stab, seed):
     if n_stab == 0:
+        # Baseline (no stabilizing firm): only exists for dlc=3, seed=8
         if dlc == 3 and seed == 8:
             path = os.path.join(logs_dir, "exp1_baseline")
             return path if os.path.isdir(path) else None
@@ -265,68 +250,110 @@ def compute_composite(cell_data):
 
 # ── Plotting ──────────────────────────────────────────────────────────────────
 
-def pareto_front(pts):
-    """Non-dominated points (lower x AND lower y is better), sorted by x."""
-    pts_sorted = sorted(pts, key=lambda p: p[0])
-    front, min_y = [], float('inf')
-    for p in pts_sorted:
-        if p[1] < min_y:
-            front.append(p)
-            min_y = p[1]
-    return front
+def plot_scatter(ax, cell_means):
+    """Panel A: multi-dimensional trade-off scatter."""
+    ax.set_axisbelow(True)
 
+    # Bubble size: s = area proportional to bankruptcy rate
+    # br=0 → s=25 (still visible); br=1 → s=350
+    SIZE_MIN, SIZE_MAX = 25, 350
 
-def plot_scatter_panel(ax, cell_means, dlc_val, cmap, norm, panel_label):
-    """One scatter sub-panel for a given dlc value."""
-    points = sorted(
-        [(ns, agg) for (ns, dlc), agg in cell_means.items() if dlc == dlc_val],
-        key=lambda x: x[0]
-    )
-    if not points:
-        ax.text(0.5, 0.5, "no data", transform=ax.transAxes,
-                ha="center", va="center", color="gray", fontsize=8)
-        ax.set_title(panel_label)
-        return
+    plotted_stab = set()
+    plotted_dlc  = set()
 
-    xs, ys = [], []
-    for ns, agg in points:
-        x  = agg["pstd_mean"]
-        y  = agg["pdev_mean"]
-        br = agg["br_mean"]
-        color = cmap(norm(br))
+    for (n_stab, dlc), agg in cell_means.items():
+        # Skip k=0 baseline in the trade-off scatter to reduce clutter,
+        # while still keeping it available for the heatmap.
+        if n_stab == 0:
+            continue
+        x     = agg["pstd_mean"]
+        y     = agg["pdev_mean"]
+        xerr  = [[agg["pstd_mean"] - agg["pstd_lo"]], [agg["pstd_hi"] - agg["pstd_mean"]]]
+        yerr  = [[agg["pdev_mean"] - agg["pdev_lo"]], [agg["pdev_hi"] - agg["pdev_mean"]]]
+        size  = SIZE_MIN + (SIZE_MAX - SIZE_MIN) * agg["br_mean"]
+        color = STAB_COLORS[n_stab]
+        marker = DLC_MARKERS[dlc]
+        alpha  = 0.80
 
+        # Error bars (only when multi-seed)
         if agg["n_seeds"] > 1:
-            xerr = [[agg["pstd_mean"] - agg["pstd_lo"]], [agg["pstd_hi"] - agg["pstd_mean"]]]
-            yerr = [[agg["pdev_mean"] - agg["pdev_lo"]], [agg["pdev_hi"] - agg["pdev_mean"]]]
-            ax.errorbar(x, y, xerr=xerr, yerr=yerr,
-                        fmt="none", color=color, alpha=0.6,
-                        elinewidth=0.5, capsize=0, zorder=2)
+            ax.errorbar(
+                x, y, xerr=xerr, yerr=yerr,
+                fmt="none", color=color, alpha=0.45,
+                capsize=2.5, elinewidth=0.8, zorder=2,
+            )
 
-        ax.scatter(x, y, s=55, c=[color],
-                   edgecolors="white", linewidths=0.5, zorder=4)
-        ax.annotate(f"$k$={ns}", (x, y),
-                    xytext=(4, 3), textcoords="offset points",
-                    fontsize=9, color="0.3", zorder=5)
-        xs.append(x); ys.append(y)
+        sc = ax.scatter(
+            x, y, s=size,
+            color=color, marker=marker,
+            alpha=alpha, linewidths=0.6, edgecolors="white",
+            zorder=4,
+        )
 
-    # Pareto frontier
-    front = pareto_front(list(zip(xs, ys)))
-    if len(front) > 1:
-        fx, fy = zip(*front)
-        ax.plot(fx, fy, '--', color="0.45", linewidth=0.9, alpha=0.7, zorder=3,
-                label="Pareto front")
+        # Point label: "(dlc, k)" offset slightly
+        label_txt = f"({dlc},{n_stab})"
+        ax.annotate(
+            label_txt, (x, y),
+            xytext=(4, 4), textcoords="offset points",
+            fontsize=6.5, color=color,
+            zorder=5,
+        )
 
-    ax.annotate("← ideal", xy=(0.04, 0.05), xycoords="axes fraction",
-                fontsize=9, color="0.5", style="italic")
+        plotted_stab.add(n_stab)
+        plotted_dlc.add(dlc)
+
+    # ── Legends ──────────────────────────────────────────────────────────
+    # Color legend: n_stab
+    stab_handles = [
+        mpatches.Patch(color=STAB_COLORS[ns], label=f"$k$={ns}")
+        for ns in sorted(plotted_stab)
+    ]
+    leg1 = ax.legend(
+        handles=stab_handles, title="Stab. firms",
+        loc="upper left", fontsize=7, title_fontsize=7.5,
+        handlelength=1.0, borderpad=0.6,
+    )
+    ax.add_artist(leg1)
+
+    # Marker legend: dlc
+    dlc_handles = [
+        plt.scatter([], [], marker=DLC_MARKERS[d], color="#555555", s=35, label=DLC_LABELS[d])
+        for d in sorted(plotted_dlc)
+    ]
+    leg2 = ax.legend(
+        handles=dlc_handles, title="Discovery",
+        loc="upper right", fontsize=7, title_fontsize=7.5,
+        handlelength=0.8, borderpad=0.6,
+    )
+    ax.add_artist(leg2)
+
+    # Size legend: bankruptcy rate
+    for br_val, label in [(0.0, "0%"), (0.5, "50%"), (1.0, "100%")]:
+        s = SIZE_MIN + (SIZE_MAX - SIZE_MIN) * br_val
+        ax.scatter([], [], s=s, color="#aaaaaa", alpha=0.7,
+                   label=f"{label}", linewidths=0.5, edgecolors="white")
+    ax.legend(
+        title="Bankruptcy", loc="lower right",
+        fontsize=7, title_fontsize=7.5,
+        handlelength=0.8, borderpad=0.6,
+        labelspacing=0.8,
+    )
+
+    # "Ideal" annotation
+    ax.annotate(
+        "← ideal", xy=(0.03, 0.04), xycoords="axes fraction",
+        fontsize=7, color="#555555", style="italic",
+    )
+
     ax.set_xlabel("Price volatility $σ$")
-    ax.set_ylabel("Price distortion")
-    ax.set_title(panel_label)
-    ax.set_xlim(left=max(0, min(xs) * 0.85) if xs else 0)
-    ax.set_ylim(bottom=max(0, min(ys) * 0.85) if ys else 0)
+    ax.set_ylabel("Price deviation $|p/c - 1|$")
+    ax.set_title("(A) Trade-off Landscape")
+    ax.set_xlim(left=max(0, ax.get_xlim()[0] - 0.01))
+    ax.set_ylim(bottom=max(0, ax.get_ylim()[0] - 0.005))
 
 
 def plot_heatmap(ax, fig, cell_means):
-    """Panel D: composite health score heatmap over dlc × n_stab."""
+    """Panel B: composite health score heatmap over dlc × n_stab."""
     n_row = len(N_STAB_VALUES)
     n_col = len(DLC_VALUES)
     grid  = np.full((n_row, n_col), np.nan)
@@ -345,9 +372,7 @@ def plot_heatmap(ax, fig, cell_means):
         display, cmap=cmap, vmin=0.0, vmax=1.0,
         aspect="auto", interpolation="nearest",
     )
-    cb_hm = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02, label="Health score")
-    cb_hm.set_label("Health score", fontsize=11)
-    cb_hm.ax.tick_params(labelsize=9)
+    fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02, label="Health score")
 
     # Hatch missing cells
     for i in range(n_row):
@@ -370,7 +395,7 @@ def plot_heatmap(ax, fig, cell_means):
             lum      = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
             txt_col  = "white" if lum < 0.5 else "black"
             ax.text(j, i, f"{val:.2f}", ha="center", va="center",
-                    fontsize=10, color=txt_col, zorder=10)
+                    fontsize=8, color=txt_col, zorder=10)
 
     ax.set_xticks(range(n_col))
     ax.set_xticklabels([f"dlc={d}" for d in DLC_VALUES])
@@ -378,14 +403,14 @@ def plot_heatmap(ax, fig, cell_means):
     ax.set_yticklabels([f"$k$={n}" for n in N_STAB_VALUES])
     ax.set_xlabel("Consumer discovery limit")
     ax.set_ylabel("Stabilizing firms ($k$)")
-    ax.set_title("(D) Composite\nHealth Score")
+    ax.set_title("(B) Composite Health Score")
     ax.grid(False)
 
     # Hatch legend
     hatch_patch = mpatches.Patch(
         facecolor="#cccccc", hatch="///", edgecolor="#888888", label="No data",
     )
-    ax.legend(handles=[hatch_patch], loc="lower right", fontsize=9, borderpad=0.5)
+    ax.legend(handles=[hatch_patch], loc="lower right", fontsize=7, borderpad=0.5)
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -401,18 +426,7 @@ def main():
     parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
 
-    data_dir   = get_data_dir(args.output)
-    cache_path = get_cache_path(data_dir, "exp1_score", args.good)
-    run_dirs   = collect_run_dirs(args.logs_dir)
-
-    if is_cache_fresh(cache_path, run_dirs, args.logs_dir, args.good):
-        print(f"Using cached data: {cache_path}", flush=True)
-        cell_data = _deserialize(load_cache_data(cache_path))
-    else:
-        cell_data = load_all_metrics(args.logs_dir, args.good, workers=args.workers)
-        save_cache(cache_path, _serialize(cell_data), args.logs_dir, args.good)
-        print(f"Cached data: {cache_path}", flush=True)
-
+    cell_data  = load_all_metrics(args.logs_dir, args.good, workers=args.workers)
     cell_means = compute_composite(cell_data)
 
     print("\nComposite scores:")
@@ -421,34 +435,18 @@ def main():
               f"(br={agg['br_mean']:.2f}, pstd={agg['pstd_mean']:.3f}, "
               f"pdev={agg['pdev_mean']:.3f})")
 
-    # ── Layout: 3 scatter panels + colorbar + heatmap ───────────────────────
-    fig = plt.figure(figsize=(13.0, 5.5))
+    # ── Layout: left scatter (wider) + right heatmap ─────────────────────
+    fig = plt.figure(figsize=(7.0, 4.2))
     gs  = gridspec.GridSpec(
-        1, 5, figure=fig,
-        width_ratios=[1, 1, 1, 0.07, 1.8],
-        left=0.07, right=0.97, bottom=0.18, top=0.90,
-        wspace=0.45,
+        1, 2, figure=fig,
+        width_ratios=[5, 3],
+        left=0.08, right=0.97, bottom=0.12, top=0.90,
+        wspace=0.40,
     )
-    ax_dlc = {
-        1: fig.add_subplot(gs[0, 0]),
-        3: fig.add_subplot(gs[0, 1]),
-        5: fig.add_subplot(gs[0, 2]),
-    }
-    ax_cbar_sc = fig.add_subplot(gs[0, 3])
-    ax_heatmap = fig.add_subplot(gs[0, 4])
+    ax_scatter = fig.add_subplot(gs[0])
+    ax_heatmap = fig.add_subplot(gs[1])
 
-    # Shared bankruptcy colorbar for scatter panels
-    cmap_br = plt.get_cmap("RdYlGn_r")
-    norm_br = mcolors.Normalize(vmin=0, vmax=1)
-    sm = plt.cm.ScalarMappable(cmap=cmap_br, norm=norm_br)
-    sm.set_array([])
-    cb = fig.colorbar(sm, cax=ax_cbar_sc)
-    cb.set_label("Bankruptcy rate", fontsize=11)
-    cb.ax.tick_params(labelsize=9)
-
-    for dlc_val, panel_lbl in [(1, "(A) dlc=1"), (3, "(B) dlc=3"), (5, "(C) dlc=5")]:
-        plot_scatter_panel(ax_dlc[dlc_val], cell_means, dlc_val, cmap_br, norm_br, panel_lbl)
-
+    plot_scatter(ax_scatter, cell_means)
     plot_heatmap(ax_heatmap, fig, cell_means)
 
     fig.suptitle(
