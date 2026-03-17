@@ -25,6 +25,8 @@ import sys
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from matplotlib.collections import LineCollection
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
@@ -33,12 +35,12 @@ from exp1_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache,
 
 plt.rcParams.update({
     "font.family":                    "serif",
-    "font.size":                      9,
-    "axes.titlesize":                 9,
-    "axes.labelsize":                 9,
-    "xtick.labelsize":                8,
-    "ytick.labelsize":                8,
-    "legend.fontsize":                8,
+    "font.size":                      11,
+    "axes.titlesize":                 12,
+    "axes.labelsize":                 11,
+    "xtick.labelsize":                10,
+    "ytick.labelsize":                10,
+    "legend.fontsize":                10,
     "axes.axisbelow":                 True,
     "axes.grid":                      True,
     "grid.alpha":                     0.3,
@@ -214,6 +216,60 @@ def load_one_run(run_dir, good):
 # Plotting helpers
 # ---------------------------------------------------------------------------
 
+class _BelowCostNorm(mcolors.Normalize):
+    """Linear [vmin=cost, vmax] → [0,1]; values below cost → 1.0 (max red)."""
+    def __call__(self, value, clip=None):
+        val = np.ma.asarray(value, dtype=float)
+        scaled = (val - self.vmin) / (self.vmax - self.vmin)
+        scaled = np.ma.where(val < self.vmin, 1.0, scaled)
+        scaled = np.ma.clip(scaled, 0.0, 1.0)
+        if np.ndim(value) == 0:
+            return float(scaled)
+        return scaled
+
+
+def _gradient_line(ax, ts, vals, cmap, norm, lw=1.8, alpha=1.0, zorder=4):
+    """Draw a line whose color varies per segment according to cmap(norm(value))."""
+    if len(ts) < 2:
+        return
+    points   = np.array([ts, vals], dtype=float).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    seg_vals = (vals[:-1] + vals[1:]) / 2.0
+    lc = LineCollection(segments, cmap=cmap, norm=norm,
+                        linewidth=lw, alpha=alpha, zorder=zorder)
+    lc.set_array(seg_vals)
+    ax.add_collection(lc)
+
+
+def plot_price_column(ax, seeds_data, cmap, norm, is_baseline):
+    """Price row: gradient line whose color tracks the heatmap avg-price scale."""
+    valid = [(ts, v) for ts, v in seeds_data if ts is not None]
+    if not valid:
+        ax.text(0.5, 0.5, "no data", transform=ax.transAxes,
+                ha="center", va="center", color="gray", fontsize=8)
+        return
+
+    if is_baseline or len(valid) == 1:
+        ts, vals = valid[0]
+        _gradient_line(ax, ts, vals, cmap, norm, lw=1.8, zorder=4)
+    else:
+        # Thin gradient seed lines
+        for ts, vals in valid:
+            _gradient_line(ax, ts, vals, cmap, norm, lw=0.7, alpha=0.35, zorder=2)
+
+        # Bold gradient mean ± 1σ band
+        ts_list  = [ts   for ts, _ in valid]
+        val_list = [vals for _, vals in valid]
+        common, arr = _interp_common(ts_list, val_list)
+        mean_v = arr.mean(axis=0)
+        std_v  = arr.std(axis=0)
+        # Band: single color sampled at the overall mean price
+        band_color = cmap(float(norm(float(np.mean(mean_v)))))
+        ax.fill_between(common, mean_v - std_v, mean_v + std_v,
+                        color=band_color, alpha=0.15, zorder=3)
+        _gradient_line(ax, common, mean_v, cmap, norm, lw=1.8, zorder=4)
+
+
 def _interp_common(ts_list, val_list):
     """Interpolate all series to a common integer timestep grid, return (ts, array)."""
     if not ts_list:
@@ -246,11 +302,11 @@ def plot_metric_column(ax, seeds_data, metric_key, color, is_baseline,
         ts, vals = valid[0]
         ax.plot(ts, vals, color=color, linewidth=1.8, zorder=4, **ds_kw)
     else:
-        # Faint per-seed lines
+        # Thin individual seed lines
         for ts, vals in valid:
-            ax.plot(ts, vals, color=color, linewidth=0.8, alpha=0.3, zorder=2, **ds_kw)
+            ax.plot(ts, vals, color=color, linewidth=0.7, alpha=0.35, zorder=2, **ds_kw)
 
-        # Bold mean + ±1σ band on common grid
+        # Bold mean ± 1σ band on common grid
         ts_list  = [ts   for ts, _ in valid]
         val_list = [vals for _, vals in valid]
         common, arr = _interp_common(ts_list, val_list)
@@ -259,6 +315,7 @@ def plot_metric_column(ax, seeds_data, metric_key, color, is_baseline,
         lo = mean_v - std_v
         if y_min is not None:
             lo = np.maximum(lo, y_min)
+            mean_v = np.maximum(mean_v, y_min)
         ax.fill_between(common, lo, mean_v + std_v,
                         color=color, alpha=0.15, zorder=3)
         ax.plot(common, mean_v, color=color, linewidth=1.8, zorder=4, **ds_kw)
@@ -328,11 +385,28 @@ def main():
         save_cache(cache_path, _serialize(results, unit_costs), args.logs_dir, args.good)
         print(f"Cached data: {cache_path}", flush=True)
 
+    # Price gradient colormap: coolwarm with _BelowCostNorm matching heatmap panel B.
+    # vmin = unit cost c (blue anchor); vmax = max price seen in ablated runs (n_stab > 0).
+    uc_ref = float(np.mean(unit_costs)) if unit_costs else 1.0
+    ablated_price_max = 0.0
+    for col_idx, col in enumerate(COLUMNS):
+        if col["n_stab"] > 0:
+            for seed in col["seeds"]:
+                d = results.get((col_idx, seed))
+                if d and d["price"] is not None:
+                    ts, vals = d["price"]
+                    if len(vals) > 0:
+                        ablated_price_max = max(ablated_price_max, float(np.max(vals)))
+    if ablated_price_max <= uc_ref:
+        ablated_price_max = uc_ref + 1.0
+    _cmap_price = plt.get_cmap("coolwarm")
+    _price_norm = _BelowCostNorm(vmin=uc_ref, vmax=ablated_price_max)
+
     # Build figure
     n_rows, n_cols = 3, len(COLUMNS)
     fig, axes = plt.subplots(
         n_rows, n_cols,
-        figsize=(7.0, 6.0),
+        figsize=(9.0, 7.5),
         sharex="col",
         constrained_layout=True,
     )
@@ -348,7 +422,6 @@ def main():
         for row_idx in range(n_rows):
             ax = axes[row_idx][col_idx]
             metric = metric_keys[row_idx]
-            color  = colors[row_idx]
             ds     = drawstyles[row_idx]
             ym     = y_mins[row_idx]
 
@@ -361,8 +434,21 @@ def main():
                 else:
                     seeds_data.append((None, None))
 
-            plot_metric_column(ax, seeds_data, metric, color, is_baseline,
-                               drawstyle=ds, y_min=ym)
+            if row_idx == 0:
+                plot_price_column(ax, seeds_data, _cmap_price, _price_norm, is_baseline)
+            else:
+                color = colors[row_idx]
+                plot_metric_column(ax, seeds_data, metric, color, is_baseline,
+                                   drawstyle=ds, y_min=ym)
+
+            # Collapse markers: vertical dashed red line at first firm-drop timestep
+            if row_idx == 1 and not is_baseline:
+                for (ts_f, firms_f) in [sd for sd in seeds_data if sd[0] is not None]:
+                    first_drop = next(
+                        (t for t, f in zip(ts_f, firms_f) if f < 5), None)
+                    if first_drop is not None:
+                        ax.axvline(first_drop, color='#D55E00', lw=0.8,
+                                   ls='--', alpha=0.6, zorder=3)
 
             # Price row extras
             if row_idx == 0:
@@ -370,7 +456,7 @@ def main():
                 ax.axhline(uc, color=COLOR_COST_REF, linestyle="--", linewidth=1.2,
                            alpha=0.8, zorder=5, label=f"Unit cost {uc:.1f}")
                 ax.axhspan(0, uc, color=COLOR_COST_REF, alpha=0.05, zorder=1)
-                ax.legend(loc="upper right", handlelength=1.5)
+                ax.legend(loc="upper right", handlelength=1.5, fontsize=10)
                 ax.set_title(col["label"])
 
             # Active firms row: integer y-axis, capped at 5
@@ -386,6 +472,10 @@ def main():
             # Row y-labels on leftmost column
             if col_idx == 0:
                 ax.set_ylabel(ROW_LABELS[row_idx])
+
+    for row_i in range(n_rows):
+        for col_i in range(n_cols):
+            axes[row_i][col_i].set_xlim(0, 365)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)

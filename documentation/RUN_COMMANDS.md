@@ -104,6 +104,7 @@ python paper/fig/scripts/exp1/exp1_score.py   --logs-dir logs/
 Figure scripts expect run names produced by `exp1.py` (e.g. `exp1_baseline`, `exp1_stab_1_dlc1_seed8`). They read `state_t*.json` and `firm_attributes.json` from each run directory.
 
 ---
+
 ### Experiment 1 Individual Commands
 
 ### Baseline (no stabilizing firm)
@@ -471,3 +472,4 @@ If you have access to a model on Hugging Face (e.g. **google/gemma-3-4b-it**), r
    Or use the short name: `--llm gemma3:4b`.
 
 ---
+

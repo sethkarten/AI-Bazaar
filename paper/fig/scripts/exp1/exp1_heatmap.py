@@ -2,15 +2,17 @@
 Fig 1: Experiment 1 Heatmap — 2×2 metric heatmap over dlc × n_stab grid.
 
 Metrics:
-  A) Bankruptcy rate  (YlOrRd, higher = worse)
+  A) Bankruptcy rate  (RdPu, higher = worse)
   B) Final avg price  (RdBu diverging, centered at unit cost c)
-  C) Total volume     (YlGn, higher = better)
+  C) Total volume     (YlGn log-normalized, relative to baseline)
   D) Price volatility (YlOrRd, higher = worse)
 
 Grid: dlc ∈ {1, 3, 5}  ×  n_stab ∈ {0, 1, 2, 4, 5}
   n_stab=0: baseline (no stabilizing firm), exists only for dlc=3 seed=8 → "exp1_baseline"
   All other cells: "exp1_stab_{n_stab}_dlc{dlc}_seed{seed}", averaged over seeds 8, 16, 64.
 Missing cells rendered as hatched NaN.
+Per-seed dots overlaid on each cell (green=survived, red=collapsed).
+Stability borders: black outline when bankruptcy_rate < 0.5 AND final_avg_price >= unit_cost.
 
 Usage:
     python exp1_heatmap.py [--logs-dir logs/] [--good food] [--output ...]
@@ -27,6 +29,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.colors as mcolors
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
@@ -35,12 +38,12 @@ from exp1_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache,
 
 plt.rcParams.update({
     "font.family":        "serif",
-    "font.size":          9,
-    "axes.labelsize":     9,
-    "axes.titlesize":     10,
-    "xtick.labelsize":    8,
-    "ytick.labelsize":    8,
-    "legend.fontsize":    8,
+    "font.size":          11,
+    "axes.labelsize":     11,
+    "axes.titlesize":     12,
+    "xtick.labelsize":    10,
+    "ytick.labelsize":    10,
+    "legend.fontsize":    10,
     "lines.linewidth":    1.5,
     "axes.linewidth":     0.8,
     "axes.grid":          False,   # heatmaps don't use grid
@@ -70,19 +73,29 @@ def collect_run_dirs(logs_dir):
     return dirs
 
 
-def _serialize(grids, annotations, available, unit_cost):
+def _serialize(grids, annotations, available, unit_cost, per_seed_data):
+    psd_ser = {
+        f"{i},{j}": {m: vals for m, vals in cell.items()}
+        for (i, j), cell in per_seed_data.items()
+    }
     return {
-        "grids":       {k: v.tolist() for k, v in grids.items()},
-        "annotations": annotations,
-        "available":   available.tolist(),
-        "unit_cost":   unit_cost,
+        "grids":         {k: v.tolist() for k, v in grids.items()},
+        "annotations":   annotations,
+        "available":     available.tolist(),
+        "unit_cost":     unit_cost,
+        "per_seed_data": psd_ser,
     }
 
 
 def _deserialize(data):
-    grids      = {k: np.array(v) for k, v in data["grids"].items()}
-    available  = np.array(data["available"], dtype=bool)
-    return grids, data["annotations"], available, data["unit_cost"]
+    grids     = {k: np.array(v) for k, v in data["grids"].items()}
+    available = np.array(data["available"], dtype=bool)
+    psd_raw   = data.get("per_seed_data", {})
+    per_seed_data = {
+        (int(k.split(",")[0]), int(k.split(",")[1])): cell
+        for k, cell in psd_raw.items()
+    }
+    return grids, data["annotations"], available, data["unit_cost"], per_seed_data
 
 
 def resolve_run_dir(logs_dir, dlc, n_stab, seed):
@@ -188,7 +201,8 @@ def compute_metrics(run_dir, good):
 def build_grid(logs_dir, good, workers=8):
     """
     Returns dict[metric_name] -> 2D array shape (len(N_STAB_VALUES), len(DLC_VALUES)).
-    NaN where data missing. Also returns global unit_cost and boolean available mask.
+    NaN where data missing. Also returns global unit_cost, boolean available mask,
+    and per_seed_data: {(i, j): {metric: [seed_val1, seed_val2, ...]}}
     """
     n_row = len(N_STAB_VALUES)
     n_col = len(DLC_VALUES)
@@ -234,18 +248,34 @@ def build_grid(logs_dir, good, workers=8):
                 cell_unit_costs[(i, j)].append(get_unit_cost(run_dir))
                 unit_costs.append(cell_unit_costs[(i, j)][-1])
 
+    per_seed_data = {}
     for (i, j), seed_vals in cell_seed_vals.items():
         if seed_vals["bankruptcy_rate"]:
             available[i, j] = True
+            per_seed_data[(i, j)] = {m: list(seed_vals[m]) for m in metric_names}
             for m in metric_names:
                 vals   = seed_vals[m]
                 mean_v = float(np.mean(vals))
-                lo, hi = float(np.min(vals)), float(np.max(vals))
                 grids[m][i, j]       = mean_v
-                annotations[m][i][j] = f"{mean_v:.2f}\n[{lo:.2f}–{hi:.2f}]"
+                annotations[m][i][j] = f"{mean_v:.2f}"
 
     unit_cost = float(np.mean(unit_costs)) if unit_costs else 1.0
-    return grids, annotations, available, unit_cost
+    return grids, annotations, available, unit_cost, per_seed_data
+
+
+class _BelowCostNorm(mcolors.Normalize):
+    """
+    Linear [vmin, vmax] → [0, 1] (blue→red via coolwarm).
+    Values below vmin (unit cost) are mapped to 1.0 (max red) instead of 0.0 (blue).
+    """
+    def __call__(self, value, clip=None):
+        val = np.ma.asarray(value, dtype=float)
+        scaled = (val - self.vmin) / (self.vmax - self.vmin)
+        scaled = np.ma.where(val < self.vmin, 1.0, scaled)
+        scaled = np.ma.clip(scaled, 0.0, 1.0)
+        if np.ndim(value) == 0:
+            return float(scaled)
+        return scaled
 
 
 def draw_hatch_cell(ax, col_idx, row_idx):
@@ -260,6 +290,27 @@ def draw_hatch_cell(ax, col_idx, row_idx):
         zorder=5,
     )
     ax.add_patch(rect)
+
+
+def draw_seed_dots(ax, col, row, seed_br_vals):
+    """Overlay per-seed dots at bottom of cell. Red=collapsed (br>0), Green=survived."""
+    n = len(seed_br_vals)
+    if n == 0:
+        return
+    if n == 1:
+        xs = [col]
+    elif n == 2:
+        xs = [col - 0.18, col + 0.18]
+    else:
+        xs = [col - 0.25, col, col + 0.25]
+    y = row + 0.30
+    for x, br in zip(xs, seed_br_vals):
+        dot_color = "#CC0000" if br > 0 else "#009E73"
+        ax.scatter(
+            [x], [y], s=10, c=[dot_color],
+            edgecolors="white", linewidths=0.5,
+            zorder=8, clip_on=True,
+        )
 
 
 def main():
@@ -278,31 +329,63 @@ def main():
     run_dirs   = collect_run_dirs(args.logs_dir)
 
     if is_cache_fresh(cache_path, run_dirs, args.logs_dir, args.good):
-        print(f"Using cached data: {cache_path}", flush=True)
-        grids, annotations, available, unit_cost = _deserialize(load_cache_data(cache_path))
+        cached = load_cache_data(cache_path)
+        if "per_seed_data" in cached:
+            print(f"Using cached data: {cache_path}", flush=True)
+            grids, annotations, available, unit_cost, per_seed_data = _deserialize(cached)
+        else:
+            print("Cache missing per_seed_data, rebuilding...", flush=True)
+            grids, annotations, available, unit_cost, per_seed_data = build_grid(
+                args.logs_dir, args.good, workers=args.workers)
+            save_cache(cache_path, _serialize(grids, annotations, available, unit_cost, per_seed_data),
+                       args.logs_dir, args.good)
     else:
         print(f"Loading runs from: {args.logs_dir}")
-        grids, annotations, available, unit_cost = build_grid(args.logs_dir, args.good, workers=args.workers)
-        save_cache(cache_path, _serialize(grids, annotations, available, unit_cost),
+        grids, annotations, available, unit_cost, per_seed_data = build_grid(
+            args.logs_dir, args.good, workers=args.workers)
+        save_cache(cache_path, _serialize(grids, annotations, available, unit_cost, per_seed_data),
                    args.logs_dir, args.good)
         print(f"Cached data: {cache_path}", flush=True)
     print(f"Unit cost: {unit_cost:.3f}")
 
-    # Panel config: (title, metric_key, colormap, diverging)
+    # Volume normalization (baseline = dlc=3, n_stab=0)
+    bl_i = N_STAB_VALUES.index(0)
+    bl_j = DLC_VALUES.index(3)
+    baseline_vol = grids["total_volume"][bl_i, bl_j]
+    valid_vols = grids["total_volume"][~np.isnan(grids["total_volume"])]
+    if np.isnan(baseline_vol) or baseline_vol == 0:
+        baseline_vol = float(np.mean(valid_vols)) if len(valid_vols) > 0 else 1.0
+
+    vol_norm_grid = np.full_like(grids["total_volume"], np.nan)
+    vol_annotations = [[None] * len(DLC_VALUES) for _ in range(len(N_STAB_VALUES))]
+    for i in range(len(N_STAB_VALUES)):
+        for j in range(len(DLC_VALUES)):
+            if not np.isnan(grids["total_volume"][i, j]):
+                ratio = grids["total_volume"][i, j] / baseline_vol
+                vol_norm_grid[i, j] = ratio
+                vol_annotations[i][j] = f"{ratio:.2f}x"
+
+    # Panel config: (title, metric_key, colormap, mode)
     panels = [
-        ("(A) Bankruptcy Rate",        "bankruptcy_rate", "YlOrRd", False),
-        ("(B) Final Avg Price / $c$",  "final_avg_price", "RdBu",   True),
-        ("(C) Total Market Volume",    "total_volume",    "YlGn",   False),
-        ("(D) Price Volatility $σ$",   "price_std",       "YlOrRd", False),
+        ("(A) Bankruptcy Rate",        "bankruptcy_rate", "RdPu",   "regular"),
+        ("(B) Final Avg Price / $c$",  "final_avg_price", "coolwarm", "range"),
+        ("(C) Total Market Volume",    "vol_norm",        "YlGn",   "lognorm"),
+        ("(D) Price Volatility $σ$",   "price_std",       "coolwarm", "regular"),
     ]
 
-    # 5 n_stab rows × 3 dlc cols — use full two-column width, taller to fit extra row
-    fig, axes = plt.subplots(2, 2, figsize=(7.0, 7.0), constrained_layout=True)
+    # 5 n_stab rows × 3 dlc cols — use full two-column width
+    fig, axes = plt.subplots(2, 2, figsize=(8.5, 8.5), constrained_layout=True)
     axes_flat = axes.flatten()
 
-    for ax, (title, metric, cmap_name, diverging) in zip(axes_flat, panels):
-        grid   = grids[metric]
-        annots = annotations[metric]
+    for ax, (title, metric_key, cmap_name, mode) in zip(axes_flat, panels):
+        # Select grid and annotations
+        if metric_key == "vol_norm":
+            grid   = vol_norm_grid
+            annots = vol_annotations
+        else:
+            grid   = grids[metric_key]
+            annots = annotations[metric_key]
+
         valid_vals = grid[~np.isnan(grid)]
 
         if len(valid_vals) == 0:
@@ -310,28 +393,51 @@ def main():
             ax.axis("off")
             continue
 
-        vmin = float(np.nanmin(grid))
-        vmax = float(np.nanmax(grid))
         cmap = plt.get_cmap(cmap_name)
 
-        if diverging:
+        # Compute norm per mode
+        if mode == "range":
+            # vmax from ablated runs only; vmin anchored at unit cost c
+            ablated_vals = grid[1:, :][~np.isnan(grid[1:, :])]
+            vmax_plot = float(np.nanmax(ablated_vals)) if len(ablated_vals) > 0 else float(np.nanmax(valid_vals))
+            if vmax_plot <= unit_cost:
+                vmax_plot = unit_cost + 1.0
+            norm = _BelowCostNorm(vmin=unit_cost, vmax=vmax_plot)
+        elif mode == "diverging":
             center  = unit_cost
-            abs_max = max(abs(vmin - center), abs(vmax - center)) or 1.0
-            vmin_plot, vmax_plot = center - abs_max, center + abs_max
-        else:
-            vmin_plot = vmin
-            vmax_plot = vmax if vmax > vmin else vmin + 1
+            abs_max = max(abs(float(np.nanmin(grid)) - center),
+                          abs(float(np.nanmax(grid)) - center)) or 1.0
+            norm = mcolors.Normalize(vmin=center - abs_max, vmax=center + abs_max)
+        elif mode == "lognorm":
+            v_min_raw = max(float(np.nanmin(valid_vals)), 0.05)
+            v_max_raw = float(np.nanmax(valid_vals))
+            if v_max_raw <= v_min_raw:
+                v_max_raw = v_min_raw * 2
+            norm = mcolors.LogNorm(vmin=v_min_raw, vmax=v_max_raw)
+        else:  # regular
+            vmin_plot = 0.0 if metric_key == "bankruptcy_rate" else float(np.nanmin(valid_vals))
+            if metric_key == "bankruptcy_rate":
+                vmax_plot = 1.0
+            elif metric_key == "price_std":
+                # Cap at ablated-run max to prevent baseline outlier from washing out variation
+                ablated_vals = grid[1:, :][~np.isnan(grid[1:, :])]
+                vmax_plot = float(np.nanmax(ablated_vals)) if len(ablated_vals) > 0 else float(np.nanmax(valid_vals))
+            else:
+                vmax_plot = float(np.nanmax(valid_vals))
+            if vmax_plot <= vmin_plot:
+                vmax_plot = vmin_plot + 1
+            norm = mcolors.Normalize(vmin=vmin_plot, vmax=vmax_plot)
 
         display = np.ma.masked_invalid(grid)
         im = ax.imshow(
             display,
             cmap=cmap,
-            vmin=vmin_plot,
-            vmax=vmax_plot,
+            norm=norm,
             aspect="auto",
             interpolation="nearest",
         )
-        fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02)
+        cb_ax = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02)
+        cb_ax.ax.tick_params(labelsize=9)
 
         # Hatch missing cells
         for i in range(len(N_STAB_VALUES)):
@@ -339,55 +445,53 @@ def main():
                 if not available[i, j]:
                     draw_hatch_cell(ax, j, i)
 
-        # Cell annotations
+        # Cell annotations (shifted up to make room for dots)
         for i in range(len(N_STAB_VALUES)):
             for j in range(len(DLC_VALUES)):
                 if annots[i][j] is None:
                     continue
                 val      = grid[i, j]
-                norm_val = (val - vmin_plot) / (vmax_plot - vmin_plot) if vmax_plot != vmin_plot else 0.5
-                rgba     = cmap(norm_val)
+                norm_val = norm(val)
+                rgba     = cmap(float(np.clip(norm_val, 0.0, 1.0)))
                 lum      = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
                 txt_color = "white" if lum < 0.5 else "black"
-                if metric == "final_avg_price" and val < unit_cost:
-                    txt_color = "#cc0000"
                 ax.text(
                     j, i, annots[i][j],
                     ha="center", va="center",
-                    fontsize=7, color=txt_color,
+                    fontsize=9, color=txt_color,
                     zorder=10,
                 )
 
-        # Bold outlines on best-case cells: (dlc=1, n_stab=4) and (dlc=5, n_stab=4)
-        for dlc_k, nstab_k in [(1, 4), (5, 4)]:
-            if dlc_k in DLC_VALUES and nstab_k in N_STAB_VALUES:
-                j_k = DLC_VALUES.index(dlc_k)
-                i_k = N_STAB_VALUES.index(nstab_k)
-                rect = mpatches.Rectangle(
-                    (j_k - 0.5, i_k - 0.5), 1.0, 1.0,
-                    linewidth=2.0, edgecolor="black", facecolor="none", zorder=15,
-                )
-                ax.add_patch(rect)
+        # Stability borders: black outline when bankrupt < 50% AND price >= unit cost
+        for i in range(len(N_STAB_VALUES)):
+            for j in range(len(DLC_VALUES)):
+                if not available[i, j]:
+                    continue
+                mb = grids["bankruptcy_rate"][i, j]
+                mp = grids["final_avg_price"][i, j]
+                if mb < 0.5 and mp >= unit_cost:
+                    rect = mpatches.Rectangle(
+                        (j - 0.5, i - 0.5), 1.0, 1.0,
+                        linewidth=2.5, edgecolor="black", facecolor="none", zorder=15,
+                    )
+                    ax.add_patch(rect)
 
         ax.set_xticks(range(len(DLC_VALUES)))
-        ax.set_xticklabels([f"dlc={d}" for d in DLC_VALUES])
+        ax.set_xticklabels([f"{d}" for d in DLC_VALUES])
         ax.set_yticks(range(len(N_STAB_VALUES)))
         ax.set_yticklabels([f"$k$={n}" for n in N_STAB_VALUES])
         ax.set_xlabel("Consumer discovery limit (dlc)")
         ax.set_ylabel("Stabilizing firms ($k$)")
         ax.set_title(title)
 
-    # Shared legend for hatch pattern
+    # Shared legend
     hatch_patch = mpatches.Patch(
-        facecolor="#cccccc", hatch="///", edgecolor="#888888",
-        label="No data (single-seed special runs only)",
-    )
-    fig.legend(
-        handles=[hatch_patch],
-        loc="lower center",
-        ncol=1,
-        bbox_to_anchor=(0.5, -0.03),
-    )
+        facecolor="#cccccc", hatch="///", edgecolor="#888888", label="No data")
+    border_patch = mpatches.Rectangle(
+        (0, 0), 1, 1, linewidth=2.5, edgecolor="black", facecolor="none",
+        label="Stable zone (bankrupt $<$50\\%, price $\\geq c$)")
+    fig.legend(handles=[hatch_patch, border_patch], loc="lower center", ncol=2,
+               bbox_to_anchor=(0.5, -0.05), fontsize=9)
 
     fig.suptitle("Experiment 1: Stabilizing Firm Ablation", fontweight="bold")
 
