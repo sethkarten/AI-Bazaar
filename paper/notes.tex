@@ -483,4 +483,29 @@ The single-survivor outcome is \textbf{not a bug}; it is evidence of a specific 
 
 Stabilizing firms are a partial remedy: they delay and redirect the attrition, ensuring that the likely monopolist is a price-disciplined agent. Because stabilizing firms hold \(P \geq c\), their margin per unit sold is always non-negative, so they lose cash only in steps where they over-purchase inventory and get zero sales --- a less severe drain than competitive firms selling below cost. This gives stabilizing firms a cash-survival advantage and makes them the more likely last survivor. But a truly effective intervention would need to address the supply over-purchasing behavior itself (e.g., teach firms to buy inventory conservatively) or introduce coordination mechanisms that keep multiple firms viable simultaneously.
 
+\section{Ablation Idea: Withholding Seller Reputation from Buyer Observation (Lemon Market)}
+
+\subsection{Motivation}
+
+In the current Lemon Market setup, buyers receive the seller's EMA reputation score $R_k \in [0,1]$ as part of their observation $(D_k, R_k, P_k, \text{persona})$. Reputation is the primary signal by which buyers can detect that a Sybil identity has degraded after repeated fraud. An ablation that \textbf{removes $R_k$ from the buyer's observation} would isolate the contribution of the reputation mechanism to market dynamics.
+
+\subsection{Predicted Effect}
+
+Without $R_k$, buyers must rely entirely on listing description content and price to estimate quality. Since Sybil sellers generate plausible high-quality descriptions regardless of true quality, the description signal alone is insufficient for detection. This should produce two opposing effects on the timeline:
+
+\begin{enumerate}
+  \item \textbf{Sybil identities survive longer.} Normally, a Sybil identity becomes less attractive as $R_k$ falls after repeated fraud. Without $R_k$ in the observation, buyers cannot discount a low-reputation identity; the Sybil cluster captures demand at a sustained rate for longer. Identity rotation (resetting $R$ on decay below $\rho_{\min}$) becomes less necessary and less visible.
+  \item \textbf{Market collapse is slower.} Paradoxically, if buyers cannot see reputation decay, they continue purchasing from Sybil sellers longer --- volume $V_t$ stays above the collapse threshold $\varepsilon_V = 5$ for more timesteps. The market does not collapse \emph{because buyers stop trusting}; instead, collapse would eventually arrive via buyer welfare destruction (sustained negative consumer surplus eroding participation), which operates on a longer timescale.
+\end{enumerate}
+
+The net prediction: \textbf{higher Deceptive Revenue Share} (Sybils capture more), \textbf{lower Buyer Welfare} (more exploitation), but \textbf{later collapse timestep $t^*$} compared to the baseline. This disentangles ``market collapse'' from ``buyers detecting fraud'' --- two dynamics that reputation conflates in the baseline condition.
+
+\subsection{Implementation}
+
+Gate the inclusion of $R_k$ in the buyer prompt context behind a CLI flag, e.g.\ \texttt{--no-buyer-rep}. The EMA reputation still updates internally (for logging and metric computation) but is not injected into the observation JSON. No change to market clearing or the reputation formula is needed.
+
+\subsection{Relationship to Existing Design Notes}
+
+This is analogous to the eWTP ablation in THE\_CRASH (Section~6): in both cases, the ablation removes one feedback mechanism to isolate its causal contribution to the failure mode. For THE\_CRASH, the question was whether eWTP amplifies the price spiral; here, the question is whether reputation is load-bearing for the Lemon Market collapse, or whether description-based deception alone is sufficient to destabilize the market.
+
 \end{document}
