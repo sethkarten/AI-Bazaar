@@ -688,7 +688,6 @@ class BazaarWorld:
                         buyer.make_orders,
                         self.timestep,
                         list(self.market.listings),
-                        self.market_mean_quality,
                         discovery_limit_consumers,
                         include_rep,
                     ): buyer

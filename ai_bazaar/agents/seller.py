@@ -194,7 +194,7 @@ class LLMSellerAgent(SellerAgent):
             'Respond with a single JSON object: {"description": "<text>"}'
         )
         try:
-            raw, _ = self.llm.send_msg(self.system_prompt, prompt)
+            raw, _ = self.llm.send_msg(self.system_prompt, prompt, json_format=True)
             maybe_append_lemon_agent_prompt(
                 self.args,
                 "seller",

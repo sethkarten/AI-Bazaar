@@ -75,6 +75,12 @@ class BuyerAgent(LLMAgent):
             f"Your persona: {self.persona}. "
             "Your goal is to purchase good-value cars and avoid paying more than a car "
             "is worth. "
+            "Fair market values by quality tier: "
+            f"mint ≈ ${V_MAX * 1.0:,.0f}, "
+            f"good ≈ ${V_MAX * 0.7:,.0f}, "
+            f"fair ≈ ${V_MAX * 0.4:,.0f}, "
+            f"poor ≈ ${V_MAX * 0.1:,.0f}. "
+            "A listing priced above its claimed quality tier's fair value is likely overpriced. "
             "Be aware: some sellers misrepresent car quality in their descriptions. "
             "Evaluate each listing by weighing the written description, the seller's "
             "reputation score (if shown), and your own past transaction history. "
@@ -87,7 +93,6 @@ class BuyerAgent(LLMAgent):
         self,
         timestep: int,
         listings: list,
-        market_mean_quality: Optional[float],
         discovery_limit: int = 5,
         include_reputation: bool = True,
     ) -> List[Order]:
@@ -99,7 +104,7 @@ class BuyerAgent(LLMAgent):
         self.discovered_listings_this_step = list(visible)
 
         obs = self._build_observation(
-            timestep, visible, market_mean_quality, include_reputation
+            timestep, visible, include_reputation
         )
 
         self.add_message(
@@ -152,7 +157,6 @@ class BuyerAgent(LLMAgent):
         self,
         timestep: int,
         visible_listings: list,
-        market_mean_quality: Optional[float],
         include_reputation: bool,
     ) -> dict:
         listing_dicts = []
@@ -168,11 +172,16 @@ class BuyerAgent(LLMAgent):
                 )
             listing_dicts.append(entry)
 
+        personal_history = self.transaction_history[-BUYER_TRANSACTION_HISTORY_LEN:]
+        personal_mean_quality = (
+            sum(r["quality_received"] for r in personal_history) / len(personal_history)
+            if personal_history else None
+        )
         return {
             "timestep": timestep,
             "persona": self.persona,
-            "market_mean_quality": market_mean_quality,
-            "your_transaction_history": self.transaction_history[-BUYER_TRANSACTION_HISTORY_LEN:],
+            "your_mean_quality_received": personal_mean_quality,
+            "your_transaction_history": personal_history,
             "listings_visible": listing_dicts,
         }
 

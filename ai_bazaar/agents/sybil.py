@@ -261,16 +261,20 @@ class DeceptivePrincipal(LLMAgent):
             return fallback_desc, fallback_price
 
         prompt = (
-            f"You are listing a used car advertised as '{adv_quality}' condition "
-            f"(value ${V_MAX * adv_qv:,.0f}). "
-            f"Seller: {identity.name}. Reputation score: {identity.reputation:.2f}. "
+            f"You are listing a used car advertised as '{adv_quality}' condition. "
+            f"Seller: {identity.name}. Your current reputation score: {identity.reputation:.2f}. "
             "Write a short, compelling listing description. "
             "Do not mention exact numeric quality values. "
-            f"Set a price between ${V_MAX * adv_qv * 0.8:,.0f} and ${V_MAX * adv_qv:,.0f}. "
+            "Fair market prices by quality tier for reference: "
+            f"mint ≈ ${V_MAX * 1.0:,.0f}, "
+            f"good ≈ ${V_MAX * 0.7:,.0f}, "
+            f"fair ≈ ${V_MAX * 0.4:,.0f}, "
+            f"poor ≈ ${V_MAX * 0.1:,.0f}. "
+            "Set a price that maximises your revenue given your reputation and the competition. "
             'Respond with a single JSON object: {"description": "<text>", "price": <number>}'
         )
         try:
-            raw, _ = self.llm.send_msg(system_prompt, prompt)
+            raw, _ = self.llm.send_msg(system_prompt, prompt, json_format=True)
             maybe_append_lemon_agent_prompt(
                 self.args,
                 "seller",

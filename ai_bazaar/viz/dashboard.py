@@ -1372,7 +1372,20 @@ else:
                     if _listing_rows:
                         st.markdown(f"**Listing history ({len(_listing_rows)} listings)**")
                         _listing_df = pd.DataFrame(_listing_rows).sort_values("Timestep")
-                        st.dataframe(_listing_df, use_container_width=True)
+                        for _, _lr in _listing_df.iterrows():
+                            _q = _lr.get("True Quality", "?")
+                            _p = _lr.get("Price")
+                            _rep_at = _lr.get("Reputation at Post")
+                            _p_str = f"${_p:,.0f}" if isinstance(_p, (int, float)) else "—"
+                            _label = f"t={int(_lr['Timestep'])}  ·  {_q}  ·  {_p_str}"
+                            with st.expander(_label):
+                                _ec1, _ec2, _ec3, _ec4 = st.columns(4)
+                                _ec1.metric("Timestep", int(_lr["Timestep"]))
+                                _ec2.metric("True Quality", _q)
+                                _ec3.metric("Price", _p_str)
+                                _ec4.metric("Rep at Post", f"{_rep_at:.3f}" if isinstance(_rep_at, (int, float)) else "—")
+                                st.markdown("**Description**")
+                                st.markdown(f"> {_lr.get('Description', '—')}")
                     else:
                         st.caption("No listing history found for this seller in the current state files.")
 
