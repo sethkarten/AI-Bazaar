@@ -277,6 +277,12 @@ def create_argument_parser():
     )
     parser.add_argument("--port", type=int, default=8009, help="Port for LLM service")
     parser.add_argument(
+        "--gemini-backend", default=None, choices=["studio", "vertex"],
+        dest="gemini_backend",
+        help="Gemini backend: 'studio' (API key) or 'vertex' (Vertex AI). "
+             "Defaults to 'studio' if GOOGLE_API_KEY/GEMINI_API_KEY is set, else 'vertex'.",
+    )
+    parser.add_argument(
         "--prompt-algo", default="io", choices=["io", "cot"], help="Prompting algorithm"
     )
     parser.add_argument("--history-len", type=int, default=10, help="Length of history")

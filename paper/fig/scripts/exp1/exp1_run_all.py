@@ -5,7 +5,11 @@ The figure scripts (heatmap, timeseries) use exp1_baseline for the no-stab basel
 sweep runs use exp1_stab_{n_stab}_dlc{dlc}_seed{seed} (including n_stab=5).
 
 Usage:
+    python exp1_run_all.py --src <logs-subdir> [--dst <fig-subdir>] [--good food]
     python exp1_run_all.py [--logs-dir logs/] [--good food] [--fig-dir paper/fig/exp1/]
+
+--src sets the subdirectory within logs/ to read from.
+--dst sets the subdirectory within paper/fig/exp1/ to write to (defaults to --src name).
 """
 
 import argparse
@@ -28,22 +32,47 @@ SCRIPTS = [
 
 def main():
     parser = argparse.ArgumentParser(description="Run all Exp1 figure scripts")
-    parser.add_argument("--logs-dir", default="logs/")
+    parser.add_argument("--src", default=None,
+                        help="Subdirectory within logs/ to read from (e.g. 'exp1_gemini')")
+    parser.add_argument("--dst", default=None,
+                        help="Subdirectory within paper/fig/exp1/ to write to; defaults to --src name")
+    parser.add_argument("--logs-dir", default="logs/",
+                        help="Base logs directory (overridden by --src if provided)")
     parser.add_argument("--good", default="food")
-    parser.add_argument("--fig-dir", default=os.path.join(SCRIPTS_DIR, "..", "..", "exp1"))
+    parser.add_argument("--fig-dir", default=os.path.join(SCRIPTS_DIR, "..", "..", "exp1"),
+                        help="Base fig directory (overridden by --dst/--src if provided)")
     parser.add_argument("--workers", type=int, default=8, help="Parallel load workers per script")
+    parser.add_argument("--model", default="")
     args = parser.parse_args()
 
-    fig_dir = os.path.abspath(args.fig_dir)
+    if args.src:
+        logs_dir = os.path.join(args.logs_dir, args.src)
+        if not args.model and args.src.startswith("exp1_"):
+            args.model = args.src[len("exp1_"):]
+    else:
+        logs_dir = args.logs_dir
+
+    dst_name = args.dst or args.src
+    if dst_name:
+        fig_dir = os.path.abspath(os.path.join(args.fig_dir, dst_name))
+    else:
+        fig_dir = os.path.abspath(args.fig_dir)
+
     os.makedirs(fig_dir, exist_ok=True)
 
+    def pdf_name(stem):
+        if args.model:
+            return f"exp1_{args.model}_{stem}.pdf"
+        return f"exp1_{stem}.pdf"
+
     outputs = {
-        "exp1_heatmap.py":          os.path.join(fig_dir, "exp1_heatmap.pdf"),
-        "exp1_score.py":            os.path.join(fig_dir, "exp1_score.pdf"),
-        "exp1_timeseries.py":       os.path.join(fig_dir, "exp1_timeseries.pdf"),
-        "exp1_survival.py":         os.path.join(fig_dir, "exp1_survival.pdf"),
-        "exp1_phase.py":            os.path.join(fig_dir, "exp1_phase.pdf"),
-        "exp1_collapse_timing.py":  os.path.join(fig_dir, "exp1_collapse_timing.pdf"),
+        "exp1_heatmap.py":          os.path.join(fig_dir, pdf_name("heatmap")),
+        "exp1_score.py":            os.path.join(fig_dir, pdf_name("score")),
+        "exp1_score_3d.py":         os.path.join(fig_dir, pdf_name("score_3d")),
+        "exp1_timeseries.py":       os.path.join(fig_dir, pdf_name("timeseries")),
+        "exp1_survival.py":         os.path.join(fig_dir, pdf_name("survival")),
+        "exp1_phase.py":            os.path.join(fig_dir, pdf_name("phase")),
+        "exp1_collapse_timing.py":  os.path.join(fig_dir, pdf_name("collapse_timing")),
     }
 
     # Launch all scripts in parallel
@@ -53,10 +82,11 @@ def main():
         output_path = outputs[script_name]
         cmd = [
             sys.executable, script_path,
-            "--logs-dir", args.logs_dir,
+            "--logs-dir", logs_dir,
             "--good", args.good,
             "--output", output_path,
             "--workers", str(args.workers),
+            "--model", args.model,
         ]
         print(f"Launching: {script_name}", flush=True)
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

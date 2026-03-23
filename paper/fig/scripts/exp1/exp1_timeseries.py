@@ -72,11 +72,11 @@ ROW_LABELS = ["Mean price", "Active firms", "Filled orders/step"]
 # Cache helpers
 # ---------------------------------------------------------------------------
 
-def collect_run_dirs(logs_dir):
+def collect_run_dirs(logs_dir, model=""):
     dirs = []
     for col in COLUMNS:
         for seed in col["seeds"]:
-            d = resolve_run_dir(logs_dir, col["n_stab"], col["dlc"], seed)
+            d = resolve_run_dir(logs_dir, col["n_stab"], col["dlc"], seed, model=model)
             if d:
                 dirs.append(d)
     return dirs
@@ -115,7 +115,15 @@ def _deserialize(data):
 # I/O helpers
 # ---------------------------------------------------------------------------
 
-def resolve_run_dir(logs_dir, n_stab, dlc, seed):
+def resolve_run_dir(logs_dir, n_stab, dlc, seed, model=""):
+    if model:
+        if n_stab == 0:
+            if dlc == 3 and seed == 8:
+                path = os.path.join(logs_dir, f"exp1_{model}_baseline")
+                return path if os.path.isdir(path) else None
+            return None
+        path = os.path.join(logs_dir, f"exp1_{model}_stab_{n_stab}_dlc{dlc}_seed{seed}")
+        return path if os.path.isdir(path) else None
     if n_stab == 0:
         if dlc == 3 and seed == 8:
             path = os.path.join(logs_dir, "exp1_baseline")
@@ -334,11 +342,12 @@ def main():
         default=os.path.join(os.path.dirname(__file__), "..", "..", "exp1", "exp1_timeseries.pdf"),
     )
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--model", default="")
     args = parser.parse_args()
 
     data_dir   = get_data_dir(args.output)
     cache_path = get_cache_path(data_dir, "exp1_timeseries", args.good)
-    run_dirs   = collect_run_dirs(args.logs_dir)
+    run_dirs   = collect_run_dirs(args.logs_dir, args.model)
 
     if is_cache_fresh(cache_path, run_dirs, args.logs_dir, args.good):
         print(f"Using cached data: {cache_path}", flush=True)
@@ -348,7 +357,7 @@ def main():
         jobs = []
         for col_idx, col in enumerate(COLUMNS):
             for seed in col["seeds"]:
-                run_dir = resolve_run_dir(args.logs_dir, col["n_stab"], col["dlc"], seed)
+                run_dir = resolve_run_dir(args.logs_dir, col["n_stab"], col["dlc"], seed, model=args.model)
                 if run_dir:
                     jobs.append((col_idx, seed, run_dir))
                 else:
@@ -376,7 +385,7 @@ def main():
         for col in COLUMNS:
             uc = 1.0
             for seed in col["seeds"]:
-                run_dir = resolve_run_dir(args.logs_dir, col["n_stab"], col["dlc"], seed)
+                run_dir = resolve_run_dir(args.logs_dir, col["n_stab"], col["dlc"], seed, model=args.model)
                 if run_dir:
                     uc = get_unit_cost(run_dir)
                     break

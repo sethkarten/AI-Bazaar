@@ -26,31 +26,20 @@ class GeminiModel(BaseLLMModel):
             temperature: Temperature for sampling
         """
         super().__init__(model_name, max_tokens, temperature)
-        
+
+        try:
+            from google import genai
+        except ImportError as e:
+            raise ImportError("Please `pip install google-genai`") from e
+
         # Get API key from parameter or environment
         api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-        
+
         self.model_name = model_name
-        
+
         if api_key:
-            # Do api_key setup
-            try:
-                import google.generativeai as genai
-            except ImportError as e:
-                raise ImportError("Please `pip install google-generativeai`") from e
-            genai.configure(api_key=api_key)
-            self.api_key = api_key
-            self.client = genai
-            self.model = self.client.GenerativeModel(self.model_name)
-            self.mode = "studio"  # for distinction between api_key and vertex ai setup
+            self.client = genai.Client(api_key=api_key)
         else:
-            # Do vertex ai setup
-            try:
-                from google import genai
-            except ImportError as e:
-                raise ImportError(
-                    "Vertex path needs `pip install google-genai` (new SDK)."
-                ) from e
             _project = project or os.environ.get("GOOGLE_CLOUD_PROJECT")
             _location = location or os.environ.get("VERTEX_LOCATION", "us-central1")
             if not _project:
@@ -59,11 +48,7 @@ class GeminiModel(BaseLLMModel):
                     "and ADC via `gcloud auth application-default login` "
                     "or GOOGLE_APPLICATION_CREDENTIALS."
                 )
-            self.genai = genai
             self.client = genai.Client(vertexai=True, project=_project, location=_location)
-            self.mode = "vertexai"
-            
-        	
         
     def send_msg(self, system_prompt: str, user_prompt: str, 
                  temperature: Optional[float] = None, 
@@ -94,33 +79,16 @@ class GeminiModel(BaseLLMModel):
 
         while retry_count < max_retries:
             try:
-                if self.mode == "studio":
-                    # Configure generation parameters
-                    generation_config = self.client.types.GenerationConfig(
-                        temperature=temperature,
-                        max_output_tokens=self.max_tokens,
-                        candidate_count=1
-                    )
-                    # Generate response
-                    response = self.model.generate_content(
-                        combined_prompt,
-                        generation_config=generation_config
-                    )
-                    message = response.text
-                else: # vertex ai mode
-                    # Configure generation parameters
-                    config = {
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=combined_prompt,
+                    config={
                         "temperature": temperature,
                         "maxOutputTokens": self.max_tokens,
-                        "candidateCount": 1
-                    }
-                    # Generate response
-                    response = self.client.models.generate_content(
-                        model=self.model_name,
-                        contents=combined_prompt,
-                        config=config
-                    )
-                    message = response.text
+                        "candidateCount": 1,
+                    },
+                )
+                message = response.text
 
                 _um = getattr(response, "usage_metadata", None)
                 _input_t = getattr(_um, "prompt_token_count", 0) if _um else 0
@@ -166,7 +134,7 @@ class GeminiModel(BaseLLMModel):
     def get_available_models(cls):
         """Get list of available Gemini models."""
         return [
-            "gemini-3-flash-preview",
+            "gemini-3.0-flash",
             "gemini-2.5-pro",
             "gemini-2.5-flash",
             "gemini-1.5-pro",
@@ -178,8 +146,8 @@ class GeminiModel(BaseLLMModel):
     def list_models(self):
         """List all available models dynamically."""
         try:
-            models = list(self.client.list_models())
-            return [model.name for model in models if 'generateContent' in model.supported_generation_methods]
+            models = list(self.client.models.list())
+            return [model.name for model in models]
         except Exception as e:
             self.logger.error(f"Error listing models: {e}")
             return self.get_available_models()

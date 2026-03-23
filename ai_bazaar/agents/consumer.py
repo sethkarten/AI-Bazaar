@@ -231,7 +231,7 @@ class CESConsumerAgent(LLMAgent):
                 )
             else:
                 self.prices_dict[good] = 0.0
-                self.logger.warning(f"No quotes available for {good}")
+                # self.logger.warning(f"No quotes available for {good}")
             p = (
                 self.prices_dict[good]
                 if self.prices_dict[good] > 0.0

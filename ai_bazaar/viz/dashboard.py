@@ -1,6 +1,7 @@
 """
 Streamlit dashboard for inspecting simulation state and metrics over time.
-Expects logs/state_t*.json files (e.g. from bazaar_env runs). Run from project root.
+Expects logs/**/state_t*.json (any depth under logs/, e.g. logs/exp1_<model>/<run>/).
+Run from project root.
 """
 import json
 import os
@@ -20,26 +21,74 @@ st.set_page_config(page_title="Agent Bazaar Dashboard", layout="wide")
 
 st.title("🏛️ Agent Bazaar: Civilization Simulacra Dashboard")
 
-# Discover runs: logs/ (legacy) and logs/<run_name>/ (run subfolders)
+
+def discover_run_dirs(log_root: str) -> list[tuple[str, str]]:
+    """Find every directory under log_root that contains state_t*.json.
+
+    Returns sorted list of (absolute_path, display_label). Labels use forward slashes
+    relative to log_root (e.g. exp1_model/run_name) so nested experiment layouts are clear.
+    """
+    runs: list[tuple[str, str]] = []
+    if not os.path.isdir(log_root):
+        return runs
+    log_root = os.path.normpath(log_root)
+    for dirpath, _dirnames, _filenames in os.walk(log_root):
+        if glob.glob(os.path.join(dirpath, "state_t*.json")):
+            rel = os.path.relpath(dirpath, log_root)
+            if rel in (".", ""):
+                label = "logs (root)"
+            else:
+                label = rel.replace(os.sep, "/")
+            runs.append((os.path.abspath(dirpath), label))
+    runs.sort(key=lambda x: x[1].lower())
+    return runs
+
+
+# Discover runs at any depth under logs/ (e.g. logs/exp1_<model>/<run_name>/)
 log_dir = "logs"
-run_dirs = []
-if os.path.isdir(log_dir):
-    # Legacy: state files directly in logs/
-    if glob.glob(os.path.join(log_dir, "state_t*.json")):
-        run_dirs.append((log_dir, "logs (root)"))
-    for name in sorted(os.listdir(log_dir)):
-        sub = os.path.join(log_dir, name)
-        if os.path.isdir(sub) and glob.glob(os.path.join(sub, "state_t*.json")):
-            run_dirs.append((sub, name))
-run_dir = run_dirs[0][0] if run_dirs else None
-run_label = run_dirs[0][1] if run_dirs else None
-if len(run_dirs) > 1:
-    run_label = st.selectbox("Run", options=[r[1] for r in run_dirs], index=0)
-    run_dir = next(r[0] for r in run_dirs if r[1] == run_label)
+run_dirs = discover_run_dirs(log_dir)
+
+with st.sidebar:
+    st.subheader("Run directory")
+    if not run_dirs:
+        st.info(f"No runs found under `{log_dir}/` (need directories containing state_t*.json).")
+    run_filter = st.text_input(
+        "Filter path",
+        value="",
+        placeholder="e.g. sonnet, dlc3, baseline",
+        help="Case-insensitive substring match on the path under logs/",
+        disabled=not run_dirs,
+    )
+    needle = (run_filter or "").strip().lower()
+    filtered = (
+        run_dirs
+        if not needle
+        else [(p, lab) for p, lab in run_dirs if needle in lab.lower()]
+    )
+    if needle and not filtered and run_dirs:
+        st.warning("No runs match the filter; showing all runs.")
+        filtered = run_dirs
+
+    if len(filtered) == 1:
+        run_dir, run_label = filtered[0]
+        st.caption(f"**{run_label}**")
+    elif len(filtered) > 1:
+        labels = [lab for _p, lab in filtered]
+        run_label = st.selectbox(
+            "Run",
+            options=labels,
+            index=0,
+            help="Path is relative to logs/. Nested layouts (e.g. exp1) appear as parent/run.",
+        )
+        run_dir = next(p for p, lab in filtered if lab == run_label)
+    else:
+        run_dir, run_label = None, None
 state_files = sorted(
     glob.glob(os.path.join(run_dir, "state_t*.json")) if run_dir else [],
     key=lambda x: int(os.path.basename(x).replace("state_t", "").replace(".json", "")),
 )
+if run_label:
+    st.caption(f"Selected run: `{log_dir}/{run_label}`" if run_label != "logs (root)" else f"Selected run: `{log_dir}/` (root)")
 # Consumer attributes from the selected run folder (optional)
 consumer_attributes_path = os.path.join(run_dir, "consumer_attributes.json") if run_dir else None
 consumer_attributes_list = None
@@ -69,7 +118,10 @@ token_usage_files = (
 )
 
 if not state_files:
-    st.warning("No state files found in logs/ (or in any logs/<run_name>/ folder). Run a simulation first!")
+    st.warning(
+        "No state files found under logs/ (searched recursively for state_t*.json). "
+        "Run a simulation from the project root or adjust the logs/ layout."
+    )
 else:
     # Which snapshot to show in the first three tabs (single-timestep view)
     timestep = st.select_slider(

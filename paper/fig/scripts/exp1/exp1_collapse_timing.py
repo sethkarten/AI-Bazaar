@@ -56,18 +56,26 @@ SEEDS         = [8, 16, 64]
 MAX_TIMESTEPS = 365
 
 
-def collect_run_dirs(logs_dir):
+def collect_run_dirs(logs_dir, model=""):
     dirs = []
     for n_stab in N_STAB_VALUES:
         for dlc in DLC_VALUES:
             for seed in SEEDS:
-                d = resolve_run_dir(logs_dir, dlc, n_stab, seed)
+                d = resolve_run_dir(logs_dir, dlc, n_stab, seed, model=model)
                 if d:
                     dirs.append(d)
     return dirs
 
 
-def resolve_run_dir(logs_dir, dlc, n_stab, seed):
+def resolve_run_dir(logs_dir, dlc, n_stab, seed, model=""):
+    if model:
+        if n_stab == 0:
+            if dlc == 3 and seed == 8:
+                path = os.path.join(logs_dir, f"exp1_{model}_baseline")
+                return path if os.path.isdir(path) else None
+            return None
+        path = os.path.join(logs_dir, f"exp1_{model}_stab_{n_stab}_dlc{dlc}_seed{seed}")
+        return path if os.path.isdir(path) else None
     if n_stab == 0:
         if dlc == 3 and seed == 8:
             path = os.path.join(logs_dir, "exp1_baseline")
@@ -134,16 +142,18 @@ def find_first_collapse(run_dir):
     return None
 
 
-def build_grid(logs_dir, workers=8):
+def build_grid(logs_dir, workers=8, model=""):
     """
     Returns:
       grid_median  : 2D array of median first-collapse timestep (NaN if no collapses)
+      grid_se      : 2D array of SE of collapse timestep across seeds (NaN if <2 collapses)
       per_seed     : dict {(i, j): [collapse_ts or None per seed]}
       available    : bool array, True where at least one seed has data
     """
     n_row = len(N_STAB_VALUES)
     n_col = len(DLC_VALUES)
     grid_median = np.full((n_row, n_col), np.nan)
+    grid_se     = np.full((n_row, n_col), np.nan)
     per_seed    = {}
     available   = np.zeros((n_row, n_col), dtype=bool)
 
@@ -151,7 +161,7 @@ def build_grid(logs_dir, workers=8):
     for i, n_stab in enumerate(N_STAB_VALUES):
         for j, dlc in enumerate(DLC_VALUES):
             for seed in SEEDS:
-                run_dir = resolve_run_dir(logs_dir, dlc, n_stab, seed)
+                run_dir = resolve_run_dir(logs_dir, dlc, n_stab, seed, model=model)
                 if run_dir:
                     jobs.append((i, j, n_stab, dlc, seed, run_dir))
 
@@ -180,17 +190,20 @@ def build_grid(logs_dir, workers=8):
         collapses = [t for t in ts_list if t is not None]
         if collapses:
             grid_median[i, j] = float(np.median(collapses))
+            if len(collapses) > 1:
+                grid_se[i, j] = float(np.std(collapses, ddof=1) / np.sqrt(len(collapses)))
 
-    return grid_median, per_seed, available
+    return grid_median, grid_se, per_seed, available
 
 
-def _serialize(grid_median, per_seed, available):
+def _serialize(grid_median, grid_se, per_seed, available):
     ps_ser = {
         f"{i},{j}": [t if t is not None else -1 for t in ts]
         for (i, j), ts in per_seed.items()
     }
     return {
         "grid_median": grid_median.tolist(),
+        "grid_se":     grid_se.tolist(),
         "per_seed":    ps_ser,
         "available":   available.tolist(),
     }
@@ -202,8 +215,12 @@ def _deserialize(data):
     for k, ts_list in ps_raw.items():
         i, j = int(k.split(",")[0]), int(k.split(",")[1])
         per_seed[(i, j)] = [t if t != -1 else None for t in ts_list]
+    grid_se_raw = data.get("grid_se")
+    grid_se = np.array(grid_se_raw) if grid_se_raw is not None else np.full_like(
+        np.array(data["grid_median"]), np.nan)
     return (
         np.array(data["grid_median"]),
+        grid_se,
         per_seed,
         np.array(data["available"], dtype=bool),
     )
@@ -228,7 +245,7 @@ def draw_stable_cell(ax, col_idx, row_idx):
     ax.add_patch(rect)
 
 
-def make_figure(grid_median, per_seed, available):
+def make_figure(grid_median, grid_se, per_seed, available):
     fig, ax = plt.subplots(1, 1, figsize=(8.0, 6.5), constrained_layout=True)
 
     vmin = 0
@@ -274,8 +291,10 @@ def make_figure(grid_median, per_seed, available):
                 rgba     = cmap(norm_val)
                 lum      = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
                 txt_col  = "white" if lum < 0.5 else "black"
-                ax.text(j, i - 0.08, f"t={int(val)}", ha="center", va="center",
-                        fontsize=10, fontweight="bold", color=txt_col, zorder=10)
+                se       = grid_se[i, j]
+                label    = f"t={int(val)}\n±{se:.0f}" if not np.isnan(se) else f"t={int(val)}"
+                ax.text(j, i - 0.08, label, ha="center", va="center",
+                        fontsize=8.5, fontweight="bold", color=txt_col, zorder=10)
 
     # Per-seed dots showing individual seed outcomes
     for i in range(len(N_STAB_VALUES)):
@@ -332,32 +351,33 @@ def main():
                              "exp1_collapse_timing.pdf"),
     )
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--model", default="")
     args = parser.parse_args()
 
     data_dir   = get_data_dir(args.output)
     cache_path = get_cache_path(data_dir, "exp1_collapse_timing", args.good)
-    run_dirs   = collect_run_dirs(args.logs_dir)
+    run_dirs   = collect_run_dirs(args.logs_dir, args.model)
 
     if is_cache_fresh(cache_path, run_dirs, args.logs_dir, args.good):
         cached = load_cache_data(cache_path)
         if "grid_median" in cached:
             print(f"Using cached data: {cache_path}", flush=True)
-            grid_median, per_seed, available = _deserialize(cached)
+            grid_median, grid_se, per_seed, available = _deserialize(cached)
         else:
             print("Cache missing grid_median, rebuilding...", flush=True)
-            grid_median, per_seed, available = build_grid(args.logs_dir, workers=args.workers)
+            grid_median, grid_se, per_seed, available = build_grid(args.logs_dir, workers=args.workers, model=args.model)
             save_cache(cache_path,
-                       _serialize(grid_median, per_seed, available),
+                       _serialize(grid_median, grid_se, per_seed, available),
                        args.logs_dir, args.good)
     else:
         print(f"Loading runs from: {args.logs_dir}")
-        grid_median, per_seed, available = build_grid(args.logs_dir, workers=args.workers)
+        grid_median, grid_se, per_seed, available = build_grid(args.logs_dir, workers=args.workers, model=args.model)
         save_cache(cache_path,
-                   _serialize(grid_median, per_seed, available),
+                   _serialize(grid_median, grid_se, per_seed, available),
                    args.logs_dir, args.good)
         print(f"Cached data: {cache_path}", flush=True)
 
-    fig = make_figure(grid_median, per_seed, available)
+    fig = make_figure(grid_median, grid_se, per_seed, available)
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)
     print(f"Saved: {args.output}")

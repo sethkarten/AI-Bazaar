@@ -1,21 +1,15 @@
 """
-Fig 4: Experiment 1 Multi-Dimensional Performance Score
+Fig 4: Experiment 1 Composite Market Health Score
 
-Combines bankruptcy rate, final price deviation from unit cost, and price volatility
-into a composite market health score and a multi-metric trade-off visualization.
+Composite health score heatmap over dlc × n_stab grid.
 
-Panel A — Trade-off scatter:
-  x: Price volatility σ (lower = more stable)
-  y: |Final price / unit cost − 1| (deviation from break-even; lower = better)
-  bubble size: bankruptcy rate (larger = worse)
-  color: n_stab (Okabe-Ito)
-  marker: dlc (●=1, ■=3, ▲=5)
-  error bars: min/max range across seeds
+  S = (S_surv + S_price + S_stab) / 3
+  S_surv  = 1 - bankruptcy_rate
+  S_price = 1 - min(|final_price/unit_cost - 1| / max_dev, 1)
+  S_stab  = 1 - price_volatility / max_volatility
 
-Panel B — Composite health score heatmap:
-  score = mean(survival_score, price_level_score, stability_score)
-  all components normalized to [0, 1]; higher = healthier market
-  YlGn colormap; missing cells hatched
+All components normalized to [0, 1]; higher = healthier market.
+YlGn colormap; missing cells hatched.
 
 Usage:
     python exp1_score.py [--logs-dir logs/] [--good food] [--output ...]
@@ -32,7 +26,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import matplotlib.gridspec as gridspec
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
@@ -81,7 +74,15 @@ DLC_LABELS  = {1: "dlc=1", 3: "dlc=3", 5: "dlc=5"}
 
 # ── Data loading (mirrors exp1_heatmap.py) ────────────────────────────────────
 
-def resolve_run_dir(logs_dir, dlc, n_stab, seed):
+def resolve_run_dir(logs_dir, dlc, n_stab, seed, model=""):
+    if model:
+        if n_stab == 0:
+            if dlc == 3 and seed == 8:
+                path = os.path.join(logs_dir, f"exp1_{model}_baseline")
+                return path if os.path.isdir(path) else None
+            return None
+        path = os.path.join(logs_dir, f"exp1_{model}_stab_{n_stab}_dlc{dlc}_seed{seed}")
+        return path if os.path.isdir(path) else None
     if n_stab == 0:
         # Baseline (no stabilizing firm): only exists for dlc=3, seed=8
         if dlc == 3 and seed == 8:
@@ -167,7 +168,7 @@ def compute_metrics(run_dir, good):
     }
 
 
-def load_all_metrics(logs_dir, good, workers=8):
+def load_all_metrics(logs_dir, good, workers=8, model=""):
     """
     Returns cell_data: Dict[(n_stab, dlc), List[metric_dict]]
     Each list contains one dict per available seed.
@@ -176,7 +177,7 @@ def load_all_metrics(logs_dir, good, workers=8):
     for n_stab in N_STAB_VALUES:
         for dlc in DLC_VALUES:
             for seed in SEEDS:
-                run_dir = resolve_run_dir(logs_dir, dlc, n_stab, seed)
+                run_dir = resolve_run_dir(logs_dir, dlc, n_stab, seed, model=model)
                 if run_dir:
                     jobs.append((n_stab, dlc, seed, run_dir))
 
@@ -236,7 +237,7 @@ def compute_composite(cell_data):
     max_pstd = max(all_pstd) if all_pstd else 1.0
     max_pdev = max(all_pdev) if all_pdev else 1.0
 
-    # Add composite score to each cell
+    # Add composite score and SE to each cell
     for key, agg in cell_means.items():
         survival   = 1.0 - agg["br_mean"]
         stability  = 1.0 - agg["pstd_mean"] / max_pstd
@@ -244,6 +245,21 @@ def compute_composite(cell_data):
         agg["composite"] = (survival + stability + price_lvl) / 3.0
         agg["max_pstd"]  = max_pstd
         agg["max_pdev"]  = max_pdev
+
+        # Per-seed composite scores for SE
+        runs = cell_data[key]
+        uc   = agg["unit_cost"]
+        per_seed = [
+            ((1.0 - r["bankruptcy_rate"])
+             + (1.0 - r["price_std"] / max_pstd)
+             + (1.0 - min(abs(r["final_avg_price"] / uc - 1.0) / max_pdev, 1.0))
+            ) / 3.0
+            for r in runs
+        ]
+        if len(per_seed) > 1:
+            agg["composite_se"] = float(np.std(per_seed, ddof=1) / np.sqrt(len(per_seed)))
+        else:
+            agg["composite_se"] = 0.0
 
     return cell_means
 
@@ -372,7 +388,7 @@ def plot_heatmap(ax, fig, cell_means):
         display, cmap=cmap, vmin=0.0, vmax=1.0,
         aspect="auto", interpolation="nearest",
     )
-    fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02, label="Health score")
+    cbar = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02, label="Health score")
 
     # Hatch missing cells
     for i in range(n_row):
@@ -386,16 +402,19 @@ def plot_heatmap(ax, fig, cell_means):
                 ax.add_patch(rect)
 
     # Annotate cells
-    for i in range(n_row):
-        for j in range(n_col):
-            if not avail[i, j]:
-                continue
-            val      = grid[i, j]
-            rgba     = cmap(val)
-            lum      = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
-            txt_col  = "white" if lum < 0.5 else "black"
-            ax.text(j, i, f"{val:.2f}", ha="center", va="center",
-                    fontsize=8, color=txt_col, zorder=10)
+    for (n_stab, dlc), agg in cell_means.items():
+        if n_stab not in N_STAB_VALUES or dlc not in DLC_VALUES:
+            continue
+        i = N_STAB_VALUES.index(n_stab)
+        j = DLC_VALUES.index(dlc)
+        val     = agg["composite"]
+        se      = agg.get("composite_se", 0.0)
+        rgba    = cmap(val)
+        lum     = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
+        txt_col = "white" if lum < 0.5 else "black"
+        label   = f"{val:.2f}\n±{se:.2f}" if se > 0 else f"{val:.2f}"
+        ax.text(j, i, label, ha="center", va="center",
+                fontsize=7.5, color=txt_col, zorder=10)
 
     ax.set_xticks(range(n_col))
     ax.set_xticklabels([f"dlc={d}" for d in DLC_VALUES])
@@ -403,14 +422,18 @@ def plot_heatmap(ax, fig, cell_means):
     ax.set_yticklabels([f"$k$={n}" for n in N_STAB_VALUES])
     ax.set_xlabel("Consumer discovery limit")
     ax.set_ylabel("Stabilizing firms ($k$)")
-    ax.set_title("(B) Composite Health Score")
+    ax.set_title("Composite Market Health Score")
     ax.grid(False)
 
-    # Hatch legend
+    # Hatch legend — placed below the colorbar
     hatch_patch = mpatches.Patch(
         facecolor="#cccccc", hatch="///", edgecolor="#888888", label="No data",
     )
-    ax.legend(handles=[hatch_patch], loc="lower right", fontsize=7, borderpad=0.5)
+    cbar.ax.legend(
+        handles=[hatch_patch], loc="upper center",
+        bbox_to_anchor=(0.5, -0.08), bbox_transform=cbar.ax.transAxes,
+        fontsize=7, borderpad=0.5, handlelength=1.2,
+    )
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -424,9 +447,10 @@ def main():
         default=os.path.join(os.path.dirname(__file__), "..", "..", "exp1", "exp1_score.pdf"),
     )
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--model", default="")
     args = parser.parse_args()
 
-    cell_data  = load_all_metrics(args.logs_dir, args.good, workers=args.workers)
+    cell_data  = load_all_metrics(args.logs_dir, args.good, workers=args.workers, model=args.model)
     cell_means = compute_composite(cell_data)
 
     print("\nComposite scores:")
@@ -435,24 +459,20 @@ def main():
               f"(br={agg['br_mean']:.2f}, pstd={agg['pstd_mean']:.3f}, "
               f"pdev={agg['pdev_mean']:.3f})")
 
-    # ── Layout: left scatter (wider) + right heatmap ─────────────────────
-    fig = plt.figure(figsize=(7.0, 4.2))
-    gs  = gridspec.GridSpec(
-        1, 2, figure=fig,
-        width_ratios=[5, 3],
-        left=0.08, right=0.97, bottom=0.12, top=0.90,
-        wspace=0.40,
-    )
-    ax_scatter = fig.add_subplot(gs[0])
-    ax_heatmap = fig.add_subplot(gs[1])
+    # ── Layout: single heatmap panel ──────────────────────────────────────
+    fig, ax_heatmap = plt.subplots(figsize=(4.2, 3.8))
+    fig.subplots_adjust(left=0.14, right=0.88, bottom=0.22, top=0.82)
 
-    plot_scatter(ax_scatter, cell_means)
     plot_heatmap(ax_heatmap, fig, cell_means)
 
-    fig.suptitle(
-        "Experiment 1: Multi-Dimensional Market Health",
-        fontweight="bold", y=0.97,
+    fig.suptitle("Experiment 1: Composite Market Health", fontweight="bold", y=0.97)
+
+    eq = (
+        r"$S = \frac{1}{3}\left[(1-\bar{b})"
+        r" + \!\left(1 - \frac{|\bar{p}/c-1|}{d_{\max}}\right)"
+        r" + \!\left(1 - \frac{\bar{\sigma}}{\sigma_{\max}}\right)\right]$"
     )
+    fig.text(0.5, 0.04, eq, ha="center", va="bottom", fontsize=8.5)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)

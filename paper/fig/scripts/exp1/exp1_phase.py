@@ -61,18 +61,26 @@ N_STAB_VALUES = [0, 1, 2, 4, 5]
 SEEDS         = [8, 16, 64]
 
 
-def collect_run_dirs(logs_dir):
+def collect_run_dirs(logs_dir, model=""):
     dirs = []
     for n_stab in N_STAB_VALUES:
         for dlc in DLC_VALUES:
             for seed in SEEDS:
-                d = resolve_run_dir(logs_dir, dlc, n_stab, seed)
+                d = resolve_run_dir(logs_dir, dlc, n_stab, seed, model=model)
                 if d:
                     dirs.append(d)
     return dirs
 
 
-def resolve_run_dir(logs_dir, dlc, n_stab, seed):
+def resolve_run_dir(logs_dir, dlc, n_stab, seed, model=""):
+    if model:
+        if n_stab == 0:
+            if dlc == 3 and seed == 8:
+                path = os.path.join(logs_dir, f"exp1_{model}_baseline")
+                return path if os.path.isdir(path) else None
+            return None
+        path = os.path.join(logs_dir, f"exp1_{model}_stab_{n_stab}_dlc{dlc}_seed{seed}")
+        return path if os.path.isdir(path) else None
     if n_stab == 0:
         if dlc == 3 and seed == 8:
             path = os.path.join(logs_dir, "exp1_baseline")
@@ -150,7 +158,7 @@ def compute_metrics(run_dir, good):
     }
 
 
-def build_grid(logs_dir, good, workers=8):
+def build_grid(logs_dir, good, workers=8, model=""):
     """Returns averaged grids for bankruptcy_rate and final_avg_price, plus available mask."""
     n_row = len(N_STAB_VALUES)
     n_col = len(DLC_VALUES)
@@ -163,7 +171,7 @@ def build_grid(logs_dir, good, workers=8):
     for i, n_stab in enumerate(N_STAB_VALUES):
         for j, dlc in enumerate(DLC_VALUES):
             for seed in SEEDS:
-                run_dir = resolve_run_dir(logs_dir, dlc, n_stab, seed)
+                run_dir = resolve_run_dir(logs_dir, dlc, n_stab, seed, model=model)
                 if run_dir:
                     jobs.append((i, j, n_stab, dlc, seed, run_dir))
 
@@ -387,11 +395,12 @@ def main():
         default=os.path.join(os.path.dirname(__file__), "..", "..", "exp1", "exp1_phase.pdf"),
     )
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--model", default="")
     args = parser.parse_args()
 
     data_dir   = get_data_dir(args.output)
     cache_path = get_cache_path(data_dir, "exp1_phase", args.good)
-    run_dirs   = collect_run_dirs(args.logs_dir)
+    run_dirs   = collect_run_dirs(args.logs_dir, args.model)
 
     if is_cache_fresh(cache_path, run_dirs, args.logs_dir, args.good):
         cached = load_cache_data(cache_path)
@@ -401,14 +410,14 @@ def main():
         else:
             print("Cache missing grid_br, rebuilding...", flush=True)
             grid_br, grid_price, available, unit_cost = build_grid(
-                args.logs_dir, args.good, workers=args.workers)
+                args.logs_dir, args.good, workers=args.workers, model=args.model)
             save_cache(cache_path,
                        _serialize(grid_br, grid_price, available, unit_cost),
                        args.logs_dir, args.good)
     else:
         print(f"Loading runs from: {args.logs_dir}")
         grid_br, grid_price, available, unit_cost = build_grid(
-            args.logs_dir, args.good, workers=args.workers)
+            args.logs_dir, args.good, workers=args.workers, model=args.model)
         save_cache(cache_path,
                    _serialize(grid_br, grid_price, available, unit_cost),
                    args.logs_dir, args.good)

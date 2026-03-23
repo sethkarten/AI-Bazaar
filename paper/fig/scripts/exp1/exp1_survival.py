@@ -60,12 +60,12 @@ MAX_TIMESTEPS = 365
 N_FIRMS_TOTAL = 5
 
 
-def collect_run_dirs(logs_dir):
+def collect_run_dirs(logs_dir, model=""):
     dirs = []
     for n_stab in N_STAB_VALUES:
         for dlc in DLC_VALUES:
             for seed in SEEDS:
-                d = resolve_run_dir(logs_dir, dlc, n_stab, seed)
+                d = resolve_run_dir(logs_dir, dlc, n_stab, seed, model=model)
                 if d:
                     dirs.append(d)
     return dirs
@@ -102,8 +102,16 @@ def _deserialize(data):
     )
 
 
-def resolve_run_dir(logs_dir, dlc, n_stab, seed):
+def resolve_run_dir(logs_dir, dlc, n_stab, seed, model=""):
     """Return run directory path for given config; None if doesn't exist."""
+    if model:
+        if n_stab == 0:
+            if dlc == 3 and seed == 8:
+                path = os.path.join(logs_dir, f"exp1_{model}_baseline")
+                return path if os.path.isdir(path) else None
+            return None
+        path = os.path.join(logs_dir, f"exp1_{model}_stab_{n_stab}_dlc{dlc}_seed{seed}")
+        return path if os.path.isdir(path) else None
     if n_stab == 0:
         if dlc == 3 and seed == 8:
             path = os.path.join(logs_dir, "exp1_baseline")
@@ -157,7 +165,7 @@ def _load_both(run_dir):
     return survival, firms_count
 
 
-def build_grid(logs_dir, workers=8):
+def build_grid(logs_dir, workers=8, model=""):
     """
     Returns:
       grid_collapse        : 2D np.ndarray, collapse probability per cell; NaN where missing
@@ -182,7 +190,7 @@ def build_grid(logs_dir, workers=8):
     for i, n_stab in enumerate(N_STAB_VALUES):
         for j, dlc in enumerate(DLC_VALUES):
             for seed in SEEDS:
-                run_dir = resolve_run_dir(logs_dir, dlc, n_stab, seed)
+                run_dir = resolve_run_dir(logs_dir, dlc, n_stab, seed, model=model)
                 if run_dir is not None:
                     jobs.append((i, j, n_stab, dlc, seed, run_dir))
 
@@ -218,13 +226,21 @@ def build_grid(logs_dir, workers=8):
         n_seeds     = len(firms_vals)
         n_collapsed = sum(1 for f in firms_vals if f is not None and f < N_FIRMS_TOTAL)
         prob        = n_collapsed / n_seeds if n_seeds > 0 else np.nan
-        grid_collapse[i, j]        = prob
-        annotations_collapse[i][j] = f"{round(prob * 100):.0f}%"
+        grid_collapse[i, j] = prob
+        if n_seeds > 1 and not np.isnan(prob):
+            se_collapse = float(np.sqrt(max(prob * (1 - prob) / n_seeds, 0)))
+            annotations_collapse[i][j] = f"{round(prob * 100):.0f}%\n±{se_collapse:.2f}"
+        else:
+            annotations_collapse[i][j] = f"{round(prob * 100):.0f}%"
 
         valid_firms = [f for f in firms_vals if f is not None]
         if valid_firms:
-            grid_firms[i, j]        = float(np.mean(valid_firms))
-            annotations_firms[i][j] = f"{grid_firms[i, j]:.1f}"
+            grid_firms[i, j] = float(np.mean(valid_firms))
+            if len(valid_firms) > 1:
+                se_firms = float(np.std(valid_firms, ddof=1) / np.sqrt(len(valid_firms)))
+                annotations_firms[i][j] = f"{grid_firms[i, j]:.1f}\n±{se_firms:.1f}"
+            else:
+                annotations_firms[i][j] = f"{grid_firms[i, j]:.1f}"
         per_seed_firms[(i, j)] = firms_vals
 
     return (grid_collapse, annotations_collapse, grid_firms, annotations_firms,
@@ -306,7 +322,7 @@ def _draw_heatmap(ax, fig, data, annotations, available, cmap, vmin, vmax, cbar_
             ax.text(
                 j, i, ann,
                 ha="center", va="center",
-                fontsize=11, fontweight="bold", color=txt_color,
+                fontsize=8.5, fontweight="bold", color=txt_color,
                 zorder=10,
             )
 
@@ -380,11 +396,12 @@ def main():
         default=os.path.join(os.path.dirname(__file__), "..", "..", "exp1", "exp1_survival.pdf"),
     )
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--model", default="")
     args = parser.parse_args()
 
     data_dir   = get_data_dir(args.output)
     cache_path = get_cache_path(data_dir, "exp1_survival", args.good)
-    run_dirs   = collect_run_dirs(args.logs_dir)
+    run_dirs   = collect_run_dirs(args.logs_dir, args.model)
 
     if is_cache_fresh(cache_path, run_dirs, args.logs_dir, args.good):
         cached = load_cache_data(cache_path)
@@ -396,7 +413,7 @@ def main():
             print("Cache missing grid_collapse, rebuilding...", flush=True)
             (grid_collapse, annotations_collapse, grid_firms, annotations_firms,
              per_seed_firms, available, single_seed) = build_grid(
-                args.logs_dir, workers=args.workers)
+                args.logs_dir, workers=args.workers, model=args.model)
             save_cache(cache_path,
                        _serialize(grid_collapse, annotations_collapse, grid_firms,
                                   annotations_firms, per_seed_firms, available, single_seed),
@@ -405,7 +422,7 @@ def main():
         print(f"Loading runs from: {args.logs_dir}")
         (grid_collapse, annotations_collapse, grid_firms, annotations_firms,
          per_seed_firms, available, single_seed) = build_grid(
-            args.logs_dir, workers=args.workers)
+            args.logs_dir, workers=args.workers, model=args.model)
         save_cache(cache_path,
                    _serialize(grid_collapse, annotations_collapse, grid_firms,
                                annotations_firms, per_seed_firms, available, single_seed),

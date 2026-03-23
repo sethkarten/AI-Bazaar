@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from time import sleep
 from typing import Any, Optional
@@ -75,7 +76,13 @@ class LLMAgent:
         if "gpt" in llm_type.lower():
             return OpenAIModel(model_name=llm_type, max_tokens=args.max_tokens)
         elif "gemini" in llm_type.lower():
-            return GeminiModel(model_name=llm_type, max_tokens=args.max_tokens)
+            backend = getattr(args, "gemini_backend", None)
+            if backend is None:
+                backend = "studio" if (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")) else "vertex"
+            api_key = None if backend == "vertex" else (
+                os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+            )
+            return GeminiModel(model_name=llm_type, max_tokens=args.max_tokens, api_key=api_key)
         elif (
             "llama" in llm_type.lower()
             or "gemma" in llm_type.lower()

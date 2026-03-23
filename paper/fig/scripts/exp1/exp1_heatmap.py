@@ -30,6 +30,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.colors as mcolors
+import matplotlib.ticker as mticker
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
@@ -62,12 +63,12 @@ N_STAB_VALUES = [0, 1, 2, 4, 5]
 SEEDS         = [8, 16, 64]
 
 
-def collect_run_dirs(logs_dir):
+def collect_run_dirs(logs_dir, model=""):
     dirs = []
     for n_stab in N_STAB_VALUES:
         for dlc in DLC_VALUES:
             for seed in SEEDS:
-                d = resolve_run_dir(logs_dir, dlc, n_stab, seed)
+                d = resolve_run_dir(logs_dir, dlc, n_stab, seed, model=model)
                 if d:
                     dirs.append(d)
     return dirs
@@ -98,8 +99,16 @@ def _deserialize(data):
     return grids, data["annotations"], available, data["unit_cost"], per_seed_data
 
 
-def resolve_run_dir(logs_dir, dlc, n_stab, seed):
+def resolve_run_dir(logs_dir, dlc, n_stab, seed, model=""):
     """Return run directory path for given config; None if doesn't exist."""
+    if model:
+        if n_stab == 0:
+            if dlc == 3 and seed == 8:
+                path = os.path.join(logs_dir, f"exp1_{model}_baseline")
+                return path if os.path.isdir(path) else None
+            return None
+        path = os.path.join(logs_dir, f"exp1_{model}_stab_{n_stab}_dlc{dlc}_seed{seed}")
+        return path if os.path.isdir(path) else None
     if n_stab == 0:
         # Baseline (no stabilizing firm): only exists for dlc=3, seed=8
         if dlc == 3 and seed == 8:
@@ -198,7 +207,7 @@ def compute_metrics(run_dir, good):
     }
 
 
-def build_grid(logs_dir, good, workers=8):
+def build_grid(logs_dir, good, workers=8, model=""):
     """
     Returns dict[metric_name] -> 2D array shape (len(N_STAB_VALUES), len(DLC_VALUES)).
     NaN where data missing. Also returns global unit_cost, boolean available mask,
@@ -216,7 +225,7 @@ def build_grid(logs_dir, good, workers=8):
     for i, n_stab in enumerate(N_STAB_VALUES):
         for j, dlc in enumerate(DLC_VALUES):
             for seed in SEEDS:
-                run_dir = resolve_run_dir(logs_dir, dlc, n_stab, seed)
+                run_dir = resolve_run_dir(logs_dir, dlc, n_stab, seed, model=model)
                 if run_dir is not None:
                     jobs.append((i, j, n_stab, dlc, seed, run_dir))
 
@@ -256,8 +265,12 @@ def build_grid(logs_dir, good, workers=8):
             for m in metric_names:
                 vals   = seed_vals[m]
                 mean_v = float(np.mean(vals))
-                grids[m][i, j]       = mean_v
-                annotations[m][i][j] = f"{mean_v:.2f}"
+                grids[m][i, j] = mean_v
+                if len(vals) > 1:
+                    se = float(np.std(vals, ddof=1) / np.sqrt(len(vals)))
+                    annotations[m][i][j] = f"{mean_v:.2f}\n±{se:.2f}"
+                else:
+                    annotations[m][i][j] = f"{mean_v:.2f}"
 
     unit_cost = float(np.mean(unit_costs)) if unit_costs else 1.0
     return grids, annotations, available, unit_cost, per_seed_data
@@ -322,11 +335,12 @@ def main():
         default=os.path.join(os.path.dirname(__file__), "..", "..", "exp1", "exp1_heatmap.pdf"),
     )
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--model", default="")
     args = parser.parse_args()
 
     data_dir   = get_data_dir(args.output)
     cache_path = get_cache_path(data_dir, "exp1_heatmap", args.good)
-    run_dirs   = collect_run_dirs(args.logs_dir)
+    run_dirs   = collect_run_dirs(args.logs_dir, args.model)
 
     if is_cache_fresh(cache_path, run_dirs, args.logs_dir, args.good):
         cached = load_cache_data(cache_path)
@@ -336,13 +350,13 @@ def main():
         else:
             print("Cache missing per_seed_data, rebuilding...", flush=True)
             grids, annotations, available, unit_cost, per_seed_data = build_grid(
-                args.logs_dir, args.good, workers=args.workers)
+                args.logs_dir, args.good, workers=args.workers, model=args.model)
             save_cache(cache_path, _serialize(grids, annotations, available, unit_cost, per_seed_data),
                        args.logs_dir, args.good)
     else:
         print(f"Loading runs from: {args.logs_dir}")
         grids, annotations, available, unit_cost, per_seed_data = build_grid(
-            args.logs_dir, args.good, workers=args.workers)
+            args.logs_dir, args.good, workers=args.workers, model=args.model)
         save_cache(cache_path, _serialize(grids, annotations, available, unit_cost, per_seed_data),
                    args.logs_dir, args.good)
         print(f"Cached data: {cache_path}", flush=True)
@@ -438,6 +452,11 @@ def main():
         )
         cb_ax = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02)
         cb_ax.ax.tick_params(labelsize=9)
+        if mode == "lognorm":
+            cb_ax.formatter = mticker.FuncFormatter(lambda x, _: f"{x:.2f}x")
+            cb_ax.update_ticks()
+        elif mode == "range":
+            cb_ax.ax.yaxis.set_major_locator(mticker.MaxNLocator(nbins=5, prune="upper"))
 
         # Hatch missing cells
         for i in range(len(N_STAB_VALUES)):
@@ -458,7 +477,7 @@ def main():
                 ax.text(
                     j, i, annots[i][j],
                     ha="center", va="center",
-                    fontsize=9, color=txt_color,
+                    fontsize=7.5, color=txt_color,
                     zorder=10,
                 )
 
