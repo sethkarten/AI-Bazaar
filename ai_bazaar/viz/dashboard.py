@@ -16,6 +16,101 @@ _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 sys.path.insert(0, _root)
 from ai_bazaar.utils.dataframe_builder import DataFrameBuilder
 
+
+def _filter_seller_prompt_records(records, seller_name: str):
+    """Rows from lemon_agent_prompts.jsonl for one seller (honest name or sybil identity)."""
+    out = []
+    for r in records:
+        if r.get("role") != "seller":
+            continue
+        ag = r.get("agent", "")
+        sid = r.get("sybil_identity")
+        if ag == seller_name:
+            out.append(r)
+        elif sid == seller_name:
+            out.append(r)
+        elif (
+            seller_name.startswith("sybil_")
+            and ag == "sybil_principal"
+            and r.get("call") == "sybil_tier"
+        ):
+            out.append(r)
+    out.sort(key=lambda x: (x.get("timestep", 0), str(x.get("call", ""))))
+    return out
+
+
+def _filter_buyer_prompt_records(records, buyer_name: str):
+    out = []
+    for r in records:
+        if r.get("role") == "buyer" and r.get("agent") == buyer_name:
+            out.append(r)
+    out.sort(key=lambda x: (x.get("timestep", 0), str(x.get("call", ""))))
+    return out
+
+
+def _render_lemon_prompt_navigator(records: list, widget_key_prefix: str) -> None:
+    """Select one logged LLM exchange and show system / user / response."""
+    if not records:
+        return
+    n = len(records)
+    labels = [
+        f"t={r.get('timestep')} · {r.get('call')} · {i + 1}/{n}"
+        for i, r in enumerate(records)
+    ]
+    sk = f"{widget_key_prefix}_nav"
+    if sk not in st.session_state:
+        st.session_state[sk] = 0
+    st.session_state[sk] = int(np.clip(st.session_state[sk], 0, n - 1))
+
+    nav_a, nav_b = st.columns([1, 1])
+    with nav_a:
+        if st.button("◀ Prev", key=f"{widget_key_prefix}_prev"):
+            st.session_state[sk] = max(0, st.session_state[sk] - 1)
+    with nav_b:
+        if st.button("Next ▶", key=f"{widget_key_prefix}_next"):
+            st.session_state[sk] = min(n - 1, st.session_state[sk] + 1)
+
+    idx = st.selectbox(
+        "Jump to prompt",
+        options=list(range(n)),
+        format_func=lambda i: labels[i],
+        key=sk,
+    )
+    r = records[idx]
+    extra = (
+        f"**{r.get('call')}** · timestep **{r.get('timestep')}**"
+        + (
+            f" · retry depth {r.get('depth')}"
+            if r.get("depth") not in (None, 0)
+            else ""
+        )
+    )
+    st.markdown(extra)
+    if r.get("sybil_identity"):
+        st.caption(f"Sybil identity: {r['sybil_identity']}")
+    st.text_area(
+        "System prompt",
+        value=r.get("system_prompt") or "",
+        height=140,
+        disabled=True,
+        key=f"{widget_key_prefix}_sys_{idx}",
+    )
+    st.text_area(
+        "User prompt",
+        value=r.get("user_prompt") or "",
+        height=220,
+        disabled=True,
+        key=f"{widget_key_prefix}_usr_{idx}",
+    )
+    st.text_area(
+        "Response",
+        value=r.get("response") or "",
+        height=220,
+        disabled=True,
+        key=f"{widget_key_prefix}_rsp_{idx}",
+    )
+
+
 st.set_page_config(page_title="Agent Bazaar Dashboard", layout="wide")
 
 st.title("🏛️ Agent Bazaar: Civilization Simulacra Dashboard")
@@ -67,6 +162,20 @@ token_usage_files = (
     if run_dir
     else []
 )
+
+# Optional LEMON_MARKET LLM prompt log (--log-buyer-prompts / --log-seller-prompts)
+lemon_prompt_records: list = []
+prompt_log_path = os.path.join(run_dir, "lemon_agent_prompts.jsonl") if run_dir else None
+if prompt_log_path and os.path.isfile(prompt_log_path):
+    with open(prompt_log_path, "r", encoding="utf-8") as _pf:
+        for _line in _pf:
+            _line = _line.strip()
+            if not _line:
+                continue
+            try:
+                lemon_prompt_records.append(json.loads(_line))
+            except json.JSONDecodeError:
+                pass
 
 if not state_files:
     st.warning("No state files found in logs/ (or in any logs/<run_name>/ folder). Run a simulation first!")
@@ -968,7 +1077,7 @@ else:
             )
             st.altair_chart(chart_utility_components, use_container_width=True)
 
-    # LEMON MARKET TAB: All posted listings (only for runs with consumer_scenario LEMON_MARKET).
+    # LEMON MARKET TAB: Listings, bids/passes, and quality/price structure (LEMON_MARKET runs only).
     with tab5:
         is_lemon_run = (
             experiment_args_dict is not None
@@ -977,11 +1086,13 @@ else:
         if not is_lemon_run:
             st.info("Current selection is not a Lemon Market run.")
         else:
-            # Chart: Listings, Bids, Passes over time
+            import altair as alt
+
+            # ---- Section 1: Listings, bids, passes over time ----
             df_builder_lemon = DataFrameBuilder(state_files=state_files)
             lemon_metrics = df_builder_lemon.lemon_market_metrics_over_time()
+            st.subheader("Listings, bids, and passes over time")
             if not lemon_metrics.empty:
-                st.subheader("Listings, Bids, and Passes over time")
                 chart_lemon = (
                     AltairChartBuilder(lemon_metrics)
                     .x("timestep", title="Timestep")
@@ -997,25 +1108,545 @@ else:
                 )
                 st.altair_chart(chart_lemon, use_container_width=True)
             else:
-                st.caption("No lemon market metrics in state files.")
+                st.caption("No lemon market metrics found in state files for this run.")
 
+            # ---- Section 2: Current timestep summary + listings ----
+            st.subheader("Current timestep summary")
+            col_a, col_b, col_c, col_d = st.columns(4)
+            listings_now = state.get("lemon_market_listings_count", 0)
+            bids_now = state.get("lemon_market_bids_count", 0)
+            passes_now = state.get("lemon_market_passes_count", 0)
+            filled_now = state.get("filled_orders_count", 0)
+            col_a.metric("Listings this step", int(listings_now) if isinstance(listings_now, (int, float)) else 0)
+            col_b.metric("Bids this step", int(bids_now) if isinstance(bids_now, (int, float)) else 0)
+            col_c.metric("Passes this step", int(passes_now) if isinstance(passes_now, (int, float)) else 0)
+            col_d.metric("Filled orders this step", int(filled_now) if isinstance(filled_now, (int, float)) else 0)
+            col_e, col_f = st.columns(2)
+            sybil_rev_now = state.get("lemon_market_sybil_revenue_share")
+            avg_cs_now = state.get("lemon_market_avg_consumer_surplus")
+            col_e.metric(
+                "Sybil revenue share",
+                f"{sybil_rev_now:.1%}" if isinstance(sybil_rev_now, (int, float)) else "—",
+            )
+            col_f.metric(
+                "Avg consumer surplus",
+                f"${avg_cs_now:,.0f}" if isinstance(avg_cs_now, (int, float)) else "—",
+            )
+
+            def _fmt_vote_cell(v):
+                if not isinstance(v, (int, float)):
+                    return "—"
+                v = float(v)
+                return int(v) if abs(v - round(v)) < 1e-9 else round(v, 2)
+
+            st.subheader("Seller rating summary (this timestep)")
+            vote_rows = []
+            for f in state.get("firms", []):
+                name = f.get("name")
+                if not name:
+                    continue
+                u = f.get("upvotes")
+                d = f.get("downvotes")
+                rep = f.get("reputation")
+                is_active = f.get("in_business", True)
+                vote_rows.append({
+                    "Seller": name,
+                    "Sybil": bool(f.get("sybil", False)),
+                    "Status": "Active" if is_active else "Retired",
+                    "Created (t)": f.get("timestep_created"),
+                    "Retired (t)": f.get("timestep_retired"),
+                    "Total Sales": f.get("sales_by_good", {}).get("car", 0),
+                    "Upvotes": _fmt_vote_cell(u) if u is not None else "—",
+                    "Downvotes": _fmt_vote_cell(d) if d is not None else "—",
+                    "Reputation": f"{rep:.4f}" if isinstance(rep, (int, float)) else "—",
+                })
+            if vote_rows:
+                vote_df = pd.DataFrame(vote_rows)
+                # Sort: sybil first, then honest; within each group active before retired
+                vote_df["_s"] = vote_df["Sybil"].map({True: 0, False: 1})
+                vote_df["_r"] = vote_df["Status"].map({"Active": 0, "Retired": 1})
+                vote_df = vote_df.sort_values(["_s", "_r"]).drop(columns=["_s", "_r"]).reset_index(drop=True)
+                st.dataframe(vote_df, use_container_width=True)
+            else:
+                st.caption("No firm data for vote counts.")
+
+            # ---- Sybil identity lifecycle section ----
+            st.subheader("Sybil identity lifecycle (all identities this run)")
+            registry_df = df_builder_lemon.build_sybil_identity_registry()
+            if not registry_df.empty:
+                st.dataframe(registry_df, use_container_width=True)
+                n_retired = int((registry_df["Status"] == "Retired").sum())
+                n_active = int((registry_df["Status"] == "Active").sum())
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Active identities", n_active)
+                c2.metric("Retired identities", n_retired)
+                total_created = state.get("deceptive_principal", {}).get("total_identities_created", "—")
+                c3.metric("Total identities created", total_created)
+            else:
+                st.info("No sybil identities found in this run.")
+
+            # ---- Sybil rotation events timeline ----
+            rotation_data = [
+                {
+                    "timestep": s.get("timestep"),
+                    "Rotations": s.get("deceptive_principal", {}).get("retired_this_step", 0),
+                }
+                for s in df_builder_lemon.states
+                if s.get("deceptive_principal") is not None
+            ]
+            if rotation_data:
+                rot_df = pd.DataFrame(rotation_data).set_index("timestep")
+                if rot_df["Rotations"].sum() > 0:
+                    st.subheader("Sybil identity rotations over time")
+                    st.bar_chart(rot_df)
+
+            # ---- Seller detail panel ----
+            st.subheader("Seller detail")
+            # Collect all seller names and their last-seen snapshot across all states
+            _all_seller_snaps: dict = {}  # name -> last snapshot
+            for _s in df_builder_lemon.states:
+                _t = _s.get("timestep", 0)
+                for _f in _s.get("firms", []):
+                    _n = _f.get("name")
+                    if _n:
+                        _all_seller_snaps[_n] = {**_f, "_last_t": _t}
+
+            if _all_seller_snaps:
+                # Sort: sybil first, then honest; within sybil sort by created timestep
+                def _seller_sort_key(n):
+                    snap = _all_seller_snaps[n]
+                    is_sybil = 0 if snap.get("sybil", False) else 1
+                    created = snap.get("timestep_created") or 999
+                    return (is_sybil, created, n)
+
+                _seller_names = sorted(_all_seller_snaps.keys(), key=_seller_sort_key)
+                _selected = st.selectbox("Select seller", _seller_names, key="lemon_seller_detail")
+
+                if _selected:
+                    _snap = _all_seller_snaps[_selected]
+                    _is_sybil = _snap.get("sybil", False)
+                    _is_active = _snap.get("in_business", True)
+
+                    # Info metrics row
+                    _mc1, _mc2, _mc3, _mc4 = st.columns(4)
+                    _mc1.metric("Type", "Sybil" if _is_sybil else "Honest")
+                    _mc2.metric("Status", "Active" if _is_active else "Retired")
+                    _rep = _snap.get("reputation")
+                    _mc3.metric("Reputation", f"{_rep:.4f}" if isinstance(_rep, (int, float)) else "—")
+                    _mc4.metric("Total Sales", _snap.get("sales_by_good", {}).get("car", 0))
+
+                    _mv1, _mv2, _mv3, _mv4 = st.columns(4)
+                    _up = _snap.get("upvotes")
+                    _dn = _snap.get("downvotes")
+                    _mv1.metric("Upvotes", f"{_up:.1f}" if isinstance(_up, (int, float)) else "—")
+                    _mv2.metric("Downvotes", f"{_dn:.1f}" if isinstance(_dn, (int, float)) else "—")
+                    if _is_sybil:
+                        _mv3.metric("Created (t)", _snap.get("timestep_created", "—"))
+                        _mv4.metric("Retired (t)", _snap.get("timestep_retired", "—") if not _is_active else "—")
+
+                    # Reputation over time for this seller
+                    _rep_rows = []
+                    for _s in df_builder_lemon.states:
+                        _t = _s.get("timestep", 0)
+                        for _f in _s.get("firms", []):
+                            if _f.get("name") == _selected:
+                                _rep_rows.append({
+                                    "timestep": _t,
+                                    "Reputation": _f.get("reputation"),
+                                    "Upvotes": _f.get("upvotes"),
+                                    "Downvotes": _f.get("downvotes"),
+                                })
+                    if _rep_rows:
+                        _rep_df = pd.DataFrame(_rep_rows).sort_values("timestep")
+                        _rep_chart = (
+                            alt.Chart(_rep_df)
+                            .mark_line(point=True, strokeWidth=2, color="#1f77b4")
+                            .encode(
+                                x=alt.X("timestep:Q", title="Timestep"),
+                                y=alt.Y("Reputation:Q", title="Reputation", scale=alt.Scale(domain=[0, 1])),
+                                tooltip=["timestep:Q", "Reputation:Q", "Upvotes:Q", "Downvotes:Q"],
+                            )
+                            .properties(height=200, title=f"Reputation over time — {_selected}")
+                        )
+                        st.altair_chart(_rep_chart, use_container_width=True)
+
+                    # Listing history for this seller across all states
+                    _listing_rows = []
+                    for _s in df_builder_lemon.states:
+                        _t = _s.get("timestep", 0)
+                        for _row in (_s.get("lemon_market_new_listings") or []):
+                            if isinstance(_row, dict) and _row.get("firm_id") == _selected:
+                                # Find seller rep at this timestep from firm snapshot
+                                _seller_rep_at_t = None
+                                for _f in _s.get("firms", []):
+                                    if _f.get("name") == _selected:
+                                        _seller_rep_at_t = _f.get("reputation")
+                                        break
+                                _listing_rows.append({
+                                    "Timestep": _t,
+                                    "Listing ID": _row.get("id"),
+                                    "True Quality": _row.get("quality"),
+                                    "Quality Value": _row.get("quality_value"),
+                                    "Price": _row.get("price"),
+                                    "Reputation at Post": _seller_rep_at_t,
+                                    "Description": _row.get("description"),
+                                })
+                    if _listing_rows:
+                        st.markdown(f"**Listing history ({len(_listing_rows)} listings)**")
+                        _listing_df = pd.DataFrame(_listing_rows).sort_values("Timestep")
+                        st.dataframe(_listing_df, use_container_width=True)
+                    else:
+                        st.caption("No listing history found for this seller in the current state files.")
+
+                    st.markdown("**LLM prompts & responses**")
+                    _seller_prompt_recs = _filter_seller_prompt_records(
+                        lemon_prompt_records, _selected
+                    )
+                    if prompt_log_path and os.path.isfile(prompt_log_path):
+                        st.caption(
+                            f"{len(_seller_prompt_recs)} logged exchange(s) for **{_selected}** in this run."
+                        )
+                    else:
+                        st.caption(
+                            "No `lemon_agent_prompts.jsonl` in this run folder. "
+                            "Re-run with `--log-seller-prompts` (and/or `--log-buyer-prompts`) to capture LLM I/O."
+                        )
+                    _render_lemon_prompt_navigator(
+                        _seller_prompt_recs,
+                        f"lemon_seller_prompt_{_selected}",
+                    )
+            else:
+                st.info("No seller data available.")
+
+            # ---- Buyer detail panel (LEMON_MARKET buyers) ----
+            st.subheader("Buyer detail")
+            _lemon_buyer_names = [c["name"] for c in state.get("consumers", [])]
+            if _lemon_buyer_names:
+                _buyer_sel = st.selectbox(
+                    "Select buyer",
+                    _lemon_buyer_names,
+                    key="lemon_buyer_detail_select",
+                )
+                _buyer_snap = next(
+                    (c for c in state.get("consumers", []) if c.get("name") == _buyer_sel),
+                    None,
+                )
+                if _buyer_snap:
+                    _bc1, _bc2, _bc3 = st.columns(3)
+                    _seen = _buyer_snap.get("sybil_seen_total")
+                    _passed = _buyer_snap.get("sybil_passed_total")
+                    _bc1.metric(
+                        "Sybil listings seen (total)",
+                        int(_seen) if isinstance(_seen, (int, float)) else "—",
+                    )
+                    _bc2.metric(
+                        "Sybil listings passed (total)",
+                        int(_passed) if isinstance(_passed, (int, float)) else "—",
+                    )
+                    _util = _buyer_snap.get("utility")
+                    _bc3.metric(
+                        "Utility (proxy)",
+                        f"{_util:.2f}" if isinstance(_util, (int, float)) else "—",
+                    )
+                st.markdown("**LLM prompts & responses**")
+                _buyer_prompt_recs = _filter_buyer_prompt_records(
+                    lemon_prompt_records, _buyer_sel
+                )
+                if prompt_log_path and os.path.isfile(prompt_log_path):
+                    st.caption(
+                        f"{len(_buyer_prompt_recs)} logged exchange(s) for **{_buyer_sel}** in this run."
+                    )
+                else:
+                    st.caption(
+                        "No `lemon_agent_prompts.jsonl` in this run folder. "
+                        "Re-run with `--log-buyer-prompts` (and/or `--log-seller-prompts`) to capture LLM I/O."
+                    )
+                _render_lemon_prompt_navigator(
+                    _buyer_prompt_recs,
+                    f"lemon_buyer_prompt_{_buyer_sel}",
+                )
+            else:
+                st.caption("No buyers (consumers) in this run.")
+
+            st.subheader("Seller upvotes and downvotes over time")
+            df_votes_long = df_builder_lemon.seller_vote_counts_long_over_time()
+            df_plot = df_votes_long.dropna(subset=["value"]) if not df_votes_long.empty else pd.DataFrame()
+            if not df_plot.empty:
+                chart_votes_ts = (
+                    alt.Chart(df_plot)
+                    .mark_line(point=True, strokeWidth=2)
+                    .encode(
+                        x=alt.X("timestep:Q", title="Timestep"),
+                        y=alt.Y("value:Q", title="Count"),
+                        color=alt.Color(
+                            "metric:N",
+                            title="Metric",
+                            scale=alt.Scale(
+                                domain=["Upvotes", "Downvotes"],
+                                range=["#2ca02c", "#d62728"],
+                            ),
+                        ),
+                    )
+                    .properties(width=200, height=150)
+                    .facet(
+                        alt.Facet("firm:N", title="Seller"),
+                        columns=4,
+                    )
+                )
+                st.altair_chart(chart_votes_ts, use_container_width=True)
+            else:
+                st.caption(
+                    "No upvotes/downvotes in state files for this run. "
+                    "Re-run the simulation after updating the env so state snapshots include vote counts."
+                )
+
+            # Firm metadata (sybil flag + current reputation) for enrichment
+            firm_meta = {}
+            for f in state.get("firms", []):
+                name = f.get("name")
+                if not name:
+                    continue
+                firm_meta[name] = {
+                    "sybil": bool(f.get("sybil", False)),
+                    "reputation": f.get("reputation"),
+                }
+
+            st.subheader("Listings in this timestep")
+            new_listings = state.get("lemon_market_new_listings") or []
+            unsold_pool = state.get("lemon_market_unsold_listings") or []
+            rows_step = []
+            if isinstance(new_listings, list):
+                for row in new_listings:
+                    if not isinstance(row, dict):
+                        continue
+                    enriched = dict(row)
+                    meta = firm_meta.get(row.get("firm_id"), {})
+                    enriched["sybil"] = meta.get("sybil", False)
+                    enriched["firm_reputation"] = meta.get("reputation")
+                    enriched["status"] = "new"
+                    enriched["timestep"] = state.get("timestep", 0)
+                    rows_step.append(enriched)
+            if isinstance(unsold_pool, list):
+                for row in unsold_pool:
+                    if not isinstance(row, dict):
+                        continue
+                    enriched = dict(row)
+                    meta = firm_meta.get(row.get("firm_id"), {})
+                    enriched["sybil"] = meta.get("sybil", False)
+                    enriched["firm_reputation"] = meta.get("reputation")
+                    enriched["status"] = "unsold_pool"
+                    enriched["timestep"] = state.get("timestep", 0)
+                    rows_step.append(enriched)
+
+            if rows_step:
+                df_step = pd.DataFrame(rows_step)
+                base_cols = [
+                    "timestep",
+                    "timestep_posted",
+                    "status",
+                    "id",
+                    "firm_id",
+                    "sybil",
+                    "quality",
+                    "quality_value",
+                    "price",
+                    "reputation",
+                    "firm_reputation",
+                    "description",
+                ]
+                cols = [c for c in base_cols if c in df_step.columns]
+                extra = [c for c in df_step.columns if c not in cols]
+                st.dataframe(df_step[cols + extra], use_container_width=True)
+            else:
+                st.caption("No lemon market listings recorded for this timestep.")
+
+            # ---- Section 3: Listings and unsold listings across the full run ----
             all_listings = []
+            all_unsold = []
             for path in state_files:
                 with open(path, "r") as f:
                     snap = json.load(f)
-                for row in snap.get("lemon_market_new_listings", []):
-                    all_listings.append(row)
+                t = snap.get("timestep", 0)
+                firm_meta_snap = {}
+                for f in snap.get("firms", []):
+                    name = f.get("name")
+                    if not name:
+                        continue
+                    firm_meta_snap[name] = {
+                        "sybil": bool(f.get("sybil", False)),
+                        "reputation": f.get("reputation"),
+                    }
+                for row in snap.get("lemon_market_new_listings", []) or []:
+                    if not isinstance(row, dict):
+                        continue
+                    enriched = dict(row)
+                    meta = firm_meta_snap.get(row.get("firm_id"), {})
+                    enriched["sybil"] = meta.get("sybil", False)
+                    enriched["firm_reputation"] = meta.get("reputation")
+                    enriched["timestep"] = t
+                    all_listings.append(enriched)
+                for row in snap.get("lemon_market_unsold_listings", []) or []:
+                    if not isinstance(row, dict):
+                        continue
+                    enriched = dict(row)
+                    meta = firm_meta_snap.get(row.get("firm_id"), {})
+                    enriched["sybil"] = meta.get("sybil", False)
+                    enriched["firm_reputation"] = meta.get("reputation")
+                    enriched["timestep"] = t
+                    all_unsold.append(enriched)
+
             if all_listings:
-                st.subheader("All posted listings")
-                df_listings = pd.DataFrame(all_listings)
-                # Order columns: timestep_posted first, then id, firm_id, etc.
-                cols = ["timestep_posted", "id", "firm_id", "quality", "quality_value", "price", "reputation", "description"]
-                cols = [c for c in cols if c in df_listings.columns]
-                extra = [c for c in df_listings.columns if c not in cols]
-                df_listings = df_listings[cols + extra]
-                st.dataframe(df_listings, use_container_width=True)
+                st.subheader("All posted listings (entire run)")
+                df_all = pd.DataFrame(all_listings)
+                base_cols_all = [
+                    "timestep",
+                    "timestep_posted",
+                    "id",
+                    "firm_id",
+                    "sybil",
+                    "quality",
+                    "quality_value",
+                    "price",
+                    "reputation",
+                    "firm_reputation",
+                    "description",
+                ]
+                cols_all = [c for c in base_cols_all if c in df_all.columns]
+                extra_all = [c for c in df_all.columns if c not in cols_all]
+                st.dataframe(df_all[cols_all + extra_all], use_container_width=True)
+
+                # Scatter: true quality vs. price, colored by seller type, sized by reputation
+                if {"quality_value", "price"}.issubset(df_all.columns):
+                    df_scatter = df_all.copy()
+                    df_scatter["seller_type"] = np.where(df_scatter["sybil"], "Sybil", "Honest")
+                    chart_scatter = (
+                        alt.Chart(df_scatter)
+                        .mark_circle(opacity=0.7)
+                        .encode(
+                            x=alt.X("quality_value:Q", title="True quality value"),
+                            y=alt.Y("price:Q", title="Listing price"),
+                            color=alt.Color(
+                                "seller_type:N",
+                                title="Seller type",
+                                scale=alt.Scale(
+                                    domain=["Honest", "Sybil"],
+                                    range=["#1f77b4", "#ffd92f"],
+                                ),
+                            ),
+                            size=alt.Size("reputation:Q", title="Listing-time reputation", scale=alt.Scale(range=[20, 300])),
+                            tooltip=[
+                                "timestep:Q",
+                                "id:N",
+                                "firm_id:N",
+                                "seller_type:N",
+                                "quality:N",
+                                "quality_value:Q",
+                                "price:Q",
+                                "reputation:Q",
+                            ],
+                        )
+                    )
+                    st.subheader("Price vs. true quality by seller type")
+                    st.altair_chart(chart_scatter, use_container_width=True)
             else:
-                st.caption("No lemon market listings found in state files.")
+                st.caption("No lemon market listings found in state files for this run.")
+
+            if all_unsold:
+                st.subheader("All unsold listings (carried over between timesteps)")
+                df_unsold = pd.DataFrame(all_unsold)
+                base_cols_unsold = [
+                    "timestep",
+                    "id",
+                    "firm_id",
+                    "sybil",
+                    "quality",
+                    "quality_value",
+                    "price",
+                    "reputation",
+                    "firm_reputation",
+                    "description",
+                ]
+                cols_unsold = [c for c in base_cols_unsold if c in df_unsold.columns]
+                extra_unsold = [c for c in df_unsold.columns if c not in cols_unsold]
+                st.dataframe(df_unsold[cols_unsold + extra_unsold], use_container_width=True)
+
+            # ---- Section 4: Lemon Market time-series metrics ----
+            st.subheader("Sybil revenue share over time")
+            df_sybil_rev = df_builder_lemon.lemon_sybil_revenue_share_over_time()
+            if not df_sybil_rev.empty:
+                chart_sybil_rev = (
+                    AltairChartBuilder(df_sybil_rev)
+                    .x("timestep", title="Timestep")
+                    .y("value", title="Sybil revenue share")
+                    .mark_line(strokeWidth=2)
+                    .build()
+                )
+                st.altair_chart(chart_sybil_rev, use_container_width=True)
+            else:
+                st.caption("No sybil revenue data (run needs --sybil-cluster-size > 0).")
+
+            st.subheader("Avg consumer surplus over time")
+            df_avg_cs = df_builder_lemon.lemon_avg_consumer_surplus_over_time()
+            if not df_avg_cs.empty:
+                chart_avg_cs = (
+                    AltairChartBuilder(df_avg_cs)
+                    .x("timestep", title="Timestep")
+                    .y("value", title="Avg consumer surplus ($)")
+                    .mark_line(strokeWidth=2)
+                    .build()
+                )
+                st.altair_chart(chart_avg_cs, use_container_width=True)
+            else:
+                st.caption("No consumer surplus data yet (no purchases recorded).")
+
+            st.subheader("Cumulative consumer surplus per buyer")
+            df_cum_cs = df_builder_lemon.lemon_consumer_surplus_cumulative_per_buyer_over_time()
+            if not df_cum_cs.empty:
+                chart_cum_cs = (
+                    AltairChartBuilder(df_cum_cs)
+                    .x("timestep", title="Timestep")
+                    .y("value", title="Cumulative CS ($)")
+                    .color("consumer", legend_title="Buyer")
+                    .mark_line(strokeWidth=2)
+                    .build()
+                )
+                st.altair_chart(chart_cum_cs, use_container_width=True)
+            else:
+                st.caption("No cumulative consumer surplus data yet.")
+
+            st.subheader("Sybil pass rate per buyer over time")
+            df_pass_rate = df_builder_lemon.lemon_sybil_pass_rate_per_buyer_over_time()
+            if not df_pass_rate.empty:
+                chart_pass_rate = (
+                    AltairChartBuilder(df_pass_rate)
+                    .x("timestep", title="Timestep")
+                    .y("value", title="Sybil pass rate")
+                    .color("consumer", legend_title="Buyer")
+                    .mark_line(strokeWidth=2)
+                    .build()
+                )
+                st.altair_chart(chart_pass_rate, use_container_width=True)
+            else:
+                st.caption("No sybil pass rate data (no sybil listings seen yet).")
+
+            # ---- Section 5: Buyer sybil encounter summary table ----
+            st.subheader("Buyer sybil encounter summary")
+            buyer_summary_rows = []
+            for c in state.get("consumers", []):
+                name = c.get("name", "")
+                seen = c.get("sybil_seen_total", 0)
+                passed = c.get("sybil_passed_total", 0)
+                rate = passed / seen if seen > 0 else None
+                buyer_summary_rows.append({
+                    "Buyer": name,
+                    "Sybil listings seen (total)": seen,
+                    "Sybil listings passed (total)": passed,
+                    "Pass rate (run-level)": f"{rate:.1%}" if rate is not None else "—",
+                })
+            if buyer_summary_rows:
+                st.dataframe(pd.DataFrame(buyer_summary_rows), use_container_width=True)
+            else:
+                st.caption("No buyer data available.")
 
     # DISCOVERY TAB: Consumer-firm exposure (THE_CRASH discovery-limit mechanic).
     with tab6:

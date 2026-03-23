@@ -104,6 +104,7 @@ python paper/fig/scripts/exp1/exp1_score.py   --logs-dir logs/
 Figure scripts expect run names produced by `exp1.py` (e.g. `exp1_baseline`, `exp1_stab_1_dlc1_seed8`). They read `state_t*.json` and `firm_attributes.json` from each run directory.
 
 ---
+
 ### Experiment 1 Individual Commands
 
 ### Baseline (no stabilizing firm)
@@ -304,6 +305,53 @@ python -m ai_bazaar.main --name exp1_stab_5_dlc5_seed64 --use-cost-pref-gen --ma
 
 ## Experiment 2
 
+**Scenario:** LEMON_MARKET — LLM firms sell used cars, LLM buyers bid/pass, Sybil cluster misrepresents quality. Reputation EMA governs trust; Sybil identities rotate when reputation falls below `rho_min`.
+
+**Common settings:** 5 LLM firms (3 honest + 2 Sybil), 5 LLM buyers, 20 timesteps, `--consumer-scenario LEMON_MARKET`, `--no-diaries`, `--prompt-algo cot`, `--max-tokens 512`, `--llm gemini-2.5-flash`, `--reputation-alpha 0.9`, `--reputation-initial 0.8`, `--sybil-rho-min 0.3`, `--discovery-limit-consumers 5`.
+
+### Tests
+
+Unit tests — verify SellerAgent, SybilIdentity, DeceptivePrincipal, and BazaarWorld construction without any LLM calls:
+
+```bash
+conda run -n AI-Bazaar python -m pytest tests/test_lemon_market.py -v
+```
+
+Smoke test — verifies the full pipeline (BuyerAgent LLM calls, honest SellerAgent listings, DeceptivePrincipal sybil cluster, market clearing, reputation updates, identity rotation) runs without error. Use a short episode and cheap token budget.
+
+```bash
+python -m ai_bazaar.main --name exp2_smoke --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 5 --num-consumers 5 --max-timesteps 5 --sybil-cluster-size 2 --reputation-alpha 0.9 --reputation-initial 0.8 --sybil-rho-min 0.3 --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
+```
+
+Ablation smoke test — same run with `--no-buyer-rep` to confirm seller reputation is withheld from buyer observations:
+
+```bash
+python -m ai_bazaar.main --name exp2_smoke_no_rep --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 5 --num-consumers 5 --max-timesteps 5 --sybil-cluster-size 2 --reputation-alpha 0.9 --reputation-initial 0.8 --sybil-rho-min 0.3  --discovery-limit-consumers 5 --no-buyer-rep --llm gemini-2.5-flash --max-tokens 512 --prompt-algo cot --no-diaries --seed 42
+```
+
+Exp2 Setup. (Test)
+```bash
+python -m ai_bazaar.main --name exp2_lemon_base_test --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 10 --num-consumers 10 --max-timesteps 30 --sybil-cluster-size 5 --reputation-alpha 0.9 --reputation-initial 0.8 --sybil-rho-min 0.3  --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
+```
+```bash
+python -m ai_bazaar.main --name exp2_lemon_base_test2 --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 10 --num-consumers 10 --max-timesteps 30 --sybil-cluster-size 5 --reputation-alpha 0.9 --reputation-initial 0.8 --sybil-rho-min 0.3  --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
+```
+```bash
+python -m ai_bazaar.main --name exp2_lemon_base_test3 --allow-persistent-listings --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 10 --num-consumers 10 --max-timesteps 30 --sybil-cluster-size 5 --reputation-alpha 0.9 --reputation-initial 0.8 --sybil-rho-min 0.3  --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
+```
+
+Heterogeneous personas — honest sellers use mixed description styles (`detailed`, `terse`, `optimistic`), sybil cluster active, listing persistence enabled. Verifies `--seller-personas`, `--seller-type LLM`, and `--allow-listing-persistence` all wire through correctly.
+
+```bash
+python -m ai_bazaar.main --name exp2_personas_smoke3 --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 10 --num-consumers 10 --max-timesteps 10 --sybil-cluster-size 4 --seller-type LLM --seller-personas "detailed:2,terse:2" --allow-listing-persistence --reputation-alpha 0.8 --reputation-initial 0.8 --sybil-rho-min 0.3 --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
+```
+
+Vote-based reputation test — exercises the new review system: buyers make a second LLM call per transaction to upvote/downvote sellers, sybil sellers accumulate downvotes and rotate when reputation falls below `rho_min`. Uses exp2 production settings (12 sellers, 12 buyers, heterogeneous personas) at short episode length.
+
+```bash
+python -m ai_bazaar.main --name exp2_vote_rep_test --consumer-scenario LEMON_MARKET --firm-type LLM --num-sellers 12 --num-buyers 12 --max-timesteps 10 --sybil-cluster-size 6 --seller-type LLM --seller-personas "standard:3,detailed:3,terse:3,optimistic:3" --reputation-initial 0.8 --reputation-pseudo-count 10 --sybil-rho-min 0.3 --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
+```
+
 ---
 
 ---
@@ -471,3 +519,4 @@ If you have access to a model on Hugging Face (e.g. **google/gemma-3-4b-it**), r
    Or use the short name: `--llm gemma3:4b`.
 
 ---
+

@@ -1,11 +1,8 @@
 """
-Master script: runs all three Experiment 1 figure scripts.
-
-The figure scripts (heatmap, timeseries) use exp1_baseline for the no-stab baseline;
-sweep runs use exp1_stab_{n_stab}_dlc{dlc}_seed{seed} (including n_stab=5).
+Master script: runs all Experiment 2 figure scripts.
 
 Usage:
-    python exp1_run_all.py [--logs-dir logs/] [--good food] [--fig-dir paper/fig/exp1/]
+    python exp2_run_all.py [--logs-dir logs/] [--good food] [--fig-dir paper/fig/exp2/]
 """
 
 import argparse
@@ -17,33 +14,34 @@ import threading
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 SCRIPTS = [
-    "exp1_heatmap.py",
-    "exp1_score.py",
-    "exp1_timeseries.py",
-    "exp1_survival.py",
-    "exp1_phase.py",
-    "exp1_collapse_timing.py",
+    "exp2_sybil_detection.py",
+    "exp2_lemon_volume.py",
+    "exp2_lemon_reputation_quality.py",
+    "exp2_lemon_consumer_welfare.py",
+    "exp2_sybil_revenue_share.py",
+    "exp2_market_collapse.py",
 ]
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run all Exp1 figure scripts")
+    parser = argparse.ArgumentParser(description="Run all Exp2 figure scripts")
     parser.add_argument("--logs-dir", default="logs/")
     parser.add_argument("--good", default="food")
-    parser.add_argument("--fig-dir", default=os.path.join(SCRIPTS_DIR, "..", "..", "exp1"))
+    parser.add_argument("--fig-dir", default=os.path.join(SCRIPTS_DIR, "..", "..", "exp2"))
     parser.add_argument("--workers", type=int, default=8, help="Parallel load workers per script")
+    parser.add_argument("--force", action="store_true", help="Ignore cache and rebuild from scratch")
     args = parser.parse_args()
 
     fig_dir = os.path.abspath(args.fig_dir)
     os.makedirs(fig_dir, exist_ok=True)
 
     outputs = {
-        "exp1_heatmap.py":          os.path.join(fig_dir, "exp1_heatmap.pdf"),
-        "exp1_score.py":            os.path.join(fig_dir, "exp1_score.pdf"),
-        "exp1_timeseries.py":       os.path.join(fig_dir, "exp1_timeseries.pdf"),
-        "exp1_survival.py":         os.path.join(fig_dir, "exp1_survival.pdf"),
-        "exp1_phase.py":            os.path.join(fig_dir, "exp1_phase.pdf"),
-        "exp1_collapse_timing.py":  os.path.join(fig_dir, "exp1_collapse_timing.pdf"),
+        "exp2_sybil_detection.py":          os.path.join(fig_dir, "exp2_sybil_detection.pdf"),
+        "exp2_lemon_volume.py":             os.path.join(fig_dir, "exp2_lemon_volume.pdf"),
+        "exp2_lemon_reputation_quality.py": os.path.join(fig_dir, "exp2_lemon_reputation_quality.pdf"),
+        "exp2_lemon_consumer_welfare.py":   os.path.join(fig_dir, "exp2_lemon_consumer_welfare.pdf"),
+        "exp2_sybil_revenue_share.py":      os.path.join(fig_dir, "exp2_sybil_revenue_share.pdf"),
+        "exp2_market_collapse.py":          os.path.join(fig_dir, "exp2_market_collapse.pdf"),
     }
 
     # Launch all scripts in parallel
@@ -58,6 +56,8 @@ def main():
             "--output", output_path,
             "--workers", str(args.workers),
         ]
+        if args.force:
+            cmd.append("--force")
         print(f"Launching: {script_name}", flush=True)
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         procs[script_name] = proc

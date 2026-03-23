@@ -83,6 +83,7 @@ DLC_LABELS  = {1: "dlc=1", 3: "dlc=3", 5: "dlc=5"}
 
 def resolve_run_dir(logs_dir, dlc, n_stab, seed):
     if n_stab == 0:
+        # Baseline (no stabilizing firm): only exists for dlc=3, seed=8
         if dlc == 3 and seed == 8:
             path = os.path.join(logs_dir, "exp1_baseline")
             return path if os.path.isdir(path) else None
@@ -261,6 +262,10 @@ def plot_scatter(ax, cell_means):
     plotted_dlc  = set()
 
     for (n_stab, dlc), agg in cell_means.items():
+        # Skip k=0 baseline in the trade-off scatter to reduce clutter,
+        # while still keeping it available for the heatmap.
+        if n_stab == 0:
+            continue
         x     = agg["pstd_mean"]
         y     = agg["pdev_mean"]
         xerr  = [[agg["pstd_mean"] - agg["pstd_lo"]], [agg["pstd_hi"] - agg["pstd_mean"]]]

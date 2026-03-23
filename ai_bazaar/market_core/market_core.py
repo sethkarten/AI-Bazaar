@@ -151,9 +151,13 @@ class Market:
                         'requested_quantity': order.quantity,
                         'price': price,
                     }
-                    # LEMON_MARKET: include quality_value for reputation update
+                    # LEMON_MARKET: include quality_value, description, listing_id for review
                     if len(result) >= 4:
                         sale_entry['quality_value'] = result[3]
+                    if len(result) >= 5:
+                        sale_entry['description'] = result[4]
+                    if len(result) >= 6:
+                        sale_entry['listing_id'] = result[5]
                     sales_info.append(sale_entry)
         return filled_orders, sales_info
 
@@ -185,7 +189,7 @@ class Market:
             return None
         # Remove filled listing so it cannot be filled again
         self.listings.pop(idx)
-        return (True, order.quantity, listing.price, listing.quality_value)
+        return (True, order.quantity, listing.price, listing.quality_value, listing.description, listing.id)
     
     def _fill_order(self, order: Order, ledger: Ledger):
         """Try to fill a single order

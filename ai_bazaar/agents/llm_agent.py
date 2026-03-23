@@ -1,7 +1,7 @@
 import logging
 import re
 from time import sleep
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 from ..utils.common import Message
 import json
 from ..models.openai_model import OpenAIModel
@@ -539,6 +539,49 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
             )
             return None
 
+    def _maybe_log_lemon_prompt(
+        self,
+        call_kind: str,
+        timestep: int,
+        system_prompt: str,
+        user_prompt: str,
+        response: str,
+        depth: int = 0,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        role = getattr(self, "lemon_agent_role", None)
+        if role not in ("buyer", "seller"):
+            return
+        from ai_bazaar.utils.agent_prompt_log import maybe_append_lemon_agent_prompt
+
+        maybe_append_lemon_agent_prompt(
+            self.args,
+            role,
+            self.name,
+            call_kind,
+            timestep,
+            system_prompt,
+            user_prompt,
+            response,
+            depth=depth,
+            extra=extra,
+        )
+
+    def _maybe_log_lemon_prompt_from_call_llm(
+        self, timestep: int, user_prompt: str, raw_response: str, depth: int
+    ) -> None:
+        if getattr(self, "lemon_agent_role", None) not in ("buyer", "seller"):
+            return
+        if self.lemon_agent_role == "buyer":
+            kind = "bid"
+        elif self.name == "sybil_principal":
+            kind = "sybil_tier"
+        else:
+            kind = "act_llm"
+        self._maybe_log_lemon_prompt(
+            kind, timestep, self.system_prompt, user_prompt, raw_response, depth=depth
+        )
+
     def call_llm(
         self,
         msg: str,
@@ -576,6 +619,7 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
             llm_output, response_found = self.llm.send_msg(
                 self.system_prompt, msg, temperature=temperature, json_format=True
             )
+            self._maybe_log_lemon_prompt_from_call_llm(timestep, msg, llm_output, depth)
             msg = msg + llm_output
         if not response_found:
             llm_output, _ = self.llm.send_msg(
@@ -584,6 +628,7 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
                 temperature=temperature,
                 json_format=True,
             )
+            self._maybe_log_lemon_prompt_from_call_llm(timestep, msg, llm_output, depth)
             # Extract JSON from output (may contain thinking/reasoning before JSON)
             # The JSON extraction in unsloth_model.py will handle this
 
