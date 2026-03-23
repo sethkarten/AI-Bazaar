@@ -582,6 +582,23 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
             kind, timestep, self.system_prompt, user_prompt, raw_response, depth=depth
         )
 
+    def _maybe_log_crash_prompt_from_call_llm(
+        self, timestep: int, user_prompt: str, raw_response: str, depth: int
+    ) -> None:
+        if not getattr(self, "crash_agent_role", None):
+            return
+        from ai_bazaar.utils.agent_prompt_log import maybe_append_crash_firm_prompt
+        maybe_append_crash_firm_prompt(
+            self.args,
+            self.name,
+            "act_llm",
+            timestep,
+            self.system_prompt,
+            user_prompt,
+            raw_response,
+            depth=depth,
+        )
+
     def call_llm(
         self,
         msg: str,
@@ -620,6 +637,7 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
                 self.system_prompt, msg, temperature=temperature, json_format=True
             )
             self._maybe_log_lemon_prompt_from_call_llm(timestep, msg, llm_output, depth)
+            self._maybe_log_crash_prompt_from_call_llm(timestep, msg, llm_output, depth)
             msg = msg + llm_output
         if not response_found:
             llm_output, _ = self.llm.send_msg(
@@ -629,6 +647,7 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
                 json_format=True,
             )
             self._maybe_log_lemon_prompt_from_call_llm(timestep, msg, llm_output, depth)
+            self._maybe_log_crash_prompt_from_call_llm(timestep, msg, llm_output, depth)
             # Extract JSON from output (may contain thinking/reasoning before JSON)
             # The JSON extraction in unsloth_model.py will handle this
 

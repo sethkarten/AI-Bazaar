@@ -12,6 +12,7 @@ Settings: wtp-algo=none; all non-stabilizing firms use competitive persona (defa
 Usage: From project root:
   python scripts/exp1.py                        # all runs, sequential
   python scripts/exp1.py --workers 3            # 3 parallel runs
+  python scripts/exp1.py --log-prompts          # enable THE_CRASH firm prompt logging
   python scripts/exp1.py --dlc 1 3              # only dlc=1 and dlc=3 cells
   python scripts/exp1.py --n-stab 4 5           # only n_stab=4 and n_stab=5
   python scripts/exp1.py --seeds 8              # only seed=8
@@ -218,6 +219,10 @@ def main() -> None:
         help="Episode length in timesteps (default: 365).",
     )
     parser.add_argument(
+        "--log-prompts", action="store_true",
+        help="Enable --log-crash-firm-prompts for each run.",
+    )
+    parser.add_argument(
         "--list", action="store_true",
         help="Print matching runs and exit without executing them.",
     )
@@ -235,6 +240,8 @@ def main() -> None:
         llm_args += ["--service", cli.service]
     if cli.port:
         llm_args += ["--port", str(cli.port)]
+    if cli.log_prompts:
+        llm_args += ["--log-crash-firm-prompts"]
     base = _BASE_FIXED + ["--max-timesteps", str(cli.max_timesteps)] + llm_args
 
     all_runs = build_runs(base, name_prefix)

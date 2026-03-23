@@ -226,6 +226,20 @@ if prompt_log_path and os.path.isfile(prompt_log_path):
             except json.JSONDecodeError:
                 pass
 
+# Optional THE_CRASH firm prompt log (--log-crash-firm-prompts)
+crash_prompt_records: list = []
+crash_prompt_log_path = os.path.join(run_dir, "crash_agent_prompts.jsonl") if run_dir else None
+if crash_prompt_log_path and os.path.isfile(crash_prompt_log_path):
+    with open(crash_prompt_log_path, "r", encoding="utf-8") as _cpf:
+        for _line in _cpf:
+            _line = _line.strip()
+            if not _line:
+                continue
+            try:
+                crash_prompt_records.append(json.loads(_line))
+            except json.JSONDecodeError:
+                pass
+
 if not state_files:
     st.warning(
         "No state files found under logs/ (searched recursively for state_t*.json). "
@@ -436,6 +450,18 @@ else:
             st.altair_chart(chart_filled, use_container_width=True)
         else:
             st.caption(f"No filled-orders data for {selected_firm} (run with --use-env and state files that include filled_orders_count_by_firm).")
+
+        # THE_CRASH firm prompt navigator (only when crash_agent_prompts.jsonl is present)
+        if crash_prompt_records:
+            firm_crash_recs = [r for r in crash_prompt_records if r.get("agent") == selected_firm]
+            st.markdown("**LLM prompts & responses**")
+            if firm_crash_recs:
+                st.caption(f"{len(firm_crash_recs)} logged exchange(s) for **{selected_firm}** in this run.")
+                _render_lemon_prompt_navigator(firm_crash_recs, f"crash_firm_{selected_firm}")
+            else:
+                st.caption(f"No prompt records for **{selected_firm}** in crash_agent_prompts.jsonl.")
+        elif crash_prompt_log_path and os.path.isfile(crash_prompt_log_path):
+            st.caption("crash_agent_prompts.jsonl is present but empty.")
 
     # CONSUMER TAB: Consumer states and diary entries.
     with tab3:

@@ -300,6 +300,7 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         self.stabilizing_firm = stabilizing
         self.initial_cash = initial_cash
         self.best_n = best_n
+        self.crash_agent_role = "firm"  # enables crash prompt logging in call_llm
 
         # Set system prompt for the firm
         self.system_prompt = self._create_system_prompt()

@@ -383,6 +383,11 @@ def create_argument_parser():
         help="LEMON_MARKET: append seller LLM prompts/responses (honest LLM + sybil principal) to logs/<run>/lemon_agent_prompts.jsonl",
     )
     parser.add_argument(
+        "--log-crash-firm-prompts",
+        action="store_true",
+        help="THE_CRASH: append firm LLM prompts/responses to logs/<run>/crash_agent_prompts.jsonl",
+    )
+    parser.add_argument(
         "--num-goods", type=int, default=1, help="Number of goods in the simulation"
     )
     parser.add_argument(
