@@ -453,8 +453,10 @@ def main():
         cb_ax = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02)
         cb_ax.ax.tick_params(labelsize=9)
         if mode == "lognorm":
-            cb_ax.formatter = mticker.FuncFormatter(lambda x, _: f"{x:.2f}x")
-            cb_ax.update_ticks()
+            fmt = mticker.ScalarFormatter()
+            fmt.set_scientific(False)
+            cb_ax.ax.yaxis.set_major_formatter(fmt)
+            cb_ax.ax.yaxis.set_minor_formatter(mticker.NullFormatter())
         elif mode == "range":
             cb_ax.ax.yaxis.set_major_locator(mticker.MaxNLocator(nbins=5, prune="upper"))
 

@@ -195,6 +195,13 @@ def main() -> None:
         help="Port for local model server (default: none). E.g. --port 11434 for Ollama.",
     )
     parser.add_argument(
+        "--openrouter-provider", type=str, nargs="+", default=None, metavar="PROVIDER",
+        help=(
+            "Preferred OpenRouter provider order for provider/model slugs "
+            "(e.g. --openrouter-provider anthropic). If omitted, OpenRouter auto-selects."
+        ),
+    )
+    parser.add_argument(
         "--dlc", type=int, nargs="+", metavar="N",
         help="Only run cells with these discovery-limit-consumers values (e.g. --dlc 1 3).",
     )
@@ -240,6 +247,8 @@ def main() -> None:
         llm_args += ["--service", cli.service]
     if cli.port:
         llm_args += ["--port", str(cli.port)]
+    if cli.openrouter_provider:
+        llm_args += ["--openrouter-provider", *cli.openrouter_provider]
     if cli.log_prompts:
         llm_args += ["--log-crash-firm-prompts"]
     base = _BASE_FIXED + ["--max-timesteps", str(cli.max_timesteps)] + llm_args

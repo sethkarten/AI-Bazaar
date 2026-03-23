@@ -27,6 +27,7 @@ SCRIPTS = [
     "exp1_survival.py",
     "exp1_phase.py",
     "exp1_collapse_timing.py",
+    "exp1_tokens.py",
 ]
 
 
@@ -73,6 +74,7 @@ def main():
         "exp1_survival.py":         os.path.join(fig_dir, pdf_name("survival")),
         "exp1_phase.py":            os.path.join(fig_dir, pdf_name("phase")),
         "exp1_collapse_timing.py":  os.path.join(fig_dir, pdf_name("collapse_timing")),
+        "exp1_tokens.py":           os.path.join(fig_dir, pdf_name("tokens")),
     }
 
     # Launch all scripts in parallel

@@ -354,6 +354,16 @@ def create_argument_parser():
         help="LLM service backend",
     )
     parser.add_argument(
+        "--openrouter-provider",
+        type=str,
+        nargs="+",
+        default=None,
+        help=(
+            "Preferred OpenRouter provider order for provider/model slugs. "
+            "Example: --openrouter-provider anthropic. If omitted, OpenRouter auto-selects."
+        ),
+    )
+    parser.add_argument(
         "--bracket-setting",
         default="three",
         choices=["flat", "three", "US_FED"],
