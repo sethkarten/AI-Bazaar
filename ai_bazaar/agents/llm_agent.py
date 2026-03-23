@@ -366,6 +366,8 @@ class LLMAgent:
                 break  # Only process the first matching key
 
         # Standard extraction
+        if not isinstance(d, dict):
+            return result
         for key, value in d.items():
             if key in _NESTED_KEYS:
                 continue
@@ -398,6 +400,10 @@ class LLMAgent:
                     if resp_key in (f"purchase_{suffix}", f"supply_{suffix}"):
                         result[required_key] = resp_value
                         break
+                # Bare good name fallback: "food" → "price_food" / "supply_quantity_food" / "produce_food"
+                if required_key.endswith(f"_{resp_key}"):
+                    result[required_key] = resp_value
+                    break
 
         return result
 
@@ -455,11 +461,15 @@ class LLMAgent:
         return s[start:].strip()
 
     def _relax_json_syntax(self, s: str) -> str:
-        """Convert common LLM JSON mistakes to valid JSON: single-quoted keys, trailing commas."""
+        """Convert common LLM JSON mistakes to valid JSON."""
         # Single-quoted key names: 'key': -> "key":
         s = re.sub(r"'([^']+)'\s*:", r'"\1":', s)
         # Trailing commas before } or ]
         s = re.sub(r",(\s*[}\]])", r"\1", s)
+        # np.float64(123.4) -> 123.4
+        s = re.sub(r"np\.float(?:32|64)\(([^)]+)\)", r"\1", s)
+        # "100%" or 100% -> 100 (strip percent signs from values)
+        s = re.sub(r':\s*"?(\d+(?:\.\d+)?)%"?', r': \1', s)
         return s
 
     def _preprocess_json_for_parse(self, raw: str) -> str:

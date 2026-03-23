@@ -105,10 +105,10 @@ class UnslothModel(BaseLLMModel):
             # Use the first temperature (assuming all similar for simplicity)
             outputs = self.model.generate(
                 **inputs,
-                max_new_tokens=1024,  # Allow space for full CoT reasoning + JSON output
+                max_new_tokens=self.max_tokens,
                 temperature=temperatures[0] if temperatures[0] is not None else self.temperature,
                 use_cache=True,
-                do_sample=True,  # Enable sampling for temperature
+                do_sample=True,
             )
 
             # Decode results
