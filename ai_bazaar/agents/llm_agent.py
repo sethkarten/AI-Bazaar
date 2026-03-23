@@ -70,7 +70,11 @@ class LLMAgent:
         # OpenRouter: any "provider/model" slug routes here, regardless of provider keyword.
         # This must come before keyword checks so meta-llama/*, google/*, openai/* all work.
         if "/" in llm_type and not llm_type.startswith("/") and not llm_type.startswith("."):
-            return OpenRouterModel(model_name=llm_type, max_tokens=args.max_tokens)
+            return OpenRouterModel(
+                model_name=llm_type,
+                max_tokens=args.max_tokens,
+                provider_order=getattr(args, "openrouter_provider", None),
+            )
 
         # Direct provider clients (no slash in name)
         if "gpt" in llm_type.lower():

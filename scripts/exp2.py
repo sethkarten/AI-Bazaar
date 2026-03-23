@@ -189,6 +189,13 @@ def main() -> None:
         help="Port for local model server (default: none). E.g. --port 11434 for Ollama.",
     )
     parser.add_argument(
+        "--openrouter-provider", type=str, nargs="+", default=None, metavar="PROVIDER",
+        help=(
+            "Preferred OpenRouter provider order for provider/model slugs "
+            "(e.g. --openrouter-provider anthropic). If omitted, OpenRouter auto-selects."
+        ),
+    )
+    parser.add_argument(
         "--n-sybil", type=int, nargs="+", metavar="N", dest="n_sybil",
         help="Only run cells with these sybil cluster sizes (e.g. --n-sybil 0 3 6 9 12). 0 = baseline.",
     )
@@ -219,6 +226,8 @@ def main() -> None:
         llm_args += ["--service", cli.service]
     if cli.port:
         llm_args += ["--port", str(cli.port)]
+    if cli.openrouter_provider:
+        llm_args += ["--openrouter-provider", *cli.openrouter_provider]
     base = _BASE_FIXED + llm_args
 
     all_runs = build_runs(base)

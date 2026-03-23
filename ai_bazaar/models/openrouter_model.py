@@ -13,9 +13,11 @@ from .base import BaseLLMModel
 class OpenRouterModel(BaseLLMModel):
     """OpenRouter model implementation for accessing multiple models through OpenRouter API."""
     
-    def __init__(self, model_name: str = "meta-llama/llama-3.1-8b-instruct", 
+    def __init__(self, model_name: str = "meta-llama/llama-3.1-8b-instruct",
                  api_key: Optional[str] = None,
-                 max_tokens: int = 1000, temperature: float = 0.7):
+                 max_tokens: int = 1000,
+                 temperature: float = 0.7,
+                 provider_order: Optional[list[str]] = None):
         """
         Initialize the OpenRouter model.
         
@@ -24,6 +26,7 @@ class OpenRouterModel(BaseLLMModel):
             api_key: OpenRouter API key (if None, will look for OPENROUTER_API_KEY env var)
             max_tokens: Maximum number of tokens to generate
             temperature: Temperature for sampling
+            provider_order: Optional preferred OpenRouter provider order
         """
         super().__init__(model_name, max_tokens, temperature)
         
@@ -36,6 +39,7 @@ class OpenRouterModel(BaseLLMModel):
         
         self.api_key = api_key
         self.base_url = "https://openrouter.ai/api/v1"
+        self.provider_order = provider_order
         
         # Headers for OpenRouter API
         self.headers = {
@@ -78,6 +82,8 @@ class OpenRouterModel(BaseLLMModel):
                     "temperature": temperature,
                     "max_tokens": self.max_tokens
                 }
+                if self.provider_order:
+                    payload["provider"] = {"order": self.provider_order}
                 
                 # Add JSON format if requested (for compatible models)
                 if json_format:
