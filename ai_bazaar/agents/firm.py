@@ -218,10 +218,11 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         port: int,
         name: str,
         prompt_algo: str = "io",
-        history_len: int = 10,
+        history_len: int = 3,
         timeout: int = 10,
         goods: List[str] = None,
         initial_cash: float = 0.0,
+        best_n: int = 3,
         ledger: Ledger = None,
         market: Market = None,
         args=None,
@@ -281,6 +282,8 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
 
         # Must be set before _create_system_prompt() so the stabilizing branch is taken
         self.stabilizing_firm = stabilizing
+        self.initial_cash = initial_cash
+        self.best_n = best_n
 
         # Set system prompt for the firm
         self.system_prompt = self._create_system_prompt()
@@ -305,6 +308,26 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
                 "cash": {"start": 0.0, "pre": 0.0, "end": 0.0},
             }
         )
+
+    def _build_best_n_slab(self, n: int) -> str:
+        """Return Best-N slab for stabilizing firms; empty string for all others."""
+        if not getattr(self, "stabilizing_firm", False):
+            return ""
+        unique = set()
+        sorted_history = []
+        for item in sorted(self.message_history, key=lambda x: x["metric"], reverse=True):
+            key = str(item["metric"]) + str(item["action"])
+            if key not in unique:
+                unique.add(key)
+                sorted_history.append(item)
+        top_n = sorted_history[: min(n, len(sorted_history))]
+        if not top_n or top_n[0]["metric"] == 0:
+            return ""
+        output = f"Best {len(top_n)} timesteps (market health + profit):\n"
+        for item in top_n:
+            output += f"Timestep {item['timestep']} (score {item['metric']:.3f}):\n"
+            output += item["historical"]
+        return output
 
     def _create_system_prompt(self) -> str:
         """Create system prompt for the LLM firm agent"""
@@ -918,11 +941,18 @@ Rules:
         start_ledger: Ledger,
         pre_clearing_ledger: Ledger,
         current_ledger: Ledger,
+        market_health: float = 0.0,
     ) -> None:
         reflection_msg = self.build_reflection(
             timestep, start_ledger, pre_clearing_ledger, current_ledger
         )
         self.add_message(timestep, Message.REFLECTION, reflection_msg=reflection_msg)
+
+        if getattr(self, "stabilizing_firm", False):
+            profit = getattr(self, "profit", 0.0)
+            initial_cash = getattr(self, "initial_cash", 500.0)
+            profit_score = max(0.0, profit) / max(initial_cash, 1.0)
+            self.message_history[timestep]["metric"] = market_health + profit_score
 
         # Strategic Diary Entry
         if not getattr(self.args, "no_diaries", False):

@@ -285,7 +285,8 @@ def create_argument_parser():
     parser.add_argument(
         "--prompt-algo", default="io", choices=["io", "cot"], help="Prompting algorithm"
     )
-    parser.add_argument("--history-len", type=int, default=10, help="Length of history")
+    parser.add_argument("--history-len", type=int, default=3, help="Length of history window (timesteps) sent to each LLM firm")
+    parser.add_argument("--best-n", type=int, default=3, help="Best-N slab size for stabilizing firms (0 to disable)")
     parser.add_argument("--timeout", type=int, default=30, help="Timeout for LLM calls")
     parser.add_argument(
         "--max-tokens",

@@ -21,7 +21,7 @@ class LLMAgent:
         port: int,
         name: str,
         prompt_algo: str = "io",
-        history_len: int = 5,  # Reduced from 10
+        history_len: int = 3,
         timeout: int = 5,  # Reduced from 10
         K: int = 3,
         args=None,
@@ -168,19 +168,14 @@ class LLMAgent:
         self.message_history.append(new_msg_dict)
         return
 
+    def _build_best_n_slab(self, n: int) -> str:
+        """Build the Best-N historical slab. Base class returns empty string.
+        Subclasses (e.g. FirmAgent for stabilizing firms) override this."""
+        return ""
+
     def get_historical_message(
         self, timestep: int, retry: bool = False, include_user_prompt: bool = True
     ) -> str:
-        unique_metrics = set()  # Set to store unique 'metric' values
-        sorted_message_history = []  # List to store sorted unique entries
-
-        # Sort the dictionary by 'metric' key in descending order
-        for item in sorted(
-            self.message_history, key=lambda x: x["metric"], reverse=True
-        ):
-            if str(item["metric"]) + str(item["action"]) not in unique_metrics:
-                unique_metrics.add(str(item["metric"]) + str(item["action"]))
-                sorted_message_history.append(item)
         output = "Historical data:\n"
 
         # Include diary entries as in-context memory
@@ -196,11 +191,9 @@ class LLMAgent:
         ):
             output += f"Timestep {t}:\n"
             output += self.message_history[t]["historical"]
-        N = min(5, len(sorted_message_history))
-        output += f"Best {N} timesteps:\n"
-        for i in range(N):
-            output += f"Timestep {sorted_message_history[i]['timestep']} (leader {self.message_history[t]['leader']}):\n"
-            output += sorted_message_history[i]["historical"]
+
+        output += self._build_best_n_slab(n=getattr(self, "best_n", 3))
+
         if include_user_prompt:
             output += self.message_history[timestep]["user_prompt"]
         if retry:

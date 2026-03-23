@@ -72,6 +72,7 @@ class BazaarWorld:
                 for _ in range(args.num_consumers)
             ]
 
+        self.initial_num_firms = args.num_firms
         self.firms = []
         sybil_cluster_size = getattr(args, "sybil_cluster_size", 0)
         is_lemon = getattr(args, "consumer_scenario", None) == "LEMON_MARKET"
@@ -115,7 +116,8 @@ class BazaarWorld:
                     "ledger": self.ledger,
                     "market": self.market,
                     "prompt_algo": getattr(args, "prompt_algo", "io"),
-                    "history_len": getattr(args, "history_len", 10),
+                    "history_len": getattr(args, "history_len", 3),
+                    "best_n": getattr(args, "best_n", 3),
                     "timeout": getattr(args, "timeout", 30),
                     "args": args,
                     "llm_instance": llm_model,
@@ -809,10 +811,22 @@ class BazaarWorld:
                     break
 
         # 9. Reflection
+        # Compute step-level market health score (S_surv + S_price) / 2
+        # Used as part of the metric for stabilizing firm Best-N slab.
+        firms_alive = sum(1 for f in self.firms if getattr(f, "in_business", True))
+        S_surv = firms_alive / max(self.initial_num_firms, 1)
+        all_prices = [p for fp in firm_prices.values() for p in fp.values() if p > 0]
+        if all_prices and supply_unit_price > 0:
+            mean_price = sum(all_prices) / len(all_prices)
+            S_price = max(0.0, 1.0 - abs(mean_price / supply_unit_price - 1.0))
+        else:
+            S_price = 0.0
+        step_health = (S_surv + S_price) / 2.0
+
         for firm in self.firms:
             if not getattr(firm, "in_business", True):
                 continue
-            firm.reflect(self.timestep, start_ledger, pre_clearing_ledger, self.ledger)
+            firm.reflect(self.timestep, start_ledger, pre_clearing_ledger, self.ledger, market_health=step_health)
 
         for consumer in self.consumers:
             if hasattr(consumer, "reflect"):
