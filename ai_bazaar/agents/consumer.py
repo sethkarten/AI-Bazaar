@@ -184,36 +184,7 @@ class CESConsumerAgent(LLMAgent):
                 else self.prices_prev[good]
             )
 
-        if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
-            # LEMON_MARKET: use listing prices only (no quotes)
-            listings = getattr(self.market, "listings", [])
-            total = 0.0
-            for good in self.goods:
-                prices_from_listings = [
-                    getattr(L, "price", 0.0)
-                    for L in listings
-                    if getattr(L, "price", 0.0) > 0
-                ]
-                if prices_from_listings:
-                    self.prices_dict[good] = sum(prices_from_listings) / len(
-                        prices_from_listings
-                    )
-                    self.prices_prev[good] = self.prices_dict[good]
-                else:
-                    self.prices_dict[good] = 0.0
-                p = max(
-                    self.prices_dict[good] if self.prices_dict[good] > 0.0 else self.prices_prev[good],
-                    1e-9,
-                )
-                total += self.ces_params[good] * (float(p) ** (1 - self.sigma))
-            if total <= 0.0:
-                self.P[timestep] = 0.0
-                return 0.0
-            cost_of_living = total ** (1 / (1 - self.sigma))
-            self.P[timestep] = cost_of_living
-            return cost_of_living
-
-        # Non-LEMON: use quotes
+        # Use quotes
         cost_of_living = 0.0
         total = 0.0
         quotes = self.market.quotes
@@ -359,68 +330,6 @@ class CESConsumerAgent(LLMAgent):
         for order in orders:
             self.market.submit_order(order)
 
-    def _make_orders_lemon(
-        self,
-        timestep: int,
-        discovery_limit: int = 5,
-        firm_reputations: Dict[str, float] = None,
-    ) -> List[Order]:
-        """Make orders from market.listings (LEMON_MARKET).
-        CS = E|q| * max_wtp - price; E|q| = firm reputation. Submit order only if CS > 0.
-        max_wtp is computed from income and CES for 'car' without using quotes (no quotes in lemon market).
-        Sets self._lemon_listings_seen for stats (number of listings this consumer saw).
-        """
-        orders = []
-        self._lemon_listings_seen = 0
-        listings = getattr(self.market, "listings", [])
-        if not listings:
-            return orders
-        if firm_reputations is None:
-            firm_reputations = {}
-        # max_wtp without compute_cost_of_living (lemon market has no quotes, so no P from quotes)
-        alpha_car = getattr(self, "ces_params", {}).get("car", 1.0)
-        if alpha_car <= 0:
-            alpha_car = 1.0
-        # Use average listing price as price index P, or 1.0 if empty
-        listing_prices = [getattr(L, "price", 0.0) for L in listings if getattr(L, "price", 0.0) > 0]
-        P = (sum(listing_prices) / len(listing_prices)) if listing_prices else 1.0
-        P = max(float(P), 1e-6)
-        max_wtp = P * ((self.income / P) * alpha_car) ** (1.0 / self.sigma)
-        # Visible subset: discovery_limit, rank by (reputation / price)
-        scored = []
-        for L in listings:
-            rep = getattr(L, "reputation", 1.0) if hasattr(L, "reputation") else firm_reputations.get(getattr(L, "firm_id", ""), 1.0)
-            price = getattr(L, "price", float("inf"))
-            score = rep / max(0.01, price)
-            scored.append((L, rep, price, score))
-        n_visible = min(discovery_limit if discovery_limit > 0 else len(scored), len(scored))
-        if n_visible > 0:
-            sampled = random.sample(scored, n_visible)
-            sampled.sort(key=lambda x: x[3], reverse=True)
-            visible = [(L, rep, price) for L, rep, price, _ in sampled]
-        else:
-            visible = []
-        self._lemon_listings_seen = len(visible)
-        if not visible:
-            return orders
-        # Pick listing with highest CS = E|q| * max_wtp - price; submit only if CS > 0
-        best = None
-        best_cs = None
-        for L, rep, price in visible:
-            cs = rep * max_wtp - price
-            if cs > 0 and (best_cs is None or cs > best_cs):
-                best = (L, rep, price)
-                best_cs = cs
-        if best is None or best_cs <= 0:
-            return orders
-        L, rep, price = best
-        lid = getattr(L, "id", None)
-        fid = getattr(L, "firm_id", "")
-        orders.append(
-            self.create_order(fid, "car", 1.0, max_wtp, listing_id=lid)
-        )
-        return orders
-
     def make_orders(
         self,
         timestep: int,
@@ -431,14 +340,6 @@ class CESConsumerAgent(LLMAgent):
         crash_rep_scoring: bool = False,
     ) -> List[Order]:
         "Make fixed list of orders (returns orders without submitting)"
-
-        # LEMON_MARKET: use market.listings instead of quotes
-        if scenario == "LEMON_MARKET":
-            return self._make_orders_lemon(
-                timestep,
-                discovery_limit=discovery_limit,
-                firm_reputations=firm_reputations or {},
-            )
 
         def _max_wtp(good):
             if wtp_algo == "none":

@@ -2,9 +2,9 @@
 Unit tests for the lemon market implementation.
 
 Covers: market_core (Listing, Order.listing_id, post_listings, clear with listings),
-FixedFirmAgent.create_listings, BaseFirmAgent.update_reputation(quality/alpha),
-consumer _make_orders_lemon, common (LEMON_MARKET_GOODS, QUALITY_DICT),
-and BazaarWorld LEMON_MARKET setup (goods, num_goods).
+SellerAgent (create_listings honest/sybil, no-overhead/tax), BaseFirmAgent.update_reputation(quality/alpha),
+common (LEMON_MARKET_GOODS, QUALITY_DICT),
+and BazaarWorld LEMON_MARKET setup (goods, num_goods, SellerAgent construction).
 
 Run from project root:
   python -m pytest tests/test_lemon_market.py -v
@@ -18,7 +18,6 @@ if __name__ == "__main__" and __package__ is None:
         sys.path.insert(0, root)
 
 import pytest
-from types import SimpleNamespace
 
 from ai_bazaar.market_core.market_core import (
     Ledger,
@@ -27,8 +26,9 @@ from ai_bazaar.market_core.market_core import (
     Listing,
 )
 from ai_bazaar.agents.firm import BaseFirmAgent, FixedFirmAgent
-from ai_bazaar.agents.consumer import CESConsumerAgent
-from ai_bazaar.utils.common import LEMON_MARKET_GOODS, QUALITY_DICT, advertised_quality_for_sybil
+from ai_bazaar.agents.seller import SellerAgent
+from ai_bazaar.agents.sybil import SybilIdentity, DeceptivePrincipal
+from ai_bazaar.utils.common import LEMON_MARKET_GOODS, QUALITY_DICT, advertised_quality_for_sybil, V_MAX
 from ai_bazaar.env.bazaar_env import BazaarWorld
 from ai_bazaar.main import create_argument_parser
 
@@ -208,32 +208,72 @@ def test_fill_order_listing_fails_if_insufficient_cash():
 # --- Firm: create_listings, update_reputation ---
 
 
-def test_fixed_firm_create_listings():
-    """FixedFirmAgent.create_listings returns list of dicts with id, firm_id, price, reputation, quality, quality_value; marks posted."""
+def test_seller_agent_create_listings_honest():
+    """SellerAgent creates listing with truthful description, V_MAX-scaled price, true quality stored."""
     ledger = Ledger()
     market = Market()
-    firm = FixedFirmAgent(
-        name="firm_0",
+    firm = SellerAgent(
+        name="seller_0",
         goods=["car"],
         initial_cash=1000.0,
         ledger=ledger,
         market=market,
     )
-    setattr(firm, "listings", [
-        {"quality": "good", "quality_value": 0.7, "posted": False},
-    ])
+    firm.listings = [{"quality": "good", "quality_value": 0.7, "posted": False}]
 
-    out = firm.create_listings()
+    out = firm.create_listings(timestep=0)
 
     assert len(out) == 1
     d = out[0]
-    assert d["firm_id"] == "firm_0"
+    assert d["firm_id"] == "seller_0"
     assert "id" in d
-    assert d["price"] == 5000.0 * 0.7
+    assert d["price"] == V_MAX * 0.7
+    assert d["description"] == "Used car. Condition: good."
     assert d["reputation"] == 1.0
     assert d["quality"] == "good"
     assert d["quality_value"] == 0.7
-    assert getattr(firm, "listings", [])[0]["posted"] is True
+    assert firm.listings[0]["posted"] is True
+    assert firm.listings_posted_this_step == 1
+
+
+def test_sybil_identity_create_listings_returns_empty():
+    """SybilIdentity.create_listings() is a no-op — principal generates listings."""
+    ledger = Ledger()
+    market = Market()
+    ident = SybilIdentity(
+        name="sybil_0",
+        goods=["car"],
+        ledger=ledger,
+        market=market,
+    )
+    ident.listings = [{"quality": "good", "quality_value": 0.7, "posted": False}]
+    out = ident.create_listings(timestep=0)
+    assert out == []
+
+
+def test_sybil_identity_has_sybil_true():
+    """SybilIdentity.sybil is True for stat logging."""
+    ledger = Ledger()
+    market = Market()
+    ident = SybilIdentity(name="sybil_0", goods=["car"], ledger=ledger, market=market)
+    assert ident.sybil is True
+
+
+def test_seller_agent_no_overhead_no_taxes():
+    """SellerAgent.pay_overhead_costs and pay_taxes are no-ops that do not debit the ledger."""
+    ledger = Ledger()
+    market = Market()
+    initial_cash = 1000.0
+    firm = SellerAgent(
+        name="seller_0",
+        goods=["car"],
+        initial_cash=initial_cash,
+        ledger=ledger,
+        market=market,
+    )
+    assert firm.pay_overhead_costs(0) == 0.0
+    assert firm.pay_taxes(0, 0.1) == 0.0
+    assert firm.cash == initial_cash
 
 
 def test_base_firm_update_reputation_lemon():
@@ -254,83 +294,6 @@ def test_base_firm_update_reputation_fulfillment():
     firm.update_reputation(8.0, 10.0)
     firm.update_reputation(10.0, 10.0)
     assert abs(firm.reputation - (8 + 10) / (10 + 10)) < 1e-9
-
-
-# --- Consumer: _make_orders_lemon ---
-
-
-def test_make_orders_lemon_empty_listings():
-    """_make_orders_lemon returns [] when market has no listings."""
-    ledger = Ledger()
-    market = Market()
-    market.listings = []
-    args = SimpleNamespace(no_diaries=True, bracket_setting="three")
-    consumer = CESConsumerAgent(
-        name="c0",
-        income_stream=50_000.0,
-        ledger=ledger,
-        market=market,
-        goods=["car"],
-        ces_params={"car": 1.0},
-        args=args,
-    )
-    consumer.income = 50_000.0
-
-    orders = consumer._make_orders_lemon(0, discovery_limit=5, firm_reputations={})
-
-    assert orders == []
-
-
-def test_make_orders_lemon_submits_when_cs_positive():
-    """_make_orders_lemon returns one order for listing with highest CS > 0."""
-    ledger = Ledger()
-    market = Market()
-    L1 = Listing("l1", "firm_0", "d", 1000.0, 1.0, "good", 0.7)
-    L2 = Listing("l2", "firm_1", "d", 5000.0, 0.5, "fair", 0.4)
-    market.listings = [L1, L2]
-    args = SimpleNamespace(no_diaries=True, bracket_setting="three")
-    consumer = CESConsumerAgent(
-        name="c0",
-        income_stream=50_000.0,
-        ledger=ledger,
-        market=market,
-        goods=["car"],
-        ces_params={"car": 1.0},
-        args=args,
-    )
-    consumer.income = 50_000.0
-
-    orders = consumer._make_orders_lemon(0, discovery_limit=5, firm_reputations={})
-
-    assert len(orders) == 1
-    assert orders[0].good == "car"
-    assert orders[0].quantity == 1.0
-    assert orders[0].listing_id in ("l1", "l2")
-    assert orders[0].firm_id in ("firm_0", "firm_1")
-
-
-def test_make_orders_lemon_no_order_when_cs_non_positive():
-    """_make_orders_lemon returns [] when all listings have CS <= 0 (price too high relative to max_wtp)."""
-    ledger = Ledger()
-    market = Market()
-    # Very high price so CS = rep * max_wtp - price <= 0 for typical income
-    L = Listing("l1", "firm_0", "d", 1_000_000.0, 1.0, "good", 0.7)
-    market.listings = [L]
-    args = SimpleNamespace(no_diaries=True, bracket_setting="three")
-    consumer = CESConsumerAgent(
-        name="c0",
-        income_stream=10_000.0,
-        ledger=ledger,
-        market=market,
-        goods=["car"],
-        ces_params={"car": 1.0},
-        args=args,
-    )
-    consumer.income = 10_000.0
-
-    orders = consumer._make_orders_lemon(0, discovery_limit=5, firm_reputations={})
-
-    assert len(orders) == 0
 
 
 # --- BazaarWorld LEMON_MARKET setup ---
@@ -363,7 +326,7 @@ def test_bazaar_world_lemon_market_goods():
 
 
 def test_bazaar_world_lemon_market_sybil_cluster():
-    """With LEMON_MARKET and sybil-cluster-size=2, last 2 firms are Sybil."""
+    """With LEMON_MARKET and sybil-cluster-size=2, world has 2 honest SellerAgents + DeceptivePrincipal."""
     parser = create_argument_parser()
     args = parser.parse_args([
         "--consumer-scenario", "LEMON_MARKET",
@@ -376,10 +339,75 @@ def test_bazaar_world_lemon_market_sybil_cluster():
     ])
     world = BazaarWorld(args, llm_model=None)
     assert len(world.firms) == 4
-    assert getattr(world.firms[0], "sybil", False) is False
-    assert getattr(world.firms[1], "sybil", False) is False
-    assert getattr(world.firms[2], "sybil", False) is True
-    assert getattr(world.firms[3], "sybil", False) is True
+    assert len(world.honest_firms) == 2
+    assert all(isinstance(f, SellerAgent) for f in world.honest_firms)
+    assert world.deceptive_principal is not None
+    assert len(world.deceptive_principal.identities) == 2
+    assert all(isinstance(f, SybilIdentity) for f in world.deceptive_principal.identities)
+    assert world.firms == world.honest_firms + world.deceptive_principal.identities
+    assert getattr(world.honest_firms[0], "sybil", True) is False
+    assert getattr(world.honest_firms[1], "sybil", True) is False
+    assert getattr(world.deceptive_principal.identities[0], "sybil", False) is True
+    assert getattr(world.deceptive_principal.identities[1], "sybil", False) is True
+
+
+def test_deceptive_principal_rotate_identities():
+    """rotate_identities retires degraded identity and creates a fresh one."""
+    parser = create_argument_parser()
+    args = parser.parse_args([
+        "--consumer-scenario", "LEMON_MARKET",
+        "--firm-type", "LLM",
+        "--num-firms", "2",
+        "--num-consumers", "2",
+        "--max-timesteps", "1",
+        "--sybil-cluster-size", "2",
+        "--llm", "gemini-2.5-flash",
+    ])
+    from ai_bazaar.market_core.market_core import Ledger, Market
+    ledger = Ledger()
+    market = Market()
+    principal = DeceptivePrincipal(
+        name="sybil_principal",
+        llm=None,
+        port=0,
+        k=2,
+        ledger=ledger,
+        market=market,
+        stylistic_personas=["formal", "casual"],
+        goods=["car"],
+        initial_cash=1000.0,
+        r0=0.8,
+        args=args,
+    )
+    assert principal.identity_counter == 2
+    principal.identities[0].reputation = 0.1  # below rho_min
+    retired = principal.rotate_identities(rho_min=0.3, r0=0.8)
+    assert len(retired) == 1
+    assert "sybil_0" in retired
+    assert principal.identities[0].name == "sybil_2"
+    assert abs(principal.identities[0].reputation - 0.8) < 1e-9
+    # identity 1 unchanged
+    assert principal.identities[1].name == "sybil_1"
+    assert principal.identity_counter == 3
+
+
+def test_bazaar_world_lemon_market_deceptive_principal_exists():
+    """BazaarWorld with sybil_cluster_size=2 creates DeceptivePrincipal with correct counts."""
+    parser = create_argument_parser()
+    args = parser.parse_args([
+        "--consumer-scenario", "LEMON_MARKET",
+        "--firm-type", "LLM",
+        "--num-firms", "4",
+        "--num-consumers", "3",
+        "--max-timesteps", "2",
+        "--sybil-cluster-size", "2",
+        "--llm", "gemini-2.5-flash",
+    ])
+    world = BazaarWorld(args, llm_model=None)
+    assert world.deceptive_principal is not None
+    assert len(world.deceptive_principal.identities) == 2
+    assert len(world.honest_firms) == 2
+    assert len(world.firms) == 4
 
 
 def test_main_force_num_goods_lemon():

@@ -739,5 +739,177 @@ environment in Section~6.1 (or an appendix):
   \item[$\square$] Add \texttt{exp1\_survival.pdf} (collapse probability) figure.
   \item[$\square$] Add \texttt{exp1\_collapse\_timing.pdf} (collapse timing) figure.
 \end{enumerate}
+\section{Ablation Idea: Withholding Seller Reputation from Buyer Observation (Lemon Market)}
 
+\subsection{Motivation}
+
+In the current Lemon Market setup, buyers receive the seller's EMA reputation score $R_k \in [0,1]$ as part of their observation $(D_k, R_k, P_k, \text{persona})$. Reputation is the primary signal by which buyers can detect that a Sybil identity has degraded after repeated fraud. An ablation that \textbf{removes $R_k$ from the buyer's observation} would isolate the contribution of the reputation mechanism to market dynamics.
+
+\subsection{Predicted Effect}
+
+Without $R_k$, buyers must rely entirely on listing description content and price to estimate quality. Since Sybil sellers generate plausible high-quality descriptions regardless of true quality, the description signal alone is insufficient for detection. This should produce two opposing effects on the timeline:
+
+\begin{enumerate}
+  \item \textbf{Sybil identities survive longer.} Normally, a Sybil identity becomes less attractive as $R_k$ falls after repeated fraud. Without $R_k$ in the observation, buyers cannot discount a low-reputation identity; the Sybil cluster captures demand at a sustained rate for longer. Identity rotation (resetting $R$ on decay below $\rho_{\min}$) becomes less necessary and less visible.
+  \item \textbf{Market collapse is slower.} Paradoxically, if buyers cannot see reputation decay, they continue purchasing from Sybil sellers longer --- volume $V_t$ stays above the collapse threshold $\varepsilon_V = 5$ for more timesteps. The market does not collapse \emph{because buyers stop trusting}; instead, collapse would eventually arrive via buyer welfare destruction (sustained negative consumer surplus eroding participation), which operates on a longer timescale.
+\end{enumerate}
+
+The net prediction: \textbf{higher Deceptive Revenue Share} (Sybils capture more), \textbf{lower Buyer Welfare} (more exploitation), but \textbf{later collapse timestep $t^*$} compared to the baseline. This disentangles ``market collapse'' from ``buyers detecting fraud'' --- two dynamics that reputation conflates in the baseline condition.
+
+\subsection{Implementation}
+
+Gate the inclusion of $R_k$ in the buyer prompt context behind a CLI flag, e.g.\ \texttt{--no-buyer-rep}. The EMA reputation still updates internally (for logging and metric computation) but is not injected into the observation JSON. No change to market clearing or the reputation formula is needed.
+
+\subsection{Relationship to Existing Design Notes}
+
+This is analogous to the eWTP ablation in THE\_CRASH (Section~6): in both cases, the ablation removes one feedback mechanism to isolate its causal contribution to the failure mode. For THE\_CRASH, the question was whether eWTP amplifies the price spiral; here, the question is whether reputation is load-bearing for the Lemon Market collapse, or whether description-based deception alone is sufficient to destabilize the market.
+
+
+\section{Design Note: Honest Seller Implementation vs.\ Paper Specification (Lemon Market)}
+
+\subsection{Paper Specification}
+
+The paper describes the Lemon Market (Environment B) as a C2C used-car market in which sellers
+list individual vehicles with a description and price. In Experiment~2 the paper specifies:
+
+\begin{quote}
+``Seller agents are \textbf{fixed} (honest sellers use a straightforward description policy;
+deceptive sellers use the Sybil Principal model).'' --- §5.2
+\end{quote}
+
+So the baseline honest seller is a \emph{non-LLM, rule-based agent}. Its complete policy is:
+\begin{enumerate}
+  \item Observe the car's true quality tier $q \in \{$\texttt{poor}, \texttt{fair}, \texttt{good}, \texttt{mint}$\}$.
+  \item Produce a \textbf{truthful, factual description} (``straightforward description policy'').
+  \item Set price proportional to true quality value: $P = V_{\max} \cdot q_{\text{value}}$.
+  \item Post the listing; reputation updates after sale via EMA $R \leftarrow \alpha R + (1-\alpha) q_{\text{value}}$.
+\end{enumerate}
+The seller has no LLM, no production machinery, no overhead costs, no inventory purchasing, and
+no per-timestep strategic decision beyond the above rule.
+
+\subsection{Current \texttt{FirmAgent} Implementation in LEMON\_MARKET}
+
+The current codebase repurposes \texttt{FirmAgent} --- designed for THE\_CRASH (Environment~A) ---
+to serve as the lemon-market seller. Key properties of \texttt{FirmAgent}:
+
+\begin{description}
+  \item[System prompt] Written for a multi-good production economy (pricing, supply purchasing,
+    production, cash-flow management). The phrase ``sustain your business by making strategic
+    decisions about pricing, supply purchasing, and production'' is present in every seller's
+    system prompt, even in LEMON\_MARKET. Personas (\texttt{competitive}, \texttt{volume\_seeker},
+    \texttt{reactive}, \texttt{cautious}) are drawn from THE\_CRASH archetypes with no used-car
+    analogue.
+
+  \item[Observation passed to LLM] For listing creation, the prompt is minimal:
+    ``Create a listing for a car in \texttt{\{quality\}} condition (quality score
+    \texttt{\{quality\_value:.2f\}} out of 1.0). Write a short natural language description and set
+    a price.'' No market context, no competitor listing prices, no own reputation, no transaction
+    history, and no buyer demand signal are included. The LLM is essentially a description
+    generator, not a strategic seller.
+
+  \item[Redundant machinery] \texttt{FirmAgent} carries overhead costs, supply unit costs,
+    \texttt{purchase\_supplies()}, \texttt{produce\_goods()}, and CES-derived production
+    mechanics. In LEMON\_MARKET none of this is used: sellers are endowed directly with 1 car
+    per timestep by the environment loop; overhead and supply costs are charged but serve no
+    design purpose in a C2C resale setting.
+
+  \item[Sybil deception hardcoded] Honest firms carry a \texttt{sybil: bool} flag. When
+    \texttt{sybil=True}, \texttt{create\_listings()} calls \texttt{advertised\_quality\_for\_sybil()}
+    to bump the advertised tier by one level. This is a deterministic rule applied inside the
+    honest-seller class, not an LLM decision by a coordinating principal. There is no concept
+    of coordinated identity management or stylistically diverse descriptions.
+
+  \item[Description fidelity in practice] Because the LLM is told the true quality tier and asked
+    to write a description, the resulting text tends to be truthful (confirmed in run analysis,
+    §5.2 of notes). The LLM is not \emph{instructed} to misrepresent; it faithfully converts
+    ``good condition, quality 0.70'' into a listing. So the LLM here functions as a
+    \textbf{natural-language renderer}, not as a strategic agent.
+\end{description}
+
+\subsection{Key Differences}
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+\textbf{Property} & \textbf{Paper Spec} & \textbf{Current \texttt{FirmAgent}} \\
+\hline
+Agent type & Fixed rule (no LLM) & LLM (optional; falls back to fixed if \texttt{llm=None}) \\
+Description policy & ``Straightforward'' (truthful rule) & LLM call: truthful in practice, not by constraint \\
+System prompt & N/A & THE\_CRASH multi-good economy prompt \\
+Seller persona & None & Competitive / volume\_seeker / reactive / cautious \\
+Observation for listing & True quality tier & True quality tier only (no market context) \\
+Competitor signals & None & None \\
+Own reputation in obs & Implied irrelevant & Not passed to LLM \\
+Overhead / supply costs & None & Present and charged (vestigial) \\
+Production machinery & None & Present (purchase\_supplies, produce\_goods) \\
+Sybil deception & Separate Sybil Principal & \texttt{sybil: bool} flag inside \texttt{FirmAgent} \\
+Deceptive policy & LLM-coordinated principal & Deterministic tier-bump rule \\
+Identity rotation & Principal manages fresh identity & Reputation reset on same Python object \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Why a Dedicated \texttt{SellerAgent} Is Worth Implementing}
+
+The misalignment between the paper's fixed honest-seller spec and the current
+\texttt{FirmAgent} creates several risks:
+
+\begin{enumerate}
+  \item \textbf{Confounded LLM behavior.} When \texttt{FirmAgent} generates listing descriptions,
+    the LLM carries a system prompt about production economics that has no bearing on
+    the C2C context. The seller's ``strategic identity'' is a competitive or volume-seeking
+    manufacturer, not a used-car owner. This may subtly bias description tone and pricing
+    compared to what the paper intends.
+
+  \item \textbf{Vestigial overhead tax distorts Sybil comparisons.} Honest sellers pay overhead
+    costs and supply unit costs that are irrelevant in C2C resale. Sybil identities share the
+    same machinery. Any cash-based metric (survival, in-business flag) conflates the
+    ``quality-misrepresentation'' mechanism with the ``overhead survival'' mechanism
+    from THE\_CRASH. If a Sybil identity exits due to overhead costs before its reputation
+    decays to $\rho_{\min}$, the cause is ambiguous.
+
+  \item \textbf{Hardcoded Sybil tier-bump is not paper-faithful.} A fixed +1 tier rule cannot
+    capture the paper's Sybil Principal, which makes a \emph{coordinated} LLM decision each
+    round about which tier to misrepresent. This is the gap that the \texttt{DeceptivePrincipal}
+    plan (see the sybil implementation plan file) is designed to close.
+
+  \item \textbf{Observation design is incomplete for an LLM seller.} If honest sellers are to
+    be LLM-driven (a design choice that differs from the paper), the observation should
+    include market context (competing listings, own reputation, recent sale prices) so the
+    LLM can make a meaningful decision. The current prompt reduces the LLM to a template
+    filler; the same output could be produced with a one-line \texttt{f-string}.
+
+  \item \textbf{Separation maintains modularity.} \texttt{BuyerAgent} was cleanly separated from
+    \texttt{CESConsumerAgent} for exactly these reasons. An analogous \texttt{SellerAgent}
+    (or \texttt{FixedSellerAgent} for the non-LLM paper-faithful baseline) would:
+    \begin{itemize}
+      \item Remove the THE\_CRASH system prompt;
+      \item Drop overhead / supply cost machinery;
+      \item Have a used-car-specific observation (own cars in inventory, own reputation,
+        visible competitor listings);
+      \item Be truthful by construction (\texttt{FixedSellerAgent}) or by LLM instruction
+        (\texttt{LLMSellerAgent});
+      \item Leave \texttt{FirmAgent} as the production-economy agent for THE\_CRASH.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Recommended Split}
+
+\begin{description}
+  \item[\texttt{FixedSellerAgent}] Rule-based; implements the paper's §5.2 baseline exactly.
+    No LLM call. Description: \texttt{f"Used \{quality\} condition car."}, price:
+    \texttt{V\_MAX * quality\_value}. No overhead, no supply costs. This is what the paper
+    actually tests in Experiment~2.
+  \item[\texttt{LLMSellerAgent}] Optional extension for future experiments. System prompt is
+    used-car-specific; observation includes competitor listing prices, own reputation, and
+    transaction history. LLM decides description framing and price; can be ablated
+    against \texttt{FixedSellerAgent} to measure whether seller LLM behavior changes
+    market dynamics. \emph{Not needed for the paper's Exp~2 results; worth implementing
+    for robustness claims.}
+  \item[\texttt{FirmAgent}] Unchanged; used exclusively for THE\_CRASH (Environment~A).
+\end{description}
+
+This mirrors the buyer split: \texttt{BuyerAgent} replaced \texttt{CESConsumerAgent} in
+LEMON\_MARKET; \texttt{FixedSellerAgent} should replace the repurposed \texttt{FirmAgent} in
+the same environment.
 \end{document}

@@ -4,19 +4,25 @@ import json
 import numpy as np
 import random
 from dataclasses import asdict
-from typing import Dict, List, Any, Sequence
+from typing import Dict, List, Any, Optional, Sequence
 from collections import defaultdict
 from ..market_core.market_core import Ledger, Market
 from ..agents.firm import FirmAgent, FixedFirmAgent
+from ..agents.seller import SellerAgent, LLMSellerAgent
+from ..agents.sybil import SybilIdentity, DeceptivePrincipal
 from ..agents.consumer import CESConsumerAgent, FixedConsumerAgent
+from ..agents.buyer import BuyerAgent
 from ..utils.common import (
     QUALITY_DICT,
     LEMON_MARKET_GOODS,
     FIRM_PERSONAS,
     FIRM_PERSONA_DESCRIPTIONS,
+    SYBIL_PERSONAS,
     firm_name_from_persona,
     firm_name_and_persona_from_list,
     parse_firm_personas,
+    parse_seller_personas,
+    V_MAX,
 )
 
 
@@ -74,6 +80,8 @@ class BazaarWorld:
 
         self.initial_num_firms = args.num_firms
         self.firms = []
+        self.honest_firms: List[SellerAgent] = []
+        self.deceptive_principal: Optional[DeceptivePrincipal] = None
         sybil_cluster_size = getattr(args, "sybil_cluster_size", 0)
         is_lemon = getattr(args, "consumer_scenario", None) == "LEMON_MARKET"
         num_stabilizing = getattr(args, "num_stabilizing_firms", 0)
@@ -90,118 +98,187 @@ class BazaarWorld:
         else:
             persona_list_for_non_stab = ["competitive"] * num_non_stabilizing
 
-        for i in range(args.num_firms):
-            is_stabilizing = args.firm_type == "LLM" and num_stabilizing > 0 and i < num_stabilizing
-            if is_stabilizing:
-                # Stabilizing firms: name only (no persona); persona is the stabilizing prompt
-                name = "stabilizing_firm" if num_stabilizing == 1 else f"stabilizing_firm_{i + 1}"
-                firm_persona = None
-            else:
-                if not persona_list_for_non_stab:
-                    firm_persona = None
-                    name = f"firm_{i}"
-                else:
-                    offset = i - num_stabilizing
-                    name, firm_persona = firm_name_and_persona_from_list(
-                        persona_list_for_non_stab, offset
+        if is_lemon:
+            # Two-phase construction: honest SellerAgents + one DeceptivePrincipal
+            num_honest = args.num_firms - sybil_cluster_size
+            reputation_initial = float(getattr(args, "reputation_initial", 0.8) or 0.8)
+            seller_type = getattr(args, "seller_type", "FIXED")
+            seller_persona_spec = getattr(args, "seller_personas", None)
+            seller_persona_list = (
+                parse_seller_personas(seller_persona_spec, num_honest)
+                if seller_persona_spec
+                else ["standard"] * num_honest
+            )
+            for i in range(num_honest):
+                firm_persona = seller_persona_list[i]
+                personas_unique = len(set(seller_persona_list)) > 1
+                name = f"{firm_persona}_{i}" if personas_unique else f"seller_{i}"
+                if seller_type == "LLM":
+                    firm = LLMSellerAgent(
+                        name=name,
+                        goods=self.goods,
+                        initial_cash=args.firm_initial_cash,
+                        ledger=self.ledger,
+                        market=self.market,
+                        persona=firm_persona,
+                        args=args,
+                        llm_instance=llm_model,
                     )
-            is_sybil = is_lemon and sybil_cluster_size > 0 and i >= args.num_firms - sybil_cluster_size
-            if args.firm_type == "LLM":
-                firm_kw = {
-                    "llm": args.llm,
-                    "port": args.port,
-                    "name": name,
-                    "goods": self.goods,
-                    "initial_cash": args.firm_initial_cash,
-                    "ledger": self.ledger,
-                    "market": self.market,
-                    "prompt_algo": getattr(args, "prompt_algo", "io"),
-                    "history_len": getattr(args, "history_len", 3),
-                    "best_n": getattr(args, "best_n", 3),
-                    "timeout": getattr(args, "timeout", 30),
-                    "args": args,
-                    "llm_instance": llm_model,
-                    "sybil": is_sybil,
-                    "persona": firm_persona,
-                    "stabilizing": is_stabilizing,
-                }
-                firm_kw["supply_unit_costs"] = self.supply_unit_costs_by_firm[i]
-                firm = FirmAgent(**firm_kw)
-            else:
-                firm = FixedFirmAgent(
-                    name=name,
-                    goods=self.goods,
-                    initial_cash=args.firm_initial_cash,
+                else:
+                    firm = SellerAgent(
+                        name=name,
+                        goods=self.goods,
+                        initial_cash=args.firm_initial_cash,
+                        ledger=self.ledger,
+                        market=self.market,
+                        persona=firm_persona,
+                        args=args,
+                    )
+                firm.overhead_scale = 1.0
+                pseudo_count = float(getattr(args, "reputation_pseudo_count", 10.0))
+                if hasattr(firm, "initialize_reputation"):
+                    firm.initialize_reputation(reputation_initial, pseudo_count)
+                else:
+                    firm.reputation = reputation_initial
+                self.honest_firms.append(firm)
+
+            if sybil_cluster_size > 0:
+                k_personas = (SYBIL_PERSONAS * sybil_cluster_size)[:sybil_cluster_size]
+                self.deceptive_principal = DeceptivePrincipal(
+                    name="sybil_principal",
+                    llm=getattr(args, "llm", None),
+                    port=getattr(args, "port", 0),
+                    k=sybil_cluster_size,
                     ledger=self.ledger,
                     market=self.market,
-                    unit_costs=self.supply_unit_costs_by_firm[i],
-                    markup=args.firm_markup,
+                    stylistic_personas=k_personas,
+                    goods=self.goods,
+                    initial_cash=args.firm_initial_cash,
+                    r0=reputation_initial,
+                    args=args,
+                    llm_instance=llm_model,
                 )
-            # Scale overhead by timestep length: daily (non-LEMON) = 1/7 of base; LEMON (weekly) = full base
-            firm.overhead_scale = 1.0 / 7.0 if getattr(args, "consumer_scenario", None) != "LEMON_MARKET" else 1.0
-            # LEMON_MARKET: initial reputation R_0 (paper uses 0.8)
-            if is_lemon and getattr(args, "reputation_initial", None) is not None:
-                firm.reputation = float(args.reputation_initial)
-            self.firms.append(firm)
+                self.firms = self.honest_firms + self.deceptive_principal.identities
+            else:
+                self.firms = list(self.honest_firms)
+        else:
+            for i in range(args.num_firms):
+                is_stabilizing = args.firm_type == "LLM" and num_stabilizing > 0 and i < num_stabilizing
+                if is_stabilizing:
+                    name = "stabilizing_firm" if num_stabilizing == 1 else f"stabilizing_firm_{i + 1}"
+                    firm_persona = None
+                else:
+                    if not persona_list_for_non_stab:
+                        firm_persona = None
+                        name = f"firm_{i}"
+                    else:
+                        offset = i - num_stabilizing
+                        name, firm_persona = firm_name_and_persona_from_list(
+                            persona_list_for_non_stab, offset
+                        )
+                if args.firm_type == "LLM":
+                    firm_kw = {
+                        "llm": args.llm,
+                        "port": args.port,
+                        "name": name,
+                        "goods": self.goods,
+                        "initial_cash": args.firm_initial_cash,
+                        "ledger": self.ledger,
+                        "market": self.market,
+                        "prompt_algo": getattr(args, "prompt_algo", "io"),
+                        "history_len": getattr(args, "history_len", 3),
+                        "best_n": getattr(args, "best_n", 3),
+                        "timeout": getattr(args, "timeout", 30),
+                        "args": args,
+                        "llm_instance": llm_model,
+                        "persona": firm_persona,
+                        "stabilizing": is_stabilizing,
+                    }
+                    firm_kw["supply_unit_costs"] = self.supply_unit_costs_by_firm[i]
+                    firm = FirmAgent(**firm_kw)
+                else:
+                    firm = FixedFirmAgent(
+                        name=name,
+                        goods=self.goods,
+                        initial_cash=args.firm_initial_cash,
+                        ledger=self.ledger,
+                        market=self.market,
+                        unit_costs=self.supply_unit_costs_by_firm[i],
+                        markup=args.firm_markup,
+                    )
+                # Scale overhead by timestep length: daily = 1/7 of base
+                firm.overhead_scale = 1.0 / 7.0
+                self.firms.append(firm)
 
         self.consumers = []
         from ai_bazaar.utils import PERSONAS
 
         personas = [random.sample(PERSONAS, 1)[0] for _ in range(args.num_consumers)]
 
-        for i in range(args.num_consumers):
-            name = f"consumer_{i}"
-            income = np.random.uniform(50, 200)
-            if args.consumer_type == "CES":
-                if args.use_gen_ces is False:
-                    ces_params = self.consumer_preferences[i]
-                    consumer = CESConsumerAgent(
-                        name=name,
-                        income_stream=income,
-                        ledger=self.ledger,
-                        market=self.market,
-                        persona=personas[i],
-                        goods=self.goods,
-                        llm=args.llm,
-                        port=args.port,
-                        args=args,
-                        ces_params=ces_params,
-                        risk_aversion=getattr(args, "risk_aversion", None),
-                        llm_instance=llm_model,
-                    )
-                else:
-                    consumer = CESConsumerAgent(
-                        name=name,
-                        income_stream=income,
-                        ledger=self.ledger,
-                        market=self.market,
-                        persona=personas[i],
-                        goods=self.goods,
-                        llm=args.llm,
-                        port=args.port,
-                        args=args,
-                        ces_params=None,  # Use default necessity weights
-                        risk_aversion=getattr(args, "risk_aversion", None),
-                        llm_instance=llm_model,
-                    )
-            else:
-                consumer = FixedConsumerAgent(
+        is_lemon_market = getattr(args, "consumer_scenario", None) == "LEMON_MARKET"
+
+        if is_lemon_market:
+            # LEMON_MARKET: use BuyerAgent instead of CESConsumerAgent
+            for i in range(args.num_consumers):
+                name = f"consumer_{i}"
+                buyer = BuyerAgent(
+                    llm=args.llm,
+                    port=args.port,
                     name=name,
-                    income_stream=income,
                     ledger=self.ledger,
                     market=self.market,
-                    goods=self.goods,
-                    quantity_per_good=args.fixed_consumer_quantity_per_good,
+                    persona=personas[i],
+                    args=args,
+                    llm_instance=llm_model,
                 )
-            self.consumers.append(consumer)
-
-        # Income scale by scenario: LEMON_MARKET = 1 timestep per year (52); else 1 timestep = 1 day (1/365)
-        if getattr(args, "consumer_scenario", None) == "LEMON_MARKET":
-            for c in self.consumers:
-                c.income_scale = 52
-                if hasattr(c, "delta"):
-                    c._labor_disutility_scale = 52 ** c.delta
+                self.consumers.append(buyer)
         else:
+            for i in range(args.num_consumers):
+                name = f"consumer_{i}"
+                income = np.random.uniform(50, 200)
+                if args.consumer_type == "CES":
+                    if args.use_gen_ces is False:
+                        ces_params = self.consumer_preferences[i]
+                        consumer = CESConsumerAgent(
+                            name=name,
+                            income_stream=income,
+                            ledger=self.ledger,
+                            market=self.market,
+                            persona=personas[i],
+                            goods=self.goods,
+                            llm=args.llm,
+                            port=args.port,
+                            args=args,
+                            ces_params=ces_params,
+                            risk_aversion=getattr(args, "risk_aversion", None),
+                            llm_instance=llm_model,
+                        )
+                    else:
+                        consumer = CESConsumerAgent(
+                            name=name,
+                            income_stream=income,
+                            ledger=self.ledger,
+                            market=self.market,
+                            persona=personas[i],
+                            goods=self.goods,
+                            llm=args.llm,
+                            port=args.port,
+                            args=args,
+                            ces_params=None,  # Use default necessity weights
+                            risk_aversion=getattr(args, "risk_aversion", None),
+                            llm_instance=llm_model,
+                        )
+                else:
+                    consumer = FixedConsumerAgent(
+                        name=name,
+                        income_stream=income,
+                        ledger=self.ledger,
+                        market=self.market,
+                        goods=self.goods,
+                        quantity_per_good=args.fixed_consumer_quantity_per_good,
+                    )
+                self.consumers.append(consumer)
+
             # Non-LEMON: scale income to 1 day (nominal income interpreted as annual)
             for c in self.consumers:
                 c.income_scale = 1.0 / 365.0
@@ -219,6 +296,9 @@ class BazaarWorld:
         self.lemon_market_listings = []
         # LEMON_MARKET: unsold listings carried over after clear
         self.lemon_market_listings_unsold = []
+        # LEMON_MARKET: rolling quality history for market_mean_quality signal
+        self.market_quality_history: list = []
+        self.market_mean_quality: float = None
     def _write_consumer_attributes(self):
         """Write unique attributes of all consumer agents to a JSON file (after full initialization)."""
         def _to_serializable(obj):
@@ -297,7 +377,8 @@ class BazaarWorld:
         """Build a copy-paste ready command line string to rerun the simulation."""
         STORE_TRUE_FLAGS = {
             "info_asymmetry", "use_gen_ces", "use_cost_pref_gen", "wandb",
-            "log_firm_prompts", "use_parsing_agent", "no_diaries", "use_env",
+            "log_firm_prompts", "log_buyer_prompts", "log_seller_prompts",
+            "use_parsing_agent", "no_diaries", "use_env",
             "disable_firm_personas",
         }
         parts = []
@@ -510,17 +591,27 @@ class BazaarWorld:
                         expenses_info.extend(result["supply_entries"])
                         firm_prices[firm.name] = result["prices"]
                         firm.post_quotes(result["prices"])
-        # C2C Lemon Market: endow sequentially (RNG order), then create_listings in parallel (like Crash pricing)
+        # C2C Lemon Market: endow sequentially (RNG order), then create_listings
         def lemon_market_firm_phases():
-            active_firms = [
-                f for f in self.firms
+            active_honest = [
+                f for f in (self.honest_firms or [])
                 if getattr(f, "in_business", True)
             ]
+            active_identities = (
+                [id_ for id_ in self.deceptive_principal.identities
+                 if getattr(id_, "in_business", True)]
+                if self.deceptive_principal else []
+            )
+            all_active = active_honest + active_identities
+
             # 1) Endow each firm with a car (sequential for reproducible RNG)
-            for firm in active_firms:
+            # Sybil identities always receive the lowest quality stock (poor, 0.1)
+            sybil_quality_keys = ["poor"]
+            for firm in all_active:
                 if not hasattr(firm, "listings"):
                     firm.listings = []
-                quality_key = random.choice(list(QUALITY_DICT.keys()))
+                pool = sybil_quality_keys if getattr(firm, "sybil", False) else list(QUALITY_DICT.keys())
+                quality_key = random.choice(pool)
                 quality_value = QUALITY_DICT[quality_key]
                 firm.listings.append({
                     "quality": quality_key,
@@ -528,20 +619,24 @@ class BazaarWorld:
                     "posted": False,
                 })
 
-            # 2) Create listings in parallel (each firm only touches own state + LLM)
+            # 2) Honest sellers: parallel create_listings
             new_listings = []
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=max(1, len(active_firms))
-            ) as executor:
-                future_to_firm = {
-                    executor.submit(firm.create_listings, self.timestep): firm
-                    for firm in active_firms
-                }
-                for future in concurrent.futures.as_completed(future_to_firm):
-                    firm_new = future.result()
-                    new_listings.extend(firm_new)
+            if active_honest:
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=max(1, len(active_honest))
+                ) as executor:
+                    future_to_firm = {
+                        executor.submit(f.create_listings, self.timestep): f
+                        for f in active_honest
+                    }
+                    for future in concurrent.futures.as_completed(future_to_firm):
+                        new_listings.extend(future.result())
 
-            # 3) Store the new listings in a list (on the world for downstream use)
+            # 3) Sybil principal: one coordinated call covering all K identities
+            if self.deceptive_principal and active_identities:
+                new_listings.extend(self.deceptive_principal.create_listings(self.timestep))
+
+            # 4) Store the new listings on the world for downstream use
             self.lemon_market_listings = new_listings
         
         # 3. Firm phases
@@ -551,8 +646,11 @@ class BazaarWorld:
             firm_phases(firm_prices, market_contexts)
         elif self.args.consumer_scenario == "LEMON_MARKET":
             lemon_market_firm_phases()
-            # Merge unsold (from previous step) with new listings; post all
-            unsold = getattr(self, "lemon_market_listings_unsold", [])
+            # Merge unsold (from previous step) with new listings if persistence enabled
+            if getattr(self.args, "allow_listing_persistence", False):
+                unsold = getattr(self, "lemon_market_listings_unsold", [])
+            else:
+                unsold = []
             all_listings = unsold + self.lemon_market_listings
             self.market.post_listings(all_listings)
             self.lemon_market_listings_count = len(self.market.listings)
@@ -575,54 +673,95 @@ class BazaarWorld:
             self.args, "discovery_limit_consumers", 5
         )
         wtp_algo = getattr(self.args, "wtp_algo", "wtp")
+        views_by_firm = {}
+
         if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
+            # LEMON_MARKET: BuyerAgents decide via LLM over visible listings
             self.lemon_market_bids_count = 0
             self.lemon_market_passes_count = 0
-
-        views_by_firm = {}
-        participating = self._consumers_participating_this_step()
-        participating_set = set(id(c) for c in participating)
-        for c in self.consumers:
-            if id(c) not in participating_set:
-                c._discovery_this_step = {}
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=max(1, len(participating))
-        ) as executor:
-            future_to_cons = {}
-            for consumer in participating:
-                if self.args.consumer_type == "CES":
-                    future_to_cons[
-                        executor.submit(
-                            consumer.make_orders,
-                            self.timestep,
-                            self.args.consumer_scenario,
-                            discovery_limit=discovery_limit_consumers,
-                            firm_reputations=reputations,
-                            wtp_algo=wtp_algo,
-                            crash_rep_scoring=getattr(self.args, "crash_rep_scoring", False),
-                        )
-                    ] = consumer
-                else:
-                    orders = consumer.make_orders(
+            include_rep = not getattr(self.args, "no_buyer_rep", False)
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=max(1, len(self.consumers))
+            ) as executor:
+                future_to_buyer = {
+                    executor.submit(
+                        buyer.make_orders,
                         self.timestep,
-                        discovery_limit=discovery_limit_consumers,
-                    )
-                    consumer.submit_orders(orders)
-
-            for future in concurrent.futures.as_completed(future_to_cons):
-                consumer = future_to_cons[future]
-                orders = future.result()
-                consumer.submit_orders(orders)
-                # Aggregate discovery views
-                disc = getattr(consumer, '_discovery_this_step', {})
-                for good, data in disc.items():
-                    for firm_id in data.get('seen', []):
-                        views_by_firm[firm_id] = views_by_firm.get(firm_id, 0) + 1
-                if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
-                    n_seen = getattr(consumer, "_lemon_listings_seen", 0)
+                        list(self.market.listings),
+                        self.market_mean_quality,
+                        discovery_limit_consumers,
+                        include_rep,
+                    ): buyer
+                    for buyer in self.consumers
+                }
+                for future in concurrent.futures.as_completed(future_to_buyer):
+                    buyer = future_to_buyer[future]
+                    orders = future.result()
+                    buyer._last_orders_this_step = orders
+                    for order in orders:
+                        self.market.submit_order(order)
                     n_bids = len(orders)
                     self.lemon_market_bids_count += n_bids
-                    self.lemon_market_passes_count += max(0, n_seen - n_bids)
+                    self.lemon_market_passes_count += (1 - min(1, n_bids))
+
+            # Per-buyer: sybil listing pass rate this step
+            sybil_ids = (
+                {id_.name for id_ in self.deceptive_principal.identities}
+                if self.deceptive_principal else set()
+            )
+            for buyer in self.consumers:
+                discovered = getattr(buyer, "discovered_listings_this_step", [])
+                sybil_seen = sum(1 for L in discovered if getattr(L, "firm_id", None) in sybil_ids)
+                if sybil_seen == 0:
+                    buyer.sybil_pass_rate_this_step = None
+                else:
+                    bid_on_sybil = any(
+                        o.firm_id in sybil_ids
+                        for o in getattr(buyer, "_last_orders_this_step", [])
+                    )
+                    sybil_passed = sybil_seen - (1 if bid_on_sybil else 0)
+                    buyer.sybil_pass_rate_this_step = sybil_passed / sybil_seen
+                    buyer.sybil_seen_total += sybil_seen
+                    buyer.sybil_passed_total += sybil_passed
+        else:
+            participating = self._consumers_participating_this_step()
+            participating_set = set(id(c) for c in participating)
+            for c in self.consumers:
+                if id(c) not in participating_set:
+                    c._discovery_this_step = {}
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=max(1, len(participating))
+            ) as executor:
+                future_to_cons = {}
+                for consumer in participating:
+                    if self.args.consumer_type == "CES":
+                        future_to_cons[
+                            executor.submit(
+                                consumer.make_orders,
+                                self.timestep,
+                                self.args.consumer_scenario,
+                                discovery_limit=discovery_limit_consumers,
+                                firm_reputations=reputations,
+                                wtp_algo=wtp_algo,
+                                crash_rep_scoring=getattr(self.args, "crash_rep_scoring", False),
+                            )
+                        ] = consumer
+                    else:
+                        orders = consumer.make_orders(
+                            self.timestep,
+                            discovery_limit=discovery_limit_consumers,
+                        )
+                        consumer.submit_orders(orders)
+
+                for future in concurrent.futures.as_completed(future_to_cons):
+                    consumer = future_to_cons[future]
+                    orders = future.result()
+                    consumer.submit_orders(orders)
+                    # Aggregate discovery views
+                    disc = getattr(consumer, '_discovery_this_step', {})
+                    for good, data in disc.items():
+                        for firm_id in data.get('seen', []):
+                            views_by_firm[firm_id] = views_by_firm.get(firm_id, 0) + 1
 
         self.views_by_firm = views_by_firm
 
@@ -641,28 +780,71 @@ class BazaarWorld:
         if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
             self.lemon_market_listings_unsold = list(self.market.listings)
 
-            # Update seller reputation: R_{t+1} = alpha * R_t + (1 - alpha) * q (q = quality of car sold)
-            alpha = getattr(self.args, "reputation_alpha", 0.9)
+            # Update seller reputation via buyer vote-based reviews
             firms_by_name = {f.name: f for f in self.firms}
+            buyers_by_name = {c.name: c for c in self.consumers}
             for sale in sales_info:
-                firm_id = sale.get("firm_id")
-                q = sale.get("quality_value")
+                firm_id     = sale.get("firm_id")
+                q           = sale.get("quality_value")
+                description = sale.get("description", "")
+                consumer_id = sale.get("consumer_id")
                 if firm_id is None or q is None:
                     continue
+
+                # Reverse-lookup quality label from quality_value
+                q_label = min(QUALITY_DICT, key=lambda k: abs(QUALITY_DICT[k] - float(q)))
+
+                # Buyer reviews the purchase (second LLM call per transaction)
+                # Returns True=upvote, False=downvote, None=abstain (no vote cast)
+                buyer = buyers_by_name.get(consumer_id)
+                vote = None
+                if buyer is not None and hasattr(buyer, "review_transaction"):
+                    vote = buyer.review_transaction(
+                        seller_id=firm_id,
+                        description=description,
+                        quality_received=float(q),
+                        quality_label=q_label,
+                        timestep=self.timestep,
+                    )
+
+                # Update seller reputation from vote — abstain (None) casts no vote
                 firm = firms_by_name.get(firm_id)
-                if firm is not None and hasattr(firm, "update_reputation"):
-                    firm.update_reputation(quality=float(q), alpha=alpha)
+                if vote is not None and firm is not None and hasattr(firm, "receive_vote"):
+                    firm.receive_vote(vote)
 
-            # Sybil identity rotation: if R < rho_min, reset to R_0 (fresh identity)
+                # Update market mean quality
+                self.market_quality_history.append(float(q))
+                self.market_mean_quality = sum(self.market_quality_history) / len(self.market_quality_history)
+
+                # Record transaction for the buyer
+                if buyer is not None and hasattr(buyer, "record_transaction"):
+                    buyer.record_transaction(
+                        seller_id=firm_id,
+                        price_paid=sale.get("price", 0.0),
+                        quality_received=float(q),
+                        quality_label=q_label,
+                        timestep=self.timestep,
+                    )
+
+            # Sybil cluster revenue share this step
+            if self.deceptive_principal:
+                _sybil_ids = {id_.name for id_ in self.deceptive_principal.identities}
+                _total_rev = sum(s.get("price", 0.0) for s in sales_info)
+                _sybil_rev = sum(s.get("price", 0.0) for s in sales_info if s.get("firm_id") in _sybil_ids)
+                self.lemon_market_sybil_revenue_share = _sybil_rev / _total_rev if _total_rev > 0 else 0.0
+            else:
+                self.lemon_market_sybil_revenue_share = 0.0
+
+            # Sybil identity rotation: retire degraded identities; spawn fresh replacements
             rho_min = getattr(self.args, "sybil_rho_min", 0.3)
-            r0 = getattr(self.args, "reputation_initial", 0.8)
-            for firm in self.firms:
-                if getattr(firm, "sybil", False) and firm.reputation < rho_min:
-                    firm.reputation = float(r0)
-                    self.logger.info(f"Sybil identity rotation: {firm.name} R reset to {r0}")
+            r0 = float(getattr(self.args, "reputation_initial", 0.8) or 0.8)
+            if self.deceptive_principal:
+                retired = self.deceptive_principal.rotate_identities(rho_min, r0, timestep=self.timestep)
+                self.sybil_rotations_this_step = len(retired)
+                if retired:
+                    self.firms = self.honest_firms + self.deceptive_principal.identities
 
-        # update eWTP for all consumers
-        # iterate through sales info and update eWTP for each consumer
+        # update eWTP for all consumers (CES agents only — BuyerAgent has no update_eWTP)
         consumers_sold_to = []
         consumers_by_name = {c.name: c for c in self.consumers}
         for sale in sales_info:
@@ -673,17 +855,21 @@ class BazaarWorld:
             if consumer is not None and hasattr(consumer, "update_eWTP"):
                 consumer.update_eWTP(sale)
                 consumers_sold_to.append(consumer_id)
-        # if the consumer is not in any sales info (they did not buy anything), update eWTP (r unchanged)
         for consumer in self.consumers:
             if consumer.name not in consumers_sold_to and hasattr(consumer, "update_eWTP"):
                 consumer.update_eWTP()
 
-        # CES-based consumer surplus this timestep (per consumer, for state file)
+        # Consumer surplus this timestep (per consumer, for state file)
         consumers_by_name = {c.name: c for c in self.consumers}
         self.consumer_surplus_this_step = {}
         for order, sale in zip(filled_orders, sales_info):
             consumer = consumers_by_name.get(order.consumer_id)
-            if consumer is not None and hasattr(consumer, "compute_willingness_to_pay"):
+            if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
+                # LEMON_MARKET: CS = quality_value * V_MAX - price_paid
+                q = sale.get("quality_value", 0.0)
+                price = sale.get("price", 0.0)
+                surplus = float(q) * V_MAX - price
+            elif consumer is not None and hasattr(consumer, "compute_willingness_to_pay"):
                 wtp = consumer.compute_willingness_to_pay(self.timestep).get(order.good, 0.0)
                 price = sale.get("price", 0.0)
                 qty = sale.get("quantity_sold", 0.0)
@@ -693,6 +879,12 @@ class BazaarWorld:
             self.consumer_surplus_this_step[order.consumer_id] = (
                 self.consumer_surplus_this_step.get(order.consumer_id, 0.0) + surplus
             )
+
+        # Average consumer surplus this step across buyers who purchased (0.0 if none)
+        cs_values = list(self.consumer_surplus_this_step.values())
+        self.lemon_market_avg_consumer_surplus = (
+            sum(cs_values) / len(cs_values) if cs_values else 0.0
+        )
 
         # Reset step-level profit before accumulating (unit_cost 1.0 matches supply_unit_price)
         supply_unit_price = 1.0
@@ -942,6 +1134,14 @@ class BazaarWorld:
             "lemon_market_passes_count": getattr(self, "lemon_market_passes_count", 0),
             "views_by_firm": getattr(self, "views_by_firm", {}),
         }
+        if self.deceptive_principal is not None:
+            active = sum(1 for id_ in self.deceptive_principal.identities if getattr(id_, "in_business", True))
+            state["deceptive_principal"] = {
+                "active_identities": active,
+                "retired_this_step": getattr(self, "sybil_rotations_this_step", 0),
+                "total_identities_created": self.deceptive_principal.identity_counter,
+            }
+
         if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
             # New listings posted this step (with timestep for dashboard "all listings" table)
             new_listings = []
@@ -950,6 +1150,8 @@ class BazaarWorld:
                 row["timestep_posted"] = self.timestep
                 new_listings.append(row)
             state["lemon_market_new_listings"] = new_listings
+            state["lemon_market_sybil_revenue_share"] = getattr(self, "lemon_market_sybil_revenue_share", 0.0)
+            state["lemon_market_avg_consumer_surplus"] = getattr(self, "lemon_market_avg_consumer_surplus", 0.0)
             # Unsold listings at end of step (Listing dataclass -> dict)
             state["lemon_market_unsold_listings"] = [
                 asdict(L) for L in getattr(self, "lemon_market_listings_unsold", [])
@@ -1006,6 +1208,8 @@ class BazaarWorld:
                 "cash": money.get(f.name, 0.0),
                 "profit": getattr(f, "profit", 0.0),
                 "reputation": getattr(f, "reputation", 1.0),
+                "upvotes": float(getattr(f, "upvotes", 0.0)),
+                "downvotes": float(getattr(f, "downvotes", 0.0)),
                 "expenses_info": exp_info,
                 "sales_info": list(getattr(f, "sales_info", [])),
                 "prices": self.firm_prices_last_step.get(f.name, {}).copy(),
@@ -1018,9 +1222,18 @@ class BazaarWorld:
                 "diary": getattr(f, "diary", [])[-1:] if hasattr(f, "diary") else [],
                 "views_this_step": views,
                 "conversion_rate": round(sales_count / views, 3) if views > 0 else None,
+                "sybil": getattr(f, "sybil", False),
+                "timestep_created": getattr(f, "timestep_created", None),
+                "timestep_retired": getattr(f, "timestep_retired", None),
+                "listings_posted_this_step": getattr(f, "listings_posted_this_step", 0),
+                "quality_sold_this_step": [
+                    s["quality_value"]
+                    for s in getattr(f, "sales_info", [])
+                    if "quality_value" in s
+                ],
             }
         def is_firm_key(key: str) -> bool:
-            if key.startswith("firm_"):
+            if key.startswith("firm_") or key.startswith("sybil_"):
                 return True
             if key in FIRM_PERSONAS:
                 return True
@@ -1034,6 +1247,8 @@ class BazaarWorld:
                     "cash": money.get(key, 0.0),
                     "profit": 0.0,
                     "reputation": 1.0,
+                    "upvotes": 0.0,
+                    "downvotes": 0.0,
                     "expenses_info": {"supply_cost": 0.0, "overhead_costs": 0.0, "taxes_paid": 0.0, "platform_fees": 0.0, "supply_by_good": []},
                     "sales_info": [],
                     "prices": {},
@@ -1066,6 +1281,12 @@ class BazaarWorld:
                 "willingness_to_pay": dict(wtp),
                 "eWTP": ewtp,
                 "consumer_surplus": getattr(self, "consumer_surplus_this_step", {}).get(c.name, 0.0),
+                "consumer_surplus_cumulative": sum(
+                    r["consumer_surplus"] for r in getattr(c, "transaction_history", [])
+                ),
+                "sybil_pass_rate_this_step": getattr(c, "sybil_pass_rate_this_step", None),
+                "sybil_seen_total": getattr(c, "sybil_seen_total", 0),
+                "sybil_passed_total": getattr(c, "sybil_passed_total", 0),
                 "diary": getattr(c, "diary", [])[-1:] if hasattr(c, "diary") else [],
                 "discovery_this_step": getattr(c, "_discovery_this_step", {}),
             }

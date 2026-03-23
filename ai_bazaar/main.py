@@ -101,8 +101,10 @@ def run_marketplace_simulation(args, llm_instance=None):
     print(f"  Output tokens: {total['output_tokens']:,}")
     print(f"  Requests:      {total['requests']:,}")
 
+    # Store token usage alongside state, consumer_attributes, and firm_attributes
+    log_dir = getattr(args, "log_dir", "logs")
     run_name = getattr(args, "name", None) or "simulation"
-    run_dir = os.path.join(args.log_dir, run_name)
+    run_dir = os.path.join(log_dir, run_name)
     os.makedirs(run_dir, exist_ok=True)
     usage_path = os.path.join(run_dir, f"{run_name}_token_usage.json")
     with open(usage_path, "w") as f:
@@ -233,7 +235,14 @@ def create_argument_parser():
         "--reputation-alpha",
         type=float,
         default=0.9,
-        help="LEMON_MARKET: reputation update smoothing; R_new = alpha*R_old + (1-alpha)*q; default 0.9",
+        help="LEMON_MARKET: (legacy, unused) EMA smoothing; kept for backward compat.",
+    )
+    parser.add_argument(
+        "--reputation-pseudo-count",
+        type=float,
+        default=10.0,
+        help="LEMON_MARKET: pseudo-count prior for vote-based reputation. "
+             "upvotes_0 = reputation_initial * pseudo_count. Default 10.",
     )
     parser.add_argument(
         "--sybil-cluster-size",
@@ -254,10 +263,54 @@ def create_argument_parser():
         help="LEMON_MARKET: Sybil identity rotation threshold; when R < rho_min, reset to reputation-initial. Default 0.3",
     )
     parser.add_argument(
+        "--no-buyer-rep",
+        action="store_true",
+        default=False,
+        help="LEMON_MARKET ablation: withhold seller reputation EMA from buyer observation context.",
+    )
+    parser.add_argument(
+        "--seller-type",
+        default="FIXED",
+        choices=["LLM", "FIXED"],
+        help="LEMON_MARKET: seller type. FIXED uses template descriptions; LLM generates descriptions via LLM.",
+    )
+    parser.add_argument(
+        "--seller-personas",
+        type=str,
+        default=None,
+        help=(
+            "LEMON_MARKET: comma-separated persona:count pairs for honest sellers "
+            "(e.g. 'detailed:2,standard:1'). Omit for all 'standard'. "
+            "Valid personas: standard, detailed, terse, optimistic."
+        ),
+    )
+    parser.add_argument(
+        "--allow-listing-persistence",
+        action="store_true",
+        default=False,
+        help="LEMON_MARKET: carry unsold listings forward to the next timestep. Default: discard unsold listings each step.",
+    )
+    parser.add_argument(
         "--consumption-interval",
         type=int,
         default=1,
         help="Run consumer inventory consumption (zero goods, keep cash) every N timesteps; 1 = every timestep (default)",
+    )
+    parser.add_argument(
+        "--num-sellers", type=int, default=None,
+        help=(
+            "LEMON_MARKET alias for --num-firms. "
+            "Total seller slots = honest sellers + sybil-cluster-size. "
+            "Ignored outside LEMON_MARKET."
+        ),
+    )
+    parser.add_argument(
+        "--num-buyers", type=int, default=None,
+        help=(
+            "LEMON_MARKET alias for --num-consumers. "
+            "Number of LLM BuyerAgents per timestep. "
+            "Ignored outside LEMON_MARKET."
+        ),
     )
     parser.add_argument(
         "--use-gen-ces",
@@ -320,6 +373,16 @@ def create_argument_parser():
         help="Log full user prompts sent to firm agents",
     )
     parser.add_argument(
+        "--log-buyer-prompts",
+        action="store_true",
+        help="LEMON_MARKET: append buyer LLM prompts/responses to logs/<run>/lemon_agent_prompts.jsonl",
+    )
+    parser.add_argument(
+        "--log-seller-prompts",
+        action="store_true",
+        help="LEMON_MARKET: append seller LLM prompts/responses (honest LLM + sybil principal) to logs/<run>/lemon_agent_prompts.jsonl",
+    )
+    parser.add_argument(
         "--num-goods", type=int, default=1, help="Number of goods in the simulation"
     )
     parser.add_argument(
@@ -379,6 +442,11 @@ def main():
     # LEMON_MARKET: force num_goods to 1 and only good is "car"
     if getattr(args, "consumer_scenario", None) == "LEMON_MARKET":
         args.num_goods = 1
+        # Resolve LEMON_MARKET semantic aliases → canonical args used by BazaarWorld
+        if getattr(args, "num_sellers", None) is not None:
+            args.num_firms = args.num_sellers
+        if getattr(args, "num_buyers", None) is not None:
+            args.num_consumers = args.num_buyers
         if getattr(args, "reputation_initial", None) is None:
             args.reputation_initial = 0.8  # paper R_0 = 0.8 for lemon experiments
         if getattr(args, "sybil_cluster_size", 0) > 0 and args.num_firms < args.sybil_cluster_size:

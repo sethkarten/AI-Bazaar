@@ -28,6 +28,8 @@ class BaseFirmAgent:
         self.args = args
         self.in_business = True
         self.reputation = 1.0  # Default perfect reputation
+        self.upvotes = 0.0     # Vote-based reputation: pseudo-count upvotes
+        self.downvotes = 0.0   # Vote-based reputation: pseudo-count downvotes
         self.fulfillment_history = []  # List of (successful_qty, requested_qty)
         self.profit = 0.0  # Step-level profit (reset each step, accumulated in update_profit)
         self.overhead_scale = 1.0  # Set by env: 1/7 for daily timesteps, 1.0 for LEMON_MARKET
@@ -58,6 +60,29 @@ class BaseFirmAgent:
             success = sum(r[0] for r in recent)
             total = sum(r[1] for r in recent)
             self.reputation = success / total if total > 0 else 1.0
+
+    def initialize_reputation(self, initial_rep: float, pseudo_count: float = 10.0) -> None:
+        """Bootstrap vote-based reputation from an initial score.
+
+        upvotes_0  = initial_rep * pseudo_count
+        downvotes_0 = (1 - initial_rep) * pseudo_count
+        reputation  = upvotes_0 / (upvotes_0 + downvotes_0) = initial_rep
+        """
+        self.upvotes   = initial_rep * pseudo_count
+        self.downvotes = (1.0 - initial_rep) * pseudo_count
+        self.reputation = initial_rep
+
+    def receive_vote(self, upvote: bool) -> None:
+        """Update reputation based on a buyer review vote.
+
+        reputation = upvotes / (upvotes + downvotes)
+        """
+        if upvote:
+            self.upvotes += 1.0
+        else:
+            self.downvotes += 1.0
+        total = self.upvotes + self.downvotes
+        self.reputation = self.upvotes / total if total > 0 else 0.5
 
     def mark_out_of_business(self, reason: Optional[str] = None) -> None:
         """Flag the firm as no longer operating and emit a warning."""
@@ -207,10 +232,6 @@ class BaseFirmAgent:
         """Base reflection - override in child classes if needed"""
         pass
 
-    def create_listings(self) -> List[Dict[str, Any]]:
-        """Create listings for unposted items (used in LEMON_MARKET). Override in subclass."""
-        return []
-
 class FirmAgent(LLMAgent, BaseFirmAgent):
     def __init__(
         self,
@@ -228,7 +249,6 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         args=None,
         llm_instance=None,
         supply_unit_costs: Dict[str, float] = None,
-        sybil: bool = False,
         persona: str = None,
         stabilizing: bool = False,
     ) -> None:
@@ -272,10 +292,6 @@ class FirmAgent(LLMAgent, BaseFirmAgent):
         self.total_quantity_sold_by_good_this_timestep: Dict[int, Dict[str, float]] = (
             defaultdict(lambda: {good: 0.0 for good in goods})
         )
-
-        # LEMON MARKET
-        self.sybil = sybil
-        self.listings = []
 
         # Firm persona (behavioral archetype for differentiation)
         self.persona = persona
@@ -674,86 +690,6 @@ Rules:
         )
 
         return {"supply_entries": supply_entries, "prices": prices_dict}
-
-    def create_listings(self, timestep: int = None, max_price: float = 5000.0) -> List[Dict[str, Any]]:
-        """Create listings for all unposted cars: use add_message + act_llm (same structure as set_price).
-        Sybil firms advertise a higher quality than true (q̂ > q); listing still stores true quality_value for reputation."""
-        new_listings = []
-        listings = getattr(self, "listings", [])
-        if timestep is None:
-            timestep = 0
-        for item in listings:
-            if item.get("posted"):
-                continue
-            quality = item.get("quality", "unknown")
-            quality_value = item.get("quality_value", 0.5)
-            # Sybil: misrepresent — advertise one tier above true quality for description/price
-            advertised_quality = quality
-            advertised_quality_value = quality_value
-            if getattr(self, "sybil", False):
-                advertised_quality, advertised_quality_value = advertised_quality_for_sybil(
-                    quality, quality_value
-                )
-            if self.llm is None:
-                description = f"Used car, {advertised_quality} condition."
-                price = max_price * advertised_quality_value
-            else:
-                self.logger.info(f"[ACTION] {self.name} performing action: create_listing")
-                self.add_message(
-                    timestep,
-                    Message.UPDATE_LISTING,
-                    quality=advertised_quality,
-                    quality_value=advertised_quality_value,
-                    max_price=max_price,
-                )
-                try:
-                    result = self.act_llm(
-                        timestep,
-                        ["description", "price"],
-                        self.parse_listing,
-                    )
-                    description = result[0]
-                    price = result[1]
-                    self.add_message(
-                        timestep,
-                        Message.ACTION_LISTING,
-                        description=description,
-                        price=price,
-                    )
-                except ValueError:
-                    # Parsing failed after max retries; skip this listing (do not create it)
-                    self.logger.warning(
-                        f"[ACTION] {self.name} create_listing parsing failed; skipping this listing"
-                    )
-                    continue
-            # Listing always stores true quality_value so reputation updates use actual q after sale
-            listing = {
-                "id": f"{self.name}_listing_{len(new_listings)}",
-                "firm_id": self.name,
-                "description": description,
-                "price": max(0.0, price),
-                "reputation": self.reputation,
-                "quality": quality,
-                "quality_value": quality_value,
-            }
-            new_listings.append(listing)
-            item["posted"] = True
-        return new_listings
-
-    def parse_listing(self, items: List) -> Tuple[str, float]:
-        """Parse description and price from LLM output for a single listing."""
-        if not items or len(items) < 2:
-            return ("Used car.", 0.0)
-        desc = items[0]
-        if isinstance(desc, str):
-            description = desc.strip()
-        else:
-            description = str(desc).strip()
-        raw_price = items[1]
-        if isinstance(raw_price, str):
-            raw_price = raw_price.replace("$", "").replace(",", "").strip()
-        price = float(raw_price) if raw_price is not None else 0.0
-        return (description, max(0.0, price))
 
     # Parse functions
     def parse_prices(self, items: List[str]) -> tuple:
@@ -1229,34 +1165,6 @@ Rules:
                 "reflection_msg", ""
             )
 
-        elif m_type == Message.UPDATE_LISTING:
-            quality = kwargs.get("quality", "unknown")
-            quality_value = kwargs.get("quality_value", 0.5)
-            max_price = kwargs.get("max_price", 5000.0)
-            # Set (not append) user_prompt so each listing gets its own prompt
-            listing_format = '{"description": "...", "price": number}'
-            if self.prompt_algo == "cot" or self.prompt_algo == "sc":
-                listing_format = '{"thought": "<one short reasoning sentence>", "description": "...", "price": number}'
-            self.message_history[timestep]["user_prompt"] = (
-                f"Create a listing for a car in {quality} condition "
-                f"(quality score {quality_value:.2f} out of 1.0). "
-                "Write a short natural language description and set a price P in dollars. "
-                f"Respond with a single JSON object. Use exactly these keys: description, price. "
-                f"Format: {listing_format}"
-            )
-            self.message_history[timestep]["expected_format"] = listing_format
-
-        elif m_type == Message.ACTION_LISTING:
-            description = kwargs.get("description", "")
-            price = kwargs.get("price", 0.0)
-            self.message_history[timestep]["historical"] += (
-                f"Listing: description=\"{description[:80]}{'...' if len(description) > 80 else ''}\" price=${price:.2f}\n"
-            )
-            self.message_history[timestep]["action"] += (
-                f"Listing: price=${price:.2f}\n"
-            )
-            self.message_history[timestep]["user_prompt"] = ""
-
         elif m_type == Message.UPDATE_FIRM_ACTION:
             # Combined context: cash, inventory, supply available, unit costs, market data
             self.message_history[timestep]["historical"] += f"Cash: ${self.cash:.2f}\n"
@@ -1437,30 +1345,3 @@ class FixedFirmAgent(BaseFirmAgent):
         # Consume all supplies used in production
         self.ledger.add_good(self.name, "supply", -supply_available)
 
-    def create_listings(self) -> List[Dict[str, Any]]:
-        """Create listings for all unposted cars: template description, price P, attach reputation."""
-        new_listings = []
-        listings = getattr(self, "listings", [])
-        for item in listings:
-            if item.get("posted"):
-                continue
-            quality = item.get("quality", "unknown")
-            quality_value = item.get("quality_value", 0.5)
-            description = (
-                f"Used car for sale. Condition: {quality} "
-                f"(quality score {quality_value:.2f} out of 1.0). Sold as-is."
-            )
-            # Price scales with quality (e.g. base $5000 at quality 1.0)
-            price = 5000.0 * quality_value
-            listing = {
-                "id": f"{self.name}_listing_{len(new_listings)}",
-                "firm_id": self.name,
-                "description": description,
-                "price": price,
-                "reputation": self.reputation,
-                "quality": quality,
-                "quality_value": quality_value,
-            }
-            new_listings.append(listing)
-            item["posted"] = True
-        return new_listings

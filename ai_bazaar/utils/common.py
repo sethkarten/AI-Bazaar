@@ -25,6 +25,14 @@ class Message(Enum):
     ACTION_LISTING = auto()
     UPDATE_FIRM_ACTION = auto()   # combined context prompt before LLM call
     ACTION_FIRM_ACTION = auto()   # combined action record after LLM returns
+    # For buyer agent (lemon market)
+    UPDATE_BID = auto()           # buyer observation prompt before LLM call
+    ACTION_BID = auto()           # records bid/pass decision after LLM returns
+    UPDATE_REVIEW = auto()        # buyer post-purchase review prompt
+    ACTION_REVIEW  = auto()       # records upvote/downvote decision
+    # For DeceptivePrincipal (lemon market sybil coordinator)
+    UPDATE_PRINCIPAL = auto()     # principal tier-decision / description prompt
+    ACTION_PRINCIPAL = auto()     # records tier decision / description made
 
 QUALITY_DICT = {
     'mint': 1.0,
@@ -33,29 +41,135 @@ QUALITY_DICT = {
     'poor': 0.1,
 }
 
+# Lemon market: fixed dollar value per quality tier and max valuation
+QUALITY_VALUE_MAP = {'mint': 50000, 'good': 30000, 'fair': 15000, 'poor': 5000}
+V_MAX = 50000  # quality 1.0 -> $50,000; CS = quality_value * V_MAX - price_paid
+
 # Ordered tiers for Sybil misrepresentation: advertise one tier above true quality
 QUALITY_TIERS_ORDERED = [('poor', 0.1), ('fair', 0.4), ('good', 0.7), ('mint', 1.0)]
+
+# Stylistic personas assigned round-robin to SybilIdentity objects
+SYBIL_PERSONAS = [
+    "formal and professional",
+    "casual and friendly",
+    "technical enthusiast",
+    "brief and direct",
+    "detailed and descriptive",
+]
+
+SYBIL_PERSONA_SYSTEM_PROMPTS = {
+    "formal and professional": (
+        "You are a professional used-car dealership representative. "
+        "You write polished, authoritative listing copy that projects trustworthiness. "
+        "Your goal is to present every car in its best possible light using precise "
+        "language and confident claims about quality and value."
+    ),
+    "casual and friendly": (
+        "You are a friendly neighbourhood seller who loves cars. "
+        "You write warm, conversational listings that make buyers feel they're dealing "
+        "with someone honest and approachable. "
+        "Your goal is to build rapport and enthusiasm, downplaying any flaws."
+    ),
+    "technical enthusiast": (
+        "You are a car enthusiast who writes detailed, spec-heavy listings. "
+        "You use mechanical terminology and performance talk to project expertise. "
+        "Your goal is to make the car sound more capable and well-maintained than it is."
+    ),
+    "brief and direct": (
+        "You are a no-nonsense seller who writes minimal, punchy listings. "
+        "Short sentences, bold claims, no filler. "
+        "Your goal is to state an attractive price and condition in as few words as "
+        "possible, giving buyers little time to second-guess."
+    ),
+    "detailed and descriptive": (
+        "You are a storytelling seller who paints a vivid picture of each car. "
+        "You write rich, evocative descriptions that make the car sound special. "
+        "Your goal is to distract buyers from quality concerns with compelling narrative "
+        "about the car's character and potential."
+    ),
+}
+
+# Description templates for fixed-policy honest sellers (SellerAgent)
+SELLER_PERSONAS = {
+    "standard": {
+        "mint": "Used car. Condition: mint.",
+        "good": "Used car. Condition: good.",
+        "fair": "Used car. Condition: fair.",
+        "poor": "Used car. Condition: poor.",
+    },
+    "detailed": {
+        "mint": "Excellent used car in mint condition. Well-maintained, low miles, near-new.",
+        "good": "Reliable used car in good condition. Minor wear, runs well.",
+        "fair": "Used car in fair condition. Functional but shows wear. Priced accordingly.",
+        "poor": "Used car in poor condition. Needs work. Sold as-is.",
+    },
+    "terse": {
+        "mint": "Car. Mint cond.",
+        "good": "Car. Good cond.",
+        "fair": "Car. Fair cond.",
+        "poor": "Car. Poor cond.",
+    },
+    "optimistic": {
+        "mint": "Beautiful car in mint condition — a rare find at this price!",
+        "good": "Solid car in good condition, dependable and ready to drive.",
+        "fair": "Honest car in fair condition. Good value for the price.",
+        "poor": "Budget-friendly car in poor condition but still has life left.",
+    },
+}
+
+# System prompt style instructions for LLM-based honest sellers (LLMSellerAgent)
+SELLER_PERSONA_DESCRIPTIONS = {
+    "standard": "Describe the car straightforwardly and factually. No embellishment.",
+    "detailed": (
+        "Provide a thorough, detailed description covering the car's condition, "
+        "any notable features, and what a buyer can expect. Be honest and complete."
+    ),
+    "terse": "Write the shortest possible honest description. One sentence maximum.",
+    "optimistic": (
+        "Write an upbeat, enthusiastic listing that highlights the car's best qualities "
+        "honestly. Be positive but accurate — do not exaggerate the condition."
+    ),
+}
+
+
+def parse_seller_personas(spec: str, n: int) -> List[str]:
+    """Parse 'detailed:2,standard:1' -> ['detailed','detailed','standard'],
+    padded/truncated to length n using the last persona. A bare name applies to all."""
+    result = []
+    for part in spec.split(","):
+        part = part.strip()
+        if ":" in part:
+            name, count = part.rsplit(":", 1)
+            result.extend([name.strip()] * int(count))
+        else:
+            result.extend([part] * n)
+    if not result:
+        return ["standard"] * n
+    if len(result) < n:
+        result.extend([result[-1]] * (n - len(result)))
+    return result[:n]
 
 
 def advertised_quality_for_sybil(quality_key: str, quality_value: float) -> Tuple[str, float]:
     """Return (advertised_quality_key, advertised_quality_value) with advertised > true.
-    Used by Sybil sellers to misrepresent. If already mint, returns mint (no upgrade)."""
+    Picks uniformly at random from all tiers strictly above the true tier.
+    If already mint (no higher tier exists), returns mint."""
     i = None
     for j, (k, v) in enumerate(QUALITY_TIERS_ORDERED):
         if abs(v - quality_value) < 1e-6:
             i = j
             break
     if i is None:
-        # Fallback: find tier with value <= quality_value, take next
         for j, (k, v) in enumerate(QUALITY_TIERS_ORDERED):
             if v >= quality_value:
                 i = j
                 break
         if i is None:
             return ('mint', 1.0)
-    if i + 1 < len(QUALITY_TIERS_ORDERED):
-        return QUALITY_TIERS_ORDERED[i + 1]
-    return QUALITY_TIERS_ORDERED[-1]
+    higher = QUALITY_TIERS_ORDERED[i + 1:]
+    if not higher:
+        return QUALITY_TIERS_ORDERED[-1]
+    return random.choice(higher)
 
 
 # LEMON_MARKET scenario: single good is "car"; num_goods forced to 1

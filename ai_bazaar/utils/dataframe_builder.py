@@ -344,6 +344,30 @@ class DataFrameBuilder:
                 rows.append({"timestep": t, "firm": name, "value": f.get("reputation", 1.0) if f else 1.0})
         return pd.DataFrame(rows)
 
+    def seller_vote_counts_long_over_time(self) -> pd.DataFrame:
+        """
+        Long format: one row per (timestep, firm, metric). Metrics are Upvotes and Downvotes
+        (vote-based reputation pseudo-counts). Missing keys in older state files yield NaN.
+        """
+        all_firms = self._all_firm_names()
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            firm_by_name = {f.get("name"): f for f in s.get("firms", []) if f.get("name")}
+            for name in all_firms:
+                f = firm_by_name.get(name)
+                if not f:
+                    u_val = np.nan
+                    d_val = np.nan
+                else:
+                    u = f.get("upvotes")
+                    d = f.get("downvotes")
+                    u_val = float(u) if isinstance(u, (int, float)) else np.nan
+                    d_val = float(d) if isinstance(d, (int, float)) else np.nan
+                rows.append({"timestep": t, "firm": name, "metric": "Upvotes", "value": u_val})
+                rows.append({"timestep": t, "firm": name, "metric": "Downvotes", "value": d_val})
+        return pd.DataFrame(rows)
+
     def sales_per_firm_over_time(self) -> pd.DataFrame:
         """
         Long format: one row per (timestep, firm). Value is total quantity sold (sum of
@@ -569,6 +593,51 @@ class DataFrameBuilder:
                 rows.append({"timestep": t, "metric": "Total utility", "value": c.get("utility", 0.0)})
         return pd.DataFrame(rows)
 
+    def lemon_sybil_revenue_share_over_time(self) -> pd.DataFrame:
+        """Long format: one row per timestep. Value = fraction of step revenue captured by sybil cluster."""
+        rows = []
+        for s in self.states:
+            v = s.get("lemon_market_sybil_revenue_share")
+            if v is not None:
+                rows.append({"timestep": s["timestep"], "metric": "Sybil revenue share", "value": float(v)})
+        return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["timestep", "metric", "value"])
+
+    def lemon_avg_consumer_surplus_over_time(self) -> pd.DataFrame:
+        """Long format: one row per timestep. Value = avg consumer surplus among buyers who purchased."""
+        rows = []
+        for s in self.states:
+            v = s.get("lemon_market_avg_consumer_surplus")
+            if v is not None:
+                rows.append({"timestep": s["timestep"], "metric": "Avg consumer surplus", "value": float(v)})
+        return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["timestep", "metric", "value"])
+
+    def lemon_consumer_surplus_cumulative_per_buyer_over_time(self) -> pd.DataFrame:
+        """Long format: one row per (timestep, consumer). Value = cumulative CS across all transactions so far."""
+        all_consumers = self._all_consumer_names()
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            by_name = {c.get("name"): c for c in s.get("consumers", []) if c.get("name")}
+            for name in all_consumers:
+                c = by_name.get(name)
+                v = c.get("consumer_surplus_cumulative") if c else None
+                rows.append({"timestep": t, "consumer": name, "value": float(v) if v is not None else 0.0})
+        return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["timestep", "consumer", "value"])
+
+    def lemon_sybil_pass_rate_per_buyer_over_time(self) -> pd.DataFrame:
+        """Long format: one row per (timestep, consumer) where sybil listings were seen. Value = pass rate (0–1)."""
+        all_consumers = self._all_consumer_names()
+        rows = []
+        for s in self.states:
+            t = s["timestep"]
+            by_name = {c.get("name"): c for c in s.get("consumers", []) if c.get("name")}
+            for name in all_consumers:
+                c = by_name.get(name)
+                v = c.get("sybil_pass_rate_this_step") if c else None
+                if v is not None:
+                    rows.append({"timestep": t, "consumer": name, "value": float(v)})
+        return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["timestep", "consumer", "value"])
+
     def views_per_firm_over_time(self) -> pd.DataFrame:
         """
         Long format: one row per (timestep, firm). Value is number of consumer views
@@ -580,6 +649,52 @@ class DataFrameBuilder:
             for firm_id, count in state.get("views_by_firm", {}).items():
                 rows.append({"timestep": t, "firm": firm_id, "value": count})
         return pd.DataFrame(rows, columns=["timestep", "firm", "value"]) if rows else pd.DataFrame(columns=["timestep", "firm", "value"])
+
+    def build_sybil_identity_registry(self) -> pd.DataFrame:
+        """One row per sybil identity ever seen across all timesteps.
+
+        Uses the last observed snapshot for each identity (captures final
+        state before retirement). Dead identities are included because we
+        scan every historical state file and overwrite each name's entry
+        with successively later snapshots.
+
+        Columns: Name, Status, Created (t), Retired (t), Lifetime (steps),
+                 Upvotes, Downvotes, Final Reputation, Total Sales, Last Seen (t)
+        """
+        seen: dict = {}  # name -> best (latest) snapshot dict
+        for state in self.states:
+            t = state.get("timestep", 0)
+            for f in state.get("firms", []):
+                if not f.get("sybil", False):
+                    continue
+                name = f.get("name")
+                if not name:
+                    continue
+                seen[name] = {**f, "_last_seen_t": t}
+
+        rows = []
+        for name, snap in seen.items():
+            created = snap.get("timestep_created")
+            retired = snap.get("timestep_retired")
+            last_t = snap.get("_last_seen_t", 0)
+            lifetime = (retired - created) if (retired is not None and created is not None) else None
+            rows.append({
+                "Name": name,
+                "Status": "Retired" if not snap.get("in_business", True) else "Active",
+                "Created (t)": created,
+                "Retired (t)": retired,
+                "Lifetime (steps)": lifetime,
+                "Upvotes": snap.get("upvotes"),
+                "Downvotes": snap.get("downvotes"),
+                "Final Reputation": round(snap.get("reputation", 0.0), 3),
+                "Total Sales": snap.get("sales_by_good", {}).get("car", 0),
+                "Last Seen (t)": last_t,
+            })
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows)
+        df["_sort"] = df["Status"].map({"Active": 0, "Retired": 1})
+        return df.sort_values(["_sort", "Created (t)"]).drop(columns="_sort").reset_index(drop=True)
 
     @staticmethod
     def value_by_agent(
