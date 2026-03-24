@@ -20,6 +20,7 @@ Usage: From project root:
   python scripts/exp1.py --skip-existing        # skip runs whose log dir already exists
   python scripts/exp1.py --list                 # print matching runs, don't execute
   python scripts/exp1.py --llm gemma3:4b --service ollama --port 11434
+  python scripts/exp1.py --enable-n-stab-3                # add n_stab=3 cells to sweep
   Filters combine with AND: --dlc 3 --n-stab 1 2 --seeds 8 16
 """
 import argparse
@@ -64,7 +65,7 @@ def llm_filesystem_slug(llm: str) -> str:
     return s or "model"
 
 
-def build_runs(base: list[str], name_prefix: str) -> list[tuple[str, list[str], dict]]:
+def build_runs(base: list[str], name_prefix: str, enable_n_stab_3: bool = False) -> list[tuple[str, list[str], dict]]:
     """Construct the full run list using the supplied base argv.
 
     Run names are ``{name_prefix}_{suffix}``; ``--log-dir`` is ``logs/{name_prefix}``
@@ -82,9 +83,10 @@ def build_runs(base: list[str], name_prefix: str) -> list[tuple[str, list[str], 
         {"dlc": 3, "n_stab": 0, "seed": 8},
     ))
 
-    # ---- Stabilizing firm sweep: dlc=1, 3, 5 × n_stab=1,2,4,5 × seeds 8,16,64 ----
+    # ---- Stabilizing firm sweep: dlc=1, 3, 5 × n_stab=1,2,[3],4,5 × seeds 8,16,64 ----
+    n_stab_values = (1, 2, 3, 4, 5) if enable_n_stab_3 else (1, 2, 4, 5)
     for dlc in (1, 3, 5):
-        for n_stab in (1, 2, 4, 5):
+        for n_stab in n_stab_values:
             for seed in (8, 16, 64):
                 log_label = f"{name_prefix}_stab_{n_stab}_dlc{dlc}_seed{seed}"
                 runs.append((
@@ -230,6 +232,10 @@ def main() -> None:
         help="Enable --log-crash-firm-prompts for each run.",
     )
     parser.add_argument(
+        "--enable-n-stab-3", action="store_true", dest="enable_n_stab_3",
+        help="Include n_stab=3 runs in the sweep (default: off; standard sweep uses 1,2,4,5).",
+    )
+    parser.add_argument(
         "--list", action="store_true",
         help="Print matching runs and exit without executing them.",
     )
@@ -253,7 +259,7 @@ def main() -> None:
         llm_args += ["--log-crash-firm-prompts"]
     base = _BASE_FIXED + ["--max-timesteps", str(cli.max_timesteps)] + llm_args
 
-    all_runs = build_runs(base, name_prefix)
+    all_runs = build_runs(base, name_prefix, enable_n_stab_3=cli.enable_n_stab_3)
 
     selected = filter_runs(
         all_runs,

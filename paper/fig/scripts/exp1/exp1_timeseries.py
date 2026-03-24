@@ -61,8 +61,8 @@ COLOR_COST_REF = "#D55E00"   # Okabe Vermillion
 
 COLUMNS = [
     {"n_stab": 0, "dlc": 3, "seeds": [8],        "label": "No Stabilizer\n(Baseline)"},
-    {"n_stab": 2, "dlc": 3, "seeds": [8, 16, 64], "label": "2 Stabilizing\nFirms"},
-    {"n_stab": 4, "dlc": 3, "seeds": [8, 16, 64], "label": "4 Stabilizing\nFirms"},
+    {"n_stab": 3, "dlc": 3, "seeds": [8, 16, 64], "label": "3 Stabilizing\nFirms"},
+    {"n_stab": 5, "dlc": 3, "seeds": [8, 16, 64], "label": "5 Stabilizing\nFirms"},
 ]
 
 ROW_LABELS = ["Mean price", "Active firms", "Filled orders/step"]
@@ -417,6 +417,7 @@ def main():
         n_rows, n_cols,
         figsize=(9.0, 7.5),
         sharex="col",
+        sharey="row",
         constrained_layout=True,
     )
 

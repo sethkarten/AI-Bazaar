@@ -81,27 +81,64 @@ python scripts/exp1.py --run exp1_baseline exp1_stab_2_dlc3_seed8
 # Skip runs whose log directory already exists (resume a partial run)
 python scripts/exp1.py --skip-existing
 
+python scripts/exp1.py --workers 3 --llm anthropic/claude-sonnet-4.6 --openrouter-provider anthropic --skip-existing --n-stab 1 3 5 --dlc 3 --enable-n-stab-3 --list
+
+Matching runs (6 / 46 total):
+  exp1_anthropic_claude-sonnet-4.6_stab_1_dlc3_seed16  [dlc=3 n_stab=1 seed=16]
+  exp1_anthropic_claude-sonnet-4.6_stab_1_dlc3_seed64  [dlc=3 n_stab=1 seed=64]
+  exp1_anthropic_claude-sonnet-4.6_stab_3_dlc3_seed16  [dlc=3 n_stab=3 seed=16]
+  exp1_anthropic_claude-sonnet-4.6_stab_3_dlc3_seed64  [dlc=3 n_stab=3 seed=64]
+  exp1_anthropic_claude-sonnet-4.6_stab_5_dlc3_seed16  [dlc=3 n_stab=5 seed=16]
+  exp1_anthropic_claude-sonnet-4.6_stab_5_dlc3_seed64  [dlc=3 n_stab=5 seed=64]
+```
+
+#### Mixed Example
+
+```bash
+# 3 workers, claud sonnet with anthropic as OpenRouter provider, skip any existing runs overlapping with this filter, list the runs (doesn't launch jobs)
+python scripts/exp1.py --workers 3 --llm anthropic/claude-sonnet-4.6 --openrouter-provider anthropic --skip-existing --n-stab 1 3 5 --dlc 3 --enable-n-stab-3 --list
+
+# OUTPUT (seed 8 runs missing since they were already ran
+Matching runs (6 / 46 total):
+  exp1_anthropic_claude-sonnet-4.6_stab_1_dlc3_seed16  [dlc=3 n_stab=1 seed=16]
+  exp1_anthropic_claude-sonnet-4.6_stab_1_dlc3_seed64  [dlc=3 n_stab=1 seed=64]
+  exp1_anthropic_claude-sonnet-4.6_stab_3_dlc3_seed16  [dlc=3 n_stab=3 seed=16]
+  exp1_anthropic_claude-sonnet-4.6_stab_3_dlc3_seed64  [dlc=3 n_stab=3 seed=64]
+  exp1_anthropic_claude-sonnet-4.6_stab_5_dlc3_seed16  [dlc=3 n_stab=5 seed=16]
+  exp1_anthropic_claude-sonnet-4.6_stab_5_dlc3_seed64  [dlc=3 n_stab=5 seed=64]
 ```
 
 #### Experiment 1 figures
 
-After runs have produced state files under `logs/<run_name>/`, generate figures from the **project root**. Figure scripts live in `paper/fig/scripts/exp1/` and write PDFs to `paper/fig/exp1/` by default.
+After runs have produced state files, generate figures from the **project root**. Figure scripts live in `paper/fig/scripts/exp1/` and write PDFs to `paper/fig/exp1/<model>/` by default.
+
+Use `--src` to point at the model-specific subdirectory inside `logs/` where runs are stored. `--src` also sets the model prefix automatically (e.g. `exp1_gemini-2.5-flash` → `--model gemini-2.5-flash`). Output PDFs go to `paper/fig/exp1/<src-name>/`.
 
 ```bash
-# Regenerate all four Exp1 figures (heatmap, interaction,figures timeseries, score)
-python paper/fig/scripts/exp1/exp1_run_all.py
+# All figures for a Gemini 2.5 Flash sweep
+python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash
 
-# Optional arguments
-#   --logs-dir DIR   directory containing run folders (default: logs/)
-#   --good NAME      good name for price/volume metrics (default: food)
-#   --fig-dir DIR    output directory for PDFs (default: paper/fig/exp1/)
+# All figures for a Claude Sonnet sweep
+python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_anthropic_claude-sonnet-4.6
 
-# Single figure
-python paper/fig/scripts/exp1/exp1_heatmap.py --logs-dir logs/
-python paper/fig/scripts/exp1/exp1_score.py   --logs-dir logs/
+# Override output directory
+python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash --dst my_figs
+
+# Run with more parallel workers (speeds up state-file loading)
+python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash --workers 12
 ```
 
-Figure scripts expect run names produced by `exp1.py` (e.g. `exp1_baseline`, `exp1_stab_1_dlc1_seed8`). They read `state_t*.json` and `firm_attributes.json` from each run directory.
+Individual figure scripts can also be called directly with the same `--logs-dir` / `--model` args that `exp1_run_all.py` passes internally:
+
+```bash
+python paper/fig/scripts/exp1/exp1_heatmap.py        --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_score.py          --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_timeseries.py     --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_survival.py       --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_phase.py          --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_collapse_timing.py --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_tokens.py         --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+```
 
 ---
 
@@ -330,12 +367,15 @@ python -m ai_bazaar.main --name exp2_smoke_no_rep --consumer-scenario LEMON_MARK
 ```
 
 Exp2 Setup. (Test)
+
 ```bash
 python -m ai_bazaar.main --name exp2_lemon_base_test --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 10 --num-consumers 10 --max-timesteps 30 --sybil-cluster-size 5 --reputation-alpha 0.9 --reputation-initial 0.8 --sybil-rho-min 0.3  --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
 ```
+
 ```bash
 python -m ai_bazaar.main --name exp2_lemon_base_test2 --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 10 --num-consumers 10 --max-timesteps 30 --sybil-cluster-size 5 --reputation-alpha 0.9 --reputation-initial 0.8 --sybil-rho-min 0.3  --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
 ```
+
 ```bash
 python -m ai_bazaar.main --name exp2_lemon_base_test3 --allow-persistent-listings --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 10 --num-consumers 10 --max-timesteps 30 --sybil-cluster-size 5 --reputation-alpha 0.9 --reputation-initial 0.8 --sybil-rho-min 0.3  --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
 ```
