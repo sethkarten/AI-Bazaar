@@ -189,10 +189,17 @@ class UnslothModel(BaseLLMModel):
         if temperature is None:
             temperature = self.temperature
 
-        # Robustness checks
+        # Build prompt using chat template for proper role formatting
         s_prompt = system_prompt if system_prompt is not None else ""
         u_prompt = user_prompt if user_prompt is not None else ""
-        combined_prompt = f"{s_prompt}\n{u_prompt}"
+        messages = [{"role": "system", "content": s_prompt}, {"role": "user", "content": u_prompt}]
+        try:
+            combined_prompt = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+            )
+        except Exception:
+            # Fallback for tokenizers without chat template
+            combined_prompt = f"{s_prompt}\n{u_prompt}"
 
         # Submit request to batch queue
         result_container = [""]  # Mutable container for result
