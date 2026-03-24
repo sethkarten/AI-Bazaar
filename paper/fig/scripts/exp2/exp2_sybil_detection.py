@@ -39,7 +39,7 @@ import numpy as np
 # Repo root: 5 levels up from paper/fig/scripts/exp2/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
 from ai_bazaar.utils.dataframe_builder import DataFrameBuilder
-from exp2_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data
+from exp2_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data, infer_name_prefix
 
 plt.rcParams.update({
     "font.family":        "serif",
@@ -326,22 +326,15 @@ def main():
     )
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--force", action="store_true", help="Ignore cache and rebuild.")
+    # Accepted for compatibility with exp2_run_all.py; not used by this script.
+    parser.add_argument("--good", default="car")
     cli = parser.parse_args()
 
-    # Auto-detect name_prefix from first matching subdirectory
+    # Auto-detect name_prefix
     name_prefix = cli.name_prefix
     if name_prefix is None:
-        subdirs = sorted(
-            d for d in os.listdir(cli.logs_dir)
-            if d.startswith("exp2_") and os.path.isdir(os.path.join(cli.logs_dir, d))
-        )
-        if subdirs:
-            name_prefix = subdirs[0]
-            print(f"Auto-detected name_prefix: {name_prefix}")
-        else:
-            # Fall back: old-style flat runs — just 'exp2'
-            name_prefix = "exp2"
-            print(f"No exp2_* subdirectory found; using name_prefix='{name_prefix}' (flat layout).")
+        name_prefix = infer_name_prefix(cli.logs_dir)
+        print(f"Auto-detected name_prefix: {name_prefix}", flush=True)
 
     run_dirs   = collect_run_dirs(cli.logs_dir, name_prefix)
     data_dir   = get_data_dir(cli.output)

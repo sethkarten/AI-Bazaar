@@ -88,17 +88,22 @@ python scripts/exp1.py --skip-existing
 After runs have produced state files under `logs/<run_name>/`, generate figures from the **project root**. Figure scripts live in `paper/fig/scripts/exp1/` and write PDFs to `paper/fig/exp1/` by default.
 
 ```bash
-# Regenerate all four Exp1 figures (heatmap, interaction,figures timeseries, score)
-python paper/fig/scripts/exp1/exp1_run_all.py
+# Regenerate all Exp1 figures — reads from logs/exp1_gemini-2.5-flash/, writes to paper/fig/exp1/exp1_gemini-2.5-flash/
+python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash
+
+# --dst overrides the output subdirectory (defaults to --src name)
+python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash --dst my_run
 
 # Optional arguments
-#   --logs-dir DIR   directory containing run folders (default: logs/)
+#   --src DIR        subdirectory within logs/ to read from
+#   --dst DIR        subdirectory within paper/fig/exp1/ to write to (default: --src name)
+#   --logs-dir DIR   base logs directory (default: logs/)
 #   --good NAME      good name for price/volume metrics (default: food)
-#   --fig-dir DIR    output directory for PDFs (default: paper/fig/exp1/)
+#   --fig-dir DIR    base output directory for PDFs (default: paper/fig/exp1/)
 
 # Single figure
-python paper/fig/scripts/exp1/exp1_heatmap.py --logs-dir logs/
-python paper/fig/scripts/exp1/exp1_score.py   --logs-dir logs/
+python paper/fig/scripts/exp1/exp1_heatmap.py --logs-dir logs/exp1_gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_score.py   --logs-dir logs/exp1_gemini-2.5-flash
 ```
 
 Figure scripts expect run names produced by `exp1.py` (e.g. `exp1_baseline`, `exp1_stab_1_dlc1_seed8`). They read `state_t*.json` and `firm_attributes.json` from each run directory.
@@ -417,6 +422,35 @@ python scripts/exp2.py --run exp2_baseline_seed8 exp2_k8_rep1_seed16
 
 # Skip runs whose log directory already exists (resume a partial sweep)
 python scripts/exp2.py --skip-existing
+```
+
+#### Experiment 2 figures
+
+After runs have produced state files under `logs/<run_name>/`, generate figures from the **project root**. Figure scripts live in `paper/fig/scripts/exp2/` and write PDFs to `paper/fig/exp2/` by default.
+
+```bash
+# Regenerate all Exp2 figures — reads from logs/exp2_gemini-2.5-flash/, writes to paper/fig/exp2/exp2_gemini-2.5-flash/
+python paper/fig/scripts/exp2/exp2_run_all.py --src exp2_gemini-2.5-flash
+
+# --dst overrides the output subdirectory (defaults to --src name)
+python paper/fig/scripts/exp2/exp2_run_all.py --src exp2_gemini-2.5-flash --dst my_run
+
+# Optional arguments
+#   --src DIR        subdirectory within logs/ to read from
+#   --dst DIR        subdirectory within paper/fig/exp2/ to write to (default: --src name)
+#   --logs-dir DIR   base logs directory (default: logs/)
+#   --good NAME      good name for price/volume metrics (default: car)
+#   --fig-dir DIR    base output directory for PDFs (default: paper/fig/exp2/)
+#   --workers N      parallel load workers per script (default: 8)
+#   --force          ignore cache and rebuild from scratch
+
+# Single figure
+python paper/fig/scripts/exp2/exp2_sybil_detection.py          --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_lemon_volume.py             --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_lemon_reputation_quality.py --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_lemon_consumer_welfare.py   --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_sybil_revenue_share.py      --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_market_collapse.py          --logs-dir logs/exp2_gemini-2.5-flash
 ```
 
 ---

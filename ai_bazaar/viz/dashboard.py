@@ -1738,6 +1738,13 @@ else:
                 h_seen = c.get("honest_seen_total", 0)
                 h_passed = c.get("honest_passed_total", 0)
                 h_rate = h_passed / h_seen if h_seen > 0 else None
+                s_enc = c.get("sybil_steps_encountered_total", 0)
+                s_pur = c.get("sybil_steps_purchased_total", 0)
+                h_enc = c.get("honest_steps_encountered_total", 0)
+                h_pur = c.get("honest_steps_purchased_total", 0)
+                sybil_hit = s_pur / s_enc if s_enc > 0 else None
+                honest_hit = h_pur / h_enc if h_enc > 0 else None
+                detection_premium = (honest_hit - sybil_hit) if (sybil_hit is not None and honest_hit is not None) else None
                 buyer_summary_rows.append({
                     "Buyer": name,
                     "Sybil seen": s_seen,
@@ -1746,6 +1753,9 @@ else:
                     "Honest seen": h_seen,
                     "Honest passed": h_passed,
                     "Honest pass rate": f"{h_rate:.1%}" if h_rate is not None else "—",
+                    "Sybil hit rate": f"{sybil_hit:.1%}" if sybil_hit is not None else "—",
+                    "Honest hit rate": f"{honest_hit:.1%}" if honest_hit is not None else "—",
+                    "Detection premium": f"{detection_premium:+.1%}" if detection_premium is not None else "—",
                 })
             if buyer_summary_rows:
                 st.dataframe(pd.DataFrame(buyer_summary_rows), use_container_width=True)

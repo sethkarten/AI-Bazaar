@@ -62,9 +62,13 @@ class BuyerAgent(LLMAgent):
         self.sybil_seen_total: int = 0
         self.sybil_passed_total: int = 0
         self.sybil_pass_rate_this_step: Optional[float] = None
+        self.sybil_steps_encountered_total: int = 0   # steps where ≥1 sybil listing was seen
+        self.sybil_steps_purchased_total: int = 0     # steps where buyer bought from a sybil
         self.honest_seen_total: int = 0
         self.honest_passed_total: int = 0
         self.honest_pass_rate_this_step: Optional[float] = None
+        self.honest_steps_encountered_total: int = 0  # steps where ≥1 honest listing was seen
+        self.honest_steps_purchased_total: int = 0    # steps where buyer bought from an honest seller
         # Seller anonymisation — real_id → "seller_N" (stable across timesteps)
         self._seller_anon_map: dict = {}
         # Per-step listing de-anonymisation — anon_listing_id → real listing id

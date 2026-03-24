@@ -724,6 +724,9 @@ class BazaarWorld:
                     buyer.sybil_pass_rate_this_step = sybil_passed / sybil_seen
                     buyer.sybil_seen_total += sybil_seen
                     buyer.sybil_passed_total += sybil_passed
+                    buyer.sybil_steps_encountered_total += 1
+                    if bid_on_sybil:
+                        buyer.sybil_steps_purchased_total += 1
 
                 honest_seen = sum(1 for L in discovered if getattr(L, "firm_id", None) not in sybil_ids)
                 if honest_seen == 0:
@@ -734,6 +737,9 @@ class BazaarWorld:
                     buyer.honest_pass_rate_this_step = honest_passed / honest_seen
                     buyer.honest_seen_total += honest_seen
                     buyer.honest_passed_total += honest_passed
+                    buyer.honest_steps_encountered_total += 1
+                    if bid_on_honest:
+                        buyer.honest_steps_purchased_total += 1
         else:
             participating = self._consumers_participating_this_step()
             participating_set = set(id(c) for c in participating)
@@ -1333,9 +1339,13 @@ class BazaarWorld:
                 "sybil_pass_rate_this_step": getattr(c, "sybil_pass_rate_this_step", None),
                 "sybil_seen_total": getattr(c, "sybil_seen_total", 0),
                 "sybil_passed_total": getattr(c, "sybil_passed_total", 0),
+                "sybil_steps_encountered_total": getattr(c, "sybil_steps_encountered_total", 0),
+                "sybil_steps_purchased_total": getattr(c, "sybil_steps_purchased_total", 0),
                 "honest_pass_rate_this_step": getattr(c, "honest_pass_rate_this_step", None),
                 "honest_seen_total": getattr(c, "honest_seen_total", 0),
                 "honest_passed_total": getattr(c, "honest_passed_total", 0),
+                "honest_steps_encountered_total": getattr(c, "honest_steps_encountered_total", 0),
+                "honest_steps_purchased_total": getattr(c, "honest_steps_purchased_total", 0),
                 "diary": getattr(c, "diary", [])[-1:] if hasattr(c, "diary") else [],
                 "discovery_this_step": getattr(c, "_discovery_this_step", {}),
             }

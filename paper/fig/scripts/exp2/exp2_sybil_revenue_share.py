@@ -1,10 +1,17 @@
 """
-Fig Exp2-E: Experiment 2 — Deceptive Revenue Share
+Fig Exp2-E: Deceptive Revenue Share Over Time
 
-Single panel: sybil revenue share over time (per n_sybil, mean ± 1σ across seeds).
+Fraction of step revenue captured by the sybil cluster, per (K, rep_visible) condition.
+Lines coloured by K; solid = rep visible, dashed = rep hidden.
+Mean ± 1σ bands across seeds.
+
+Directory naming (mirrors exp2.py):
+  logs/{name_prefix}/{name_prefix}_baseline_seed{seed}
+  logs/{name_prefix}/{name_prefix}_k{k}_rep1_seed{seed}
+  logs/{name_prefix}/{name_prefix}_k{k}_rep0_seed{seed}
 
 Usage:
-    python exp2_sybil_revenue_share.py [--logs-dir logs/] [--good car] [--output ...] [--workers 8]
+    python exp2_sybil_revenue_share.py [--logs-dir logs/] [--good car] [--output ...]
 """
 
 import argparse
@@ -20,71 +27,79 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
-from exp2_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data
+from exp2_cache import (
+    get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data,
+    infer_name_prefix,
+)
 
 plt.rcParams.update({
-    "font.family":       "serif",
-    "font.size":         9,
-    "axes.labelsize":    9,
-    "axes.titlesize":    10,
-    "xtick.labelsize":   8,
-    "ytick.labelsize":   8,
-    "legend.fontsize":   8,
-    "lines.linewidth":   1.5,
-    "lines.markersize":  5,
-    "axes.linewidth":    0.8,
-    "axes.grid":         True,
-    "axes.axisbelow":    True,
-    "grid.alpha":        0.3,
-    "grid.linewidth":    0.5,
-    "grid.color":        "gray",
-    "legend.frameon":    True,
-    "legend.framealpha": 0.9,
-    "legend.edgecolor":  "0.8",
-    "figure.dpi":        100,
-    "savefig.dpi":       300,
-    "savefig.bbox":      "tight",
+    "font.family":        "serif",
+    "font.size":          9,
+    "axes.labelsize":     9,
+    "axes.titlesize":     9,
+    "xtick.labelsize":    8,
+    "ytick.labelsize":    8,
+    "legend.fontsize":    8,
+    "lines.linewidth":    1.5,
+    "lines.markersize":   5,
+    "axes.linewidth":     0.8,
+    "axes.grid":          True,
+    "axes.axisbelow":     True,
+    "grid.alpha":         0.3,
+    "grid.linewidth":     0.5,
+    "grid.color":         "gray",
+    "legend.frameon":     True,
+    "legend.framealpha":  0.9,
+    "legend.edgecolor":   "0.8",
+    "figure.dpi":         100,
+    "savefig.dpi":        300,
+    "savefig.bbox":       "tight",
     "savefig.pad_inches": 0.01,
-    "text.usetex":       False,
-    "pdf.fonttype":      42,
+    "text.usetex":        False,
+    "pdf.fonttype":       42,
 })
 
-SEEDS = [8, 16, 64]
-N_SYBIL_VALUES = [0, 3, 6, 9, 12]
-RHO_MIN = 0.3
+# --- Experiment constants (must match exp2.py) ---
+SEEDS    = [8, 16, 64]
+K_VALUES = [3, 6, 9]
+RHO_MIN  = 0.3
 
-COLORS_N_SYBIL = {
-    0:  "#999999",
-    3:  "#56B4E9",
-    6:  "#E69F00",
-    9:  "#009E73",
-    12: "#D55E00",
-}
+COLORS_K = {3: "#56B4E9", 6: "#E69F00", 9: "#009E73"}
+LS_REP   = {True: "-", False: "--"}
 
 
 # ---------------------------------------------------------------------------
-# Run directory helpers
+# Directory resolution
 # ---------------------------------------------------------------------------
 
-def resolve_run_dir(logs_dir, n_sybil, seed):
-    if n_sybil == 0:
-        path = os.path.join(logs_dir, f"exp2_baseline_seed{seed}")
-    else:
-        path = os.path.join(logs_dir, f"exp2_sybil_{n_sybil}_rho{RHO_MIN}_seed{seed}")
-    return path if os.path.isdir(path) else None
+def resolve_run_dir(logs_dir: str, name_prefix: str, k: int, rep_visible: bool, seed: int) -> str | None:
+    rep_tag  = "rep1" if rep_visible else "rep0"
+    run_name = f"{name_prefix}_k{k}_{rep_tag}_seed{seed}" if k > 0 else f"{name_prefix}_baseline_seed{seed}"
+    canonical = os.path.join(logs_dir, name_prefix, run_name)
+    if os.path.isdir(canonical):
+        return canonical
+    flat = os.path.join(logs_dir, run_name)
+    if os.path.isdir(flat):
+        return flat
+    return None
 
 
-def collect_run_dirs(logs_dir):
+def collect_run_dirs(logs_dir: str, name_prefix: str) -> list[str]:
     dirs = []
-    for n in N_SYBIL_VALUES:
-        for s in SEEDS:
-            d = resolve_run_dir(logs_dir, n, s)
-            if d:
-                dirs.append(d)
+    for k in K_VALUES:
+        for rv in [True, False]:
+            for seed in SEEDS:
+                d = resolve_run_dir(logs_dir, name_prefix, k, rv, seed)
+                if d:
+                    dirs.append(d)
     return dirs
 
 
-def load_states(run_dir):
+# ---------------------------------------------------------------------------
+# State loading
+# ---------------------------------------------------------------------------
+
+def load_state_files(run_dir: str) -> list[str]:
     files = glob.glob(os.path.join(run_dir, "state_t*.json"))
     files.sort(key=lambda p: int("".join(filter(str.isdigit, os.path.basename(p))) or "0"))
     valid = []
@@ -100,13 +115,8 @@ def load_states(run_dir):
     return valid
 
 
-# ---------------------------------------------------------------------------
-# Metric extractor
-# ---------------------------------------------------------------------------
-
-def get_revenue_share_series(run_dir):
-    """Return (timesteps, revenue_share_values) arrays or None."""
-    files = load_states(run_dir)
+def get_revenue_share_series(run_dir: str):
+    files = load_state_files(run_dir)
     if not files:
         return None
     ts_vals = []
@@ -119,15 +129,11 @@ def get_revenue_share_series(run_dir):
     if not ts_vals:
         return None
     ts_vals.sort()
-    return np.array([t for t, v in ts_vals]), np.array([v for t, v in ts_vals])
-
-
-def load_one_run(run_dir):
-    return get_revenue_share_series(run_dir)
+    return np.array([t for t, _ in ts_vals]), np.array([v for _, v in ts_vals])
 
 
 # ---------------------------------------------------------------------------
-# Interpolation helper
+# Aggregation
 # ---------------------------------------------------------------------------
 
 def interp_common(ts_list, val_list):
@@ -141,99 +147,78 @@ def interp_common(ts_list, val_list):
     return common, arr
 
 
-# ---------------------------------------------------------------------------
-# Cache serialisation
-# ---------------------------------------------------------------------------
-
-def build_aggregate(results_by_n, n_sybil_list):
-    """
-    For each n_sybil, aggregate mean ± std across seeds.
-    Returns dict: {str(n_sybil): {"ts": [...], "mean": [...], "std": [...]} or None}
-    """
+def build_aggregate(results: dict) -> dict:
+    conditions = set((k, rv) for k, rv, _ in results)
+    seeds      = set(seed for _, _, seed in results)
     agg = {}
-    for n in n_sybil_list:
-        seed_data = results_by_n.get(n, {})
-        series = [v for v in seed_data.values() if v is not None]
+    for k, rv in conditions:
+        series = [results[(k, rv, s)] for s in seeds if (k, rv, s) in results and results[(k, rv, s)] is not None]
         if not series:
-            agg[str(n)] = None
+            agg[(k, rv)] = None
             continue
-        ts_list  = [s[0] for s in series]
-        val_list = [s[1] for s in series]
-        common, arr = interp_common(ts_list, val_list)
+        common, arr = interp_common([s[0] for s in series], [s[1] for s in series])
         if common is None:
-            agg[str(n)] = None
+            agg[(k, rv)] = None
             continue
-        mean_v = arr.mean(axis=0)
-        std_v  = arr.std(axis=0) if arr.shape[0] > 1 else np.zeros_like(mean_v)
-        agg[str(n)] = {
+        agg[(k, rv)] = {
             "ts":   common.tolist(),
-            "mean": mean_v.tolist(),
-            "std":  std_v.tolist(),
+            "mean": arr.mean(axis=0).tolist(),
+            "std":  (arr.std(axis=0).tolist() if arr.shape[0] > 1 else np.zeros(len(common)).tolist()),
         }
     return agg
 
 
-def _deserialize_agg(raw, n_sybil_list):
+def serialize_agg(agg: dict) -> dict:
+    return {f"{k},{int(rv)}": v for (k, rv), v in agg.items()}
+
+
+def deserialize_agg(raw: dict) -> dict:
     out = {}
-    for n in n_sybil_list:
-        entry = raw.get(str(n))
-        if entry is None:
-            out[n] = None
-        else:
-            out[n] = {
-                "ts":   np.array(entry["ts"]),
-                "mean": np.array(entry["mean"]),
-                "std":  np.array(entry["std"]),
+    for key, v in raw.items():
+        k_str, rv_str = key.split(",")
+        out[(int(k_str), bool(int(rv_str)))] = (
+            None if v is None else {
+                "ts":   np.array(v["ts"]),
+                "mean": np.array(v["mean"]),
+                "std":  np.array(v["std"]),
             }
+        )
     return out
 
 
 # ---------------------------------------------------------------------------
-# Plotting helpers
+# Plotting
 # ---------------------------------------------------------------------------
 
-def plot_band(ax, agg_entry, color, label, lw=1.8, ls="-"):
-    if agg_entry is None:
+def plot_band(ax, entry, color, label, ls="-", lw=1.8):
+    if entry is None:
         return
-    ts   = agg_entry["ts"]
-    mean = agg_entry["mean"]
-    std  = agg_entry["std"]
+    ts, mean, std = entry["ts"], entry["mean"], entry["std"]
     ax.plot(ts, mean, color=color, lw=lw, ls=ls, label=label, zorder=4)
     if np.any(std > 0):
         ax.fill_between(ts, mean - std, mean + std, color=color, alpha=0.15, zorder=3)
 
 
-# ---------------------------------------------------------------------------
-# Figure
-# ---------------------------------------------------------------------------
+def make_figure(agg: dict) -> plt.Figure:
+    fig, ax = plt.subplots(1, 1, figsize=(7, 3.5), constrained_layout=True)
+    fig.suptitle("Exp 2 — Sybil revenue share over time", fontsize=10, fontweight="bold")
 
-def make_figure(revenue_share_agg):
-    fig, ax = plt.subplots(1, 1, figsize=(7, 4), constrained_layout=True)
-    fig.suptitle("Deceptive Revenue Share", fontweight="bold", fontsize=10)
+    ax.axhline(0.5, color="#555555", lw=1.2, ls="--", alpha=0.8, zorder=2, label="Majority threshold (0.5)")
 
-    # Majority threshold reference line
-    ax.axhline(
-        0.5,
-        color="#555555",
-        lw=1.2,
-        ls="--",
-        alpha=0.8,
-        zorder=2,
-        label="Majority threshold",
-    )
-
-    for n in [3, 6, 9, 12]:
-        entry = revenue_share_agg.get(n)
-        lbl = f"n_sybil={n}"
-        plot_band(ax, entry, COLORS_N_SYBIL[n], lbl)
+    for k in K_VALUES:
+        for rv in [True, False]:
+            entry = agg.get((k, rv))
+            if entry is None:
+                continue
+            sat = k / 12
+            rep_tag = "rep" if rv else "no-rep"
+            lbl = f"K={k} ({sat:.0%}), {rep_tag}"
+            plot_band(ax, entry, COLORS_K[k], lbl, ls=LS_REP[rv])
 
     ax.set_ylabel("Sybil revenue share")
-    ax.set_ylim(0, 1)
+    ax.set_ylim(0, 1.05)
     ax.set_xlabel("Timestep")
-    ax.set_title(
-        "Fraction of step revenue captured by sybil cluster (mean ± 1\u03c3 across seeds)"
-    )
-    ax.legend(loc="best")
+    ax.legend(loc="best", fontsize=7.5)
 
     return fig
 
@@ -253,61 +238,50 @@ def main():
         ),
     )
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--force", action="store_true", help="Ignore cache and rebuild from scratch")
+    parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
-    # n_sybil=0 has no sybil firms — only aggregate over {3,6,9,12}
-    SYBIL_ONLY = [3, 6, 9, 12]
+    name_prefix = infer_name_prefix(args.logs_dir)
+    print(f"Auto-detected name_prefix: {name_prefix}", flush=True)
 
+    run_dirs   = collect_run_dirs(args.logs_dir, name_prefix)
     data_dir   = get_data_dir(args.output)
     cache_path = get_cache_path(data_dir, "exp2_sybil_revenue_share", args.good)
-    run_dirs   = collect_run_dirs(args.logs_dir)
 
     if not args.force and is_cache_fresh(cache_path, run_dirs, args.logs_dir, args.good):
         print(f"Using cached data: {cache_path}", flush=True)
-        raw = load_cache_data(cache_path)
-        revenue_share_agg = _deserialize_agg(raw["revenue_share"], SYBIL_ONLY)
+        agg = deserialize_agg(load_cache_data(cache_path)["agg"])
     else:
         jobs = []
-        for n in SYBIL_ONLY:
-            for seed in SEEDS:
-                run_dir = resolve_run_dir(args.logs_dir, n, seed)
-                if run_dir:
-                    jobs.append((n, seed, run_dir))
-                else:
-                    print(f"  Missing: n_sybil={n}, seed={seed}", flush=True)
+        for k in K_VALUES:
+            for rv in [True, False]:
+                for seed in SEEDS:
+                    d = resolve_run_dir(args.logs_dir, name_prefix, k, rv, seed)
+                    if d:
+                        jobs.append((k, rv, seed, d))
+                    else:
+                        print(f"  Missing: K={k} rep={int(rv)} seed={seed}", flush=True)
 
         print(f"Loading {len(jobs)} runs ...", flush=True)
-        results_by_n = {n: {} for n in SYBIL_ONLY}
+        results: dict = {}
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as ex:
-            future_map = {
-                ex.submit(load_one_run, run_dir): (n, seed)
-                for n, seed, run_dir in jobs
-            }
-            done = 0
-            total = len(jobs)
+            future_map = {ex.submit(get_revenue_share_series, d): (k, rv, seed)
+                          for k, rv, seed, d in jobs}
+            done, total = 0, len(jobs)
             for future in concurrent.futures.as_completed(future_map):
-                n, seed = future_map[future]
+                k, rv, seed = future_map[future]
                 done += 1
-                result = future.result()
-                has_data = result is not None
-                print(
-                    f"  [{done}/{total}] n_sybil={n} seed={seed}"
-                    f" — revenue_share={'ok' if has_data else 'empty'}",
-                    flush=True,
-                )
-                results_by_n[n][seed] = result
+                data = future.result()
+                print(f"  [{done}/{total}] K={k} rep={int(rv)} seed={seed} — {'ok' if data is not None else 'empty'}", flush=True)
+                results[(k, rv, seed)] = data
 
-        revenue_share_agg = build_aggregate(results_by_n, SYBIL_ONLY)
+        agg = build_aggregate(results)
+        save_cache(cache_path, {"agg": serialize_agg(agg)}, args.logs_dir, args.good)
+        print(f"Cached: {cache_path}", flush=True)
+        agg = deserialize_agg({"agg": serialize_agg(agg)}["agg"])
 
-        cache_data = {"revenue_share": revenue_share_agg}
-        save_cache(cache_path, cache_data, args.logs_dir, args.good)
-        print(f"Cached data: {cache_path}", flush=True)
-
-        revenue_share_agg = _deserialize_agg(revenue_share_agg, SYBIL_ONLY)
-
-    fig = make_figure(revenue_share_agg)
+    fig = make_figure(agg)
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)
     print(f"Saved: {args.output}")
