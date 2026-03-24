@@ -24,6 +24,8 @@ SCRIPTS = [
     "exp2_lemon_consumer_welfare.py",
     "exp2_sybil_revenue_share.py",
     "exp2_market_collapse.py",
+    "exp2_tokens.py",
+    "exp2_heatmap.py",
 ]
 
 
@@ -62,6 +64,8 @@ def main():
         "exp2_lemon_consumer_welfare.py":   os.path.join(fig_dir, "exp2_lemon_consumer_welfare.pdf"),
         "exp2_sybil_revenue_share.py":      os.path.join(fig_dir, "exp2_sybil_revenue_share.pdf"),
         "exp2_market_collapse.py":          os.path.join(fig_dir, "exp2_market_collapse.pdf"),
+        "exp2_tokens.py":                   os.path.join(fig_dir, "exp2_tokens.pdf"),
+        "exp2_heatmap.py":                  os.path.join(fig_dir, "exp2_heatmap.pdf"),
     }
 
     # Launch all scripts in parallel

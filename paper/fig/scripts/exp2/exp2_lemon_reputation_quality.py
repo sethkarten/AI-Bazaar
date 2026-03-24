@@ -34,7 +34,7 @@ from exp2_common import (
 
 plt.rcParams.update({
     "font.family": "serif", "font.size": 9,
-    "axes.labelsize": 9, "axes.titlesize": 9,
+    "axes.labelsize": 9, "axes.titlesize": 10,
     "xtick.labelsize": 8, "ytick.labelsize": 8, "legend.fontsize": 8,
     "lines.linewidth": 1.5, "axes.linewidth": 0.8,
     "axes.grid": True, "axes.axisbelow": True,
@@ -154,7 +154,7 @@ def main():
 
     # ── Figure ──────────────────────────────────────────────────────────────
     fig, (ax_h, ax_s) = plt.subplots(2, 1, figsize=(7, 5.5), constrained_layout=True, sharex=True)
-    fig.suptitle("Exp 2 — Reputation by firm type", fontsize=10, fontweight="bold")
+    fig.suptitle("Firm Reputation over Time", fontsize=10, fontweight="bold")
 
     for k in K_VALUES:
         color = COLORS_K[k]
@@ -165,16 +165,16 @@ def main():
             plot_band(ax_h, honest_agg.get((k, rv)), color, lbl, ls=LS_REP[rv])
             plot_band(ax_s, sybil_agg.get((k, rv)),  color, lbl, ls=LS_REP[rv])
 
-    ax_h.set_ylabel("Mean honest rep.")
+    ax_h.set_ylabel("Mean reputation score")
     ax_h.set_ylim(0, 1.05)
-    ax_h.set_title("Honest firms", loc="left", fontsize=9)
-    ax_h.legend(loc="best", fontsize=7, ncol=2)
+    ax_h.set_title("(A) Honest sellers", loc="left")
+    ax_h.legend(loc="best", fontsize=7.5, ncol=2)
 
-    ax_s.set_ylabel("Mean sybil rep.")
+    ax_s.set_ylabel("Mean reputation score")
     ax_s.set_ylim(0, 1.05)
-    ax_s.set_title("Sybil firms", loc="left", fontsize=9)
+    ax_s.set_title("(B) Sybil sellers", loc="left")
     ax_s.set_xlabel("Timestep")
-    ax_s.legend(loc="best", fontsize=7, ncol=2)
+    ax_s.legend(loc="best", fontsize=7.5, ncol=2)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)

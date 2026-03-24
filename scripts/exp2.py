@@ -5,12 +5,12 @@ Run Experiment 2 (LEMON_MARKET) — 3×3×2 sybil sweep + baseline.
 Run matrix
 ----------
 Baseline (no sybil):
-  K=0, rep_visible=True × seeds {8, 16, 64} → 3 runs
+  K=0 × rep_visible ∈ {True, False} × seeds {8, 16, 64} → 6 runs
 
 Sybil grid:
   K ∈ {3, 6, 9} × rep_visible ∈ {True, False} × seeds {8, 16, 64} → 18 runs
 
-Total: 21 runs
+Total: 24 runs
 
 Design notes
 ------------
@@ -23,15 +23,15 @@ Design notes
 
 Usage (from project root)
 --------------------------
-  python scripts/exp2.py                             # all 21 runs, sequential
+  python scripts/exp2.py                             # all 24 runs, sequential
   python scripts/exp2.py --workers 3                 # 3 parallel runs
-  python scripts/exp2.py --k 0                       # baseline only
+  python scripts/exp2.py --k 0                       # baseline only (both rep conditions)
   python scripts/exp2.py --k 3 6                     # only K=3 and K=6 cells
   python scripts/exp2.py --rep-visible 1             # only rep-visible cells
   python scripts/exp2.py --rep-visible 0             # only no-rep cells
   python scripts/exp2.py --seeds 8                   # only seed=8
   python scripts/exp2.py --k 9 --seeds 8 16 --rep-visible 0
-  python scripts/exp2.py --run exp2_gemini-2.5-flash_baseline_seed8
+  python scripts/exp2.py --run exp2_gemini-2.5-flash_k0_rep1_seed8
   python scripts/exp2.py --skip-existing             # skip runs whose log dir exists
   python scripts/exp2.py --list                      # print matching runs, don't execute
   python scripts/exp2.py --prompt-algo cot           # override prompt algorithm
@@ -103,19 +103,22 @@ def build_runs(base: list[str], name_prefix: str) -> list[tuple[str, list[str], 
     runs: list[tuple[str, list[str], dict]] = []
     log_dir_arg = f"logs/{name_prefix}"
 
-    # ---- Baseline: K=0, rep visible ----
-    for seed in SEEDS:
-        label = f"{name_prefix}_baseline_seed{seed}"
-        personas = seller_personas_spec(NUM_TOTAL_SELLERS)
-        runs.append((
-            label,
-            ["--name", label, "--log-dir", log_dir_arg,
-             "--num-sellers", str(NUM_TOTAL_SELLERS),
-             "--sybil-cluster-size", "0",
-             "--seller-personas", personas,
-             "--seed", str(seed)] + base,
-            {"k": 0, "rep_visible": True, "seed": seed},
-        ))
+    # ---- Baseline: K=0 × rep_visible ∈ {True, False} ----
+    personas_k0 = seller_personas_spec(NUM_TOTAL_SELLERS)
+    for rep_visible in (True, False):
+        rep_tag = "rep1" if rep_visible else "rep0"
+        extra = [] if rep_visible else ["--no-buyer-rep"]
+        for seed in SEEDS:
+            label = f"{name_prefix}_k0_{rep_tag}_seed{seed}"
+            runs.append((
+                label,
+                ["--name", label, "--log-dir", log_dir_arg,
+                 "--num-sellers", str(NUM_TOTAL_SELLERS),
+                 "--sybil-cluster-size", "0",
+                 "--seller-personas", personas_k0,
+                 "--seed", str(seed)] + extra + base,
+                {"k": 0, "rep_visible": rep_visible, "seed": seed},
+            ))
 
     # ---- Sybil grid: K × rep_visible × seed ----
     for k in K_VALUES:
@@ -335,7 +338,7 @@ def main() -> None:
 
     log(f"Experiment 2 started. Project root: {PROJECT_ROOT}")
     log(f"Selected: {len(selected)}/{len(all_runs)} runs  |  workers: {cli.workers}  |  llm: {cli.llm}  |  prompt-algo: {cli.prompt_algo}")
-    log(f"Grid: K∈{K_VALUES}  rep_visible∈{{True,False}}  seeds={SEEDS}  rho_min={RHO_MIN}")
+    log(f"Grid: K∈{{0,*{K_VALUES}}}  rep_visible∈{{True,False}}  seeds={SEEDS}  rho_min={RHO_MIN}")
     log(f"Total sellers fixed at {NUM_TOTAL_SELLERS}; honest = {NUM_TOTAL_SELLERS} - K")
 
     if cli.workers <= 1:

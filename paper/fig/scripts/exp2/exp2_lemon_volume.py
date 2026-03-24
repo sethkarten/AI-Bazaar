@@ -32,7 +32,7 @@ from exp2_common import (
 
 plt.rcParams.update({
     "font.family": "serif", "font.size": 9,
-    "axes.labelsize": 9, "axes.titlesize": 9,
+    "axes.labelsize": 9, "axes.titlesize": 10,
     "xtick.labelsize": 8, "ytick.labelsize": 8, "legend.fontsize": 8,
     "lines.linewidth": 1.5, "axes.linewidth": 0.8,
     "axes.grid": True, "axes.axisbelow": True,
@@ -146,9 +146,9 @@ def main():
 
     # ── Figure ──────────────────────────────────────────────────────────────
     fig, axes = plt.subplots(1, 2, figsize=(7, 3.2), constrained_layout=True, sharey=True)
-    fig.suptitle("Exp 2 — Market volume over time", fontsize=10, fontweight="bold")
+    fig.suptitle("Market Activity over Time", fontsize=10, fontweight="bold")
 
-    for rep_visible, ax, title in [(True, axes[0], "Reputation visible"), (False, axes[1], "Reputation hidden")]:
+    for rep_visible, ax, title in [(True, axes[0], "(A) Reputation visible"), (False, axes[1], "(B) Reputation hidden")]:
         ax.set_title(title, fontsize=9)
         ax.set_xlabel("Timestep")
         for k in K_VALUES:
@@ -161,9 +161,9 @@ def main():
             if p_entry is not None:
                 plot_band(ax, p_entry, color, f"K={k} ({sat:.0%}) passes", ls="--", alpha_band=0.08)
         ax.set_ylim(bottom=0)
-        ax.legend(loc="best", fontsize=6.5, ncol=1)
+        ax.legend(loc="best", fontsize=7.5, ncol=2)
 
-    axes[0].set_ylabel("Count per timestep")
+    axes[0].set_ylabel("Count per timestep\n(— bids, - - passes)")
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)
     print(f"Saved: {args.output}")

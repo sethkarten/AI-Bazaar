@@ -340,7 +340,7 @@ conda run -n AI-Bazaar python -m ai_bazaar.main --name exp2_vote_rep_test --cons
 
 `scripts/exp2.py` runs the full 3×3×2 matrix and supports flexible subsetting. Always run from the **project root**.
 
-**Full matrix:** 21 runs — 3 baseline (K=0, rep visible) + 18 sybil grid (K ∈ {3,6,9} × rep\_visible ∈ {True,False} × seeds {8,16,64}).
+**Full matrix:** 24 runs — 6 baseline (K=0 × rep\_visible ∈ {True,False} × seeds {8,16,64}) + 18 sybil grid (K ∈ {3,6,9} × rep\_visible ∈ {True,False} × seeds {8,16,64}).
 
 **Fixed settings:** `--num-sellers 12` always; honest = 12 − K; sybil saturation 25% / 50% / 75%; `rho_min=0.3`; `discovery-limit-consumers=3`; `max-timesteps=50`. Run logs go to `logs/exp2/`; state files go to `logs/<run_name>/`.
 
@@ -418,7 +418,7 @@ python scripts/exp2.py --seeds 8
 python scripts/exp2.py --k 9 --rep-visible 0 --seeds 8 16
 
 # Specific runs by exact label
-python scripts/exp2.py --run exp2_baseline_seed8 exp2_k8_rep1_seed16
+python scripts/exp2.py --run exp2_gemini-2.5-flash_k0_rep1_seed8 exp2_gemini-2.5-flash_k6_rep0_seed16
 
 # Skip runs whose log directory already exists (resume a partial sweep)
 python scripts/exp2.py --skip-existing

@@ -46,19 +46,24 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
 from exp2_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data, infer_name_prefix
 
-# ── rcParams (FigureMakerAgent standard) ───────────────────────────────────
+# ── rcParams ────────────────────────────────────────────────────────────────
 plt.rcParams.update({
     "font.family":        "serif",
     "font.size":          9,
     "axes.labelsize":     9,
-    "axes.titlesize":     9,
+    "axes.titlesize":     10,
     "xtick.labelsize":    8,
     "ytick.labelsize":    8,
     "legend.fontsize":    8,
-    "lines.linewidth":    1.4,
+    "lines.linewidth":    1.5,
+    "lines.markersize":   5,
     "axes.linewidth":     0.8,
     "axes.grid":          True,
     "axes.axisbelow":     True,
+    "grid.alpha":         0.3,
+    "grid.linewidth":     0.5,
+    "grid.color":         "gray",
+    "legend.frameon":     True,
     "legend.framealpha":  0.9,
     "legend.edgecolor":   "0.8",
     "figure.dpi":         100,
@@ -298,11 +303,12 @@ def main():
         figsize=(7.0, 3.2),
         constrained_layout=True,
     )
+    fig.suptitle("Token Usage per Run", fontsize=10, fontweight="bold")
 
     draw_panel(ax_in,  data, key="input",  ylabel="Input tokens",
-               panel_label="(A) Input Tokens",  show_legend=True)
+               panel_label="(A) Input tokens",  show_legend=True)
     draw_panel(ax_out, data, key="output", ylabel="Output tokens",
-               panel_label="(B) Output Tokens", show_legend=False)
+               panel_label="(B) Output tokens", show_legend=False)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)

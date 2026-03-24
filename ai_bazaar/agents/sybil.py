@@ -453,10 +453,10 @@ class DeceptivePrincipal(LLMAgent):
     # Identity rotation
     # ------------------------------------------------------------------
 
-    def rotate_identities(self, rho_min: float, r0: float, timestep: int = 0) -> List[str]:
+    def rotate_identities(self, rho_min: float, r0: float, timestep: int = 0) -> list:
         """Retire identities with reputation < rho_min; spawn fresh replacements.
 
-        Returns list of retired identity names.
+        Returns list of retired SybilIdentity objects (with timestep_retired set).
         """
         retired = []
         for idx, ident in enumerate(self.identities):
@@ -466,7 +466,7 @@ class DeceptivePrincipal(LLMAgent):
                 self.logger.info(
                     f"Sybil rotation: retiring {ident.name} (R={ident.reputation:.3f})"
                 )
-                retired.append(ident.name)
+                retired.append(ident)
 
                 new_ident = SybilIdentity(
                     name=f"sybil_{self.identity_counter}",

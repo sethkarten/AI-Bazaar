@@ -32,7 +32,7 @@ from exp2_common import (
 
 plt.rcParams.update({
     "font.family": "serif", "font.size": 9,
-    "axes.labelsize": 9, "axes.titlesize": 9,
+    "axes.labelsize": 9, "axes.titlesize": 10,
     "xtick.labelsize": 8, "ytick.labelsize": 8, "legend.fontsize": 8,
     "lines.linewidth": 1.5, "axes.linewidth": 0.8,
     "axes.grid": True, "axes.axisbelow": True,
@@ -125,7 +125,7 @@ def main():
 
     # ── Figure ──────────────────────────────────────────────────────────────
     fig, ax = plt.subplots(1, 1, figsize=(7, 3.5), constrained_layout=True)
-    fig.suptitle("Exp 2 — Consumer surplus over time", fontsize=10, fontweight="bold")
+    fig.suptitle("Consumer Surplus over Time", fontsize=10, fontweight="bold")
 
     # Baseline K=0
     b_entry = agg.get((0, True))
@@ -143,8 +143,9 @@ def main():
             lbl = f"K={k} ({sat:.0%}), {rep_tag}"
             plot_band(ax, entry, color, lbl, ls=LS_REP[rv])
 
+    ax.axhline(0.0, color="#555555", lw=1.2, ls=":", alpha=0.7, zorder=2, label="Break-even ($=0$)")
     ax.set_xlabel("Timestep")
-    ax.set_ylabel("Avg. consumer surplus ($\\$$)")
+    ax.set_ylabel("Avg. consumer surplus (\\$)")
     ax.legend(loc="best", fontsize=7.5)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)

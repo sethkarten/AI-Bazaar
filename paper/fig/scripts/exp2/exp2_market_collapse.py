@@ -35,7 +35,7 @@ from exp2_common import (
 
 plt.rcParams.update({
     "font.family": "serif", "font.size": 9,
-    "axes.labelsize": 9, "axes.titlesize": 9,
+    "axes.labelsize": 9, "axes.titlesize": 10,
     "xtick.labelsize": 8, "ytick.labelsize": 8, "legend.fontsize": 8,
     "lines.linewidth": 1.5, "axes.linewidth": 0.8,
     "axes.grid": True, "axes.axisbelow": True,
@@ -128,12 +128,12 @@ def main():
 
     # ── Figure ──────────────────────────────────────────────────────────────
     fig, axes = plt.subplots(1, 2, figsize=(7, 3.2), constrained_layout=True, sharey=True)
-    fig.suptitle("Exp 2 — Market distrust ratio (passes / total activity)", fontsize=10, fontweight="bold")
+    fig.suptitle("Market Distrust over Time (Buyer Pass Rate)", fontsize=10, fontweight="bold")
 
-    for rep_visible, ax, title in [(True, axes[0], "Reputation visible"), (False, axes[1], "Reputation hidden")]:
+    for rep_visible, ax, title in [(True, axes[0], "(A) Reputation visible"), (False, axes[1], "(B) Reputation hidden")]:
         ax.set_title(title, fontsize=9)
         ax.set_xlabel("Timestep")
-        ax.axhline(0.5, color="#555555", lw=1.0, ls="--", alpha=0.6, zorder=2, label="50% pass rate")
+        ax.axhline(0.5, color="#555555", lw=1.2, ls="--", alpha=0.8, zorder=2, label="50% pass rate (Akerlof threshold)")
         for k in K_VALUES:
             entry = agg.get((k, rep_visible))
             if entry is None:
@@ -144,7 +144,7 @@ def main():
         ax.set_ylim(0, 1.05)
         ax.legend(loc="best", fontsize=7.5)
 
-    axes[0].set_ylabel("Distrust ratio (passes / total)")
+    axes[0].set_ylabel("Pass rate (passes / total activity)")
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)
     print(f"Saved: {args.output}")
