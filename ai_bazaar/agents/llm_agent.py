@@ -699,6 +699,9 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
             for key in keys:
                 parsed_keys.append(data[key])
             output = parse_func(parsed_keys)
+            # Mark format as valid on the trajectory entry
+            if depth == 0 and self.trajectory:
+                self.trajectory[-1]["is_format_valid"] = True
 
         except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
             self.logger.warning(f"JSON parsing failed (attempt {depth}): {str(e)}")
@@ -788,7 +791,12 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
                     self.logger.warning(
                         f"Parsing failed after max retries (depth={depth}); using no-op fallback for {self.name}"
                     )
+                    # Mark format as invalid for RL penalty
+                    if self.trajectory:
+                        self.trajectory[-1]["is_format_valid"] = False
                     return on_parse_failure_return
+                if self.trajectory:
+                    self.trajectory[-1]["is_format_valid"] = False
                 raise ValueError(
                     f"Max recursion depth={depth} reached. Error parsing JSON: "
                     + str(e)
