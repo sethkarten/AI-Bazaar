@@ -239,10 +239,11 @@ def create_argument_parser():
     )
     parser.add_argument(
         "--reputation-pseudo-count",
-        type=float,
-        default=10.0,
-        help="LEMON_MARKET: pseudo-count prior for vote-based reputation. "
-             "upvotes_0 = reputation_initial * pseudo_count. Default 10.",
+        type=int,
+        default=10,
+        help="LEMON_MARKET: rolling vote-window size N. "
+             "reputation = upvotes in last N votes / N. "
+             "Initial window seeded with round(reputation_initial * N) upvotes, shuffled. Default 10.",
     )
     parser.add_argument(
         "--sybil-cluster-size",

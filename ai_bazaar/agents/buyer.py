@@ -38,7 +38,7 @@ class BuyerAgent(LLMAgent):
         args=None,
         llm_instance=None,
         prompt_algo: str = "io",
-        history_len: int = 5,
+        history_len: int = 3,
         timeout: int = 10,
     ) -> None:
         super().__init__(
@@ -62,6 +62,13 @@ class BuyerAgent(LLMAgent):
         self.sybil_seen_total: int = 0
         self.sybil_passed_total: int = 0
         self.sybil_pass_rate_this_step: Optional[float] = None
+        self.honest_seen_total: int = 0
+        self.honest_passed_total: int = 0
+        self.honest_pass_rate_this_step: Optional[float] = None
+        # Seller anonymisation — real_id → "seller_N" (stable across timesteps)
+        self._seller_anon_map: dict = {}
+        # Per-step listing de-anonymisation — anon_listing_id → real listing id
+        self._anon_listing_map: dict = {}
         # Infinite cash — buyer is never budget-constrained
         self.ledger.credit(name, 1e12)
         self.ledger.agent_inventories[name] = {}
@@ -75,18 +82,30 @@ class BuyerAgent(LLMAgent):
             f"Your persona: {self.persona}. "
             "Your goal is to purchase good-value cars and avoid paying more than a car "
             "is worth. "
-            "Fair market values by quality tier: "
-            f"mint ≈ ${V_MAX * 1.0:,.0f}, "
-            f"good ≈ ${V_MAX * 0.7:,.0f}, "
-            f"fair ≈ ${V_MAX * 0.4:,.0f}, "
-            f"poor ≈ ${V_MAX * 0.1:,.0f}. "
-            "A listing priced above its claimed quality tier's fair value is likely overpriced. "
+            "Typical price ranges by quality tier: "
+            f"mint ${V_MAX * 0.85:,.0f}–${V_MAX * 1.0:,.0f}, "
+            f"good ${V_MAX * 0.55:,.0f}–${V_MAX * 0.80:,.0f}, "
+            f"fair ${V_MAX * 0.28:,.0f}–${V_MAX * 0.52:,.0f}, "
+            f"poor ${V_MAX * 0.05:,.0f}–${V_MAX * 0.18:,.0f}. "
+            "A listing priced well above the typical range for its claimed quality tier is likely overpriced. "
             "Be aware: some sellers misrepresent car quality in their descriptions. "
             "Evaluate each listing by weighing the written description, the seller's "
             "reputation score (if shown), and your own past transaction history. "
             "You may buy at most one car per round. "
             "If no listing offers good value, pass and wait for a better opportunity."
         )
+
+    # Seller anonymisation
+    def _anon_seller_id(self, real_id: str) -> str:
+        """Return a stable anonymous seller ID for this buyer.
+
+        The mapping persists across timesteps so the buyer can track individual
+        sellers across rounds (e.g. 'seller_2 was dishonest last time').
+        Real seller names — which encode sybil vs honest — are never shown.
+        """
+        if real_id not in self._seller_anon_map:
+            self._seller_anon_map[real_id] = f"seller_{len(self._seller_anon_map)}"
+        return self._seller_anon_map[real_id]
 
     # Core decision method
     def make_orders(
@@ -136,8 +155,9 @@ class BuyerAgent(LLMAgent):
         if decision != "bid" or not listing_id:
             return []
 
-        # Resolve listing_id to a Listing object in the visible set
-        matched = next((L for L in visible if L.id == listing_id), None)
+        # De-anonymize: buyer sees anon IDs; resolve back to real listing id
+        real_listing_id = self._anon_listing_map.get(listing_id, listing_id)
+        matched = next((L for L in visible if L.id == real_listing_id), None)
         if matched is None:
             return []
 
@@ -159,10 +179,14 @@ class BuyerAgent(LLMAgent):
         visible_listings: list,
         include_reputation: bool,
     ) -> dict:
+        self._anon_listing_map = {}  # reset each step
         listing_dicts = []
-        for L in visible_listings:
+        for j, L in enumerate(visible_listings):
+            anon_seller = self._anon_seller_id(L.firm_id)
+            anon_listing_id = f"{anon_seller}_listing_{j}"
+            self._anon_listing_map[anon_listing_id] = L.id
             entry = {
-                "listing_id": L.id,
+                "listing_id": anon_listing_id,
                 "listed_price": L.price,
                 "description": L.description,
             }
@@ -209,30 +233,32 @@ class BuyerAgent(LLMAgent):
         if self.prompt_algo in ("cot", "sc"):
             vote_format = '{"thought": "<brief reasoning>", "vote": "upvote"|"downvote"|"abstain"}'
 
-        review_system = (
-            f"You are {self.name}, a buyer who just received a used car you purchased. "
-            "Your task is to review whether the seller's listing description accurately "
-            "represented the car's true quality."
+        anon_seller = self._anon_seller_id(seller_id)
+        self.add_message(
+            timestep,
+            Message.UPDATE_REVIEW,
+            seller_id=anon_seller,
+            description=description,
+            quality_received=quality_received,
+            quality_label=quality_label,
+            expected_format=vote_format,
+            extend_history=False,
         )
-        user_prompt = (
-            f"Seller '{seller_id}' listed the car with this description:\n"
-            f"  \"{description}\"\n\n"
-            f"The actual quality you received: {quality_label} "
-            f"(quality score {quality_received:.2f} on a 0–1 scale where 1.0=mint, 0.7=good, 0.4=fair, 0.1=poor).\n\n"
-            "Review the seller's description against the quality you received:\n"
-            "  - 'upvote'   if the description was accurate or undersold the quality\n"
-            "  - 'downvote' if the description was misleading or oversold the quality\n"
-            "  - 'abstain'  if you cannot make a determination\n\n"
-            f"Respond with a single JSON object. Format: {vote_format}"
-        )
-
         try:
-            response, _ = self.llm.send_msg(review_system, user_prompt)
-            self._maybe_log_lemon_prompt(
-                "review", timestep, review_system, user_prompt, response, depth=0
+            out = self.act_llm(
+                timestep,
+                ["vote"],
+                self._parse_review_items,
+                on_parse_failure_return=[None],
             )
-            return self._parse_review(response)
+            vote = out[0] if out else None
+            vote_str = (
+                "upvote" if vote is True else "downvote" if vote is False else "abstain"
+            )
+            self.add_message(timestep, Message.ACTION_REVIEW, vote=vote_str)
+            return vote
         except Exception:
+            self.add_message(timestep, Message.ACTION_REVIEW, vote="abstain")
             return None  # abstain on error
 
     @staticmethod
@@ -262,6 +288,18 @@ class BuyerAgent(LLMAgent):
             return False
         return None  # abstain
 
+    @staticmethod
+    def _parse_review_items(items: list) -> list:
+        """Parse [vote] from extracted keys for act_llm review calls."""
+        if not items:
+            return [None]
+        vote = str(items[0] if items[0] is not None else "abstain").strip().lower()
+        if vote == "upvote":
+            return [True]
+        if vote == "downvote":
+            return [False]
+        return [None]
+
     # Post-transaction callback
     def record_transaction(
         self,
@@ -274,7 +312,7 @@ class BuyerAgent(LLMAgent):
         self.transaction_history.append(
             {
                 "timestep": timestep,
-                "seller_id": seller_id,
+                "seller_id": self._anon_seller_id(seller_id),
                 "price_paid": price_paid,
                 "quality_received": quality_received,
                 "quality_label": quality_label,
@@ -284,9 +322,9 @@ class BuyerAgent(LLMAgent):
 
     # LLMAgent abstract override
     def add_message(self, timestep: int, m_type: Message, **kwargs) -> None:
-        self.add_message_history_timestep(timestep)
-
         if m_type == Message.UPDATE_BID:
+            if kwargs.get("extend_history", True):
+                self.add_message_history_timestep(timestep)
             obs = kwargs.get("observation", {})
             bid_format = '{"decision": "bid"|"pass", "listing_id": "<id or null>"}'
             if self.prompt_algo in ("cot", "sc"):
@@ -301,6 +339,7 @@ class BuyerAgent(LLMAgent):
                 f"Respond with a single JSON object. Format: {bid_format}"
             )
             self.message_history[timestep]["expected_format"] = bid_format
+            return
 
         elif m_type == Message.ACTION_BID:
             decision = kwargs.get("decision", "pass")
@@ -313,25 +352,47 @@ class BuyerAgent(LLMAgent):
             self.message_history[timestep]["action"] += (
                 f"decision={decision} listing_id={listing_id}\n"
             )
+            self.message_history[timestep]["user_prompt"] = ""
+            return
 
         elif m_type == Message.UPDATE_REVIEW:
+            if kwargs.get("extend_history", False):
+                self.add_message_history_timestep(timestep)
             seller_id   = kwargs.get("seller_id", "")
             description = kwargs.get("description", "")
+            quality_received = float(kwargs.get("quality_received", 0.0))
             quality_label = kwargs.get("quality_label", "")
+            expected = kwargs.get("expected_format", '{"vote": "upvote"|"downvote"|"abstain"}')
+            self.message_history[timestep]["user_prompt"] = (
+                f"Seller '{seller_id}' listed the car with this description:\n"
+                f"  \"{description}\"\n\n"
+                f"The actual quality you received: {quality_label} "
+                f"(quality score {quality_received:.2f} on a 0-1 scale where 1.0=mint, 0.7=good, 0.4=fair, 0.1=poor).\n\n"
+                "Review the seller's description against the quality you received:\n"
+                "  - 'upvote'   if the description was accurate or undersold the quality\n"
+                "  - 'downvote' if the description was misleading or oversold the quality\n"
+                "  - 'abstain'  if you cannot make a determination\n\n"
+                f"Respond with a single JSON object. Format: {expected}"
+            )
+            self.message_history[timestep]["expected_format"] = expected
             self.message_history[timestep]["historical"] += (
                 f"Review prompt: seller={seller_id} quality_received={quality_label} "
                 f"description=\"{description[:80]}\"\n"
             )
+            return
 
         elif m_type == Message.ACTION_REVIEW:
             vote = kwargs.get("vote", "upvote")
             self.message_history[timestep]["historical"] += f"Review vote: {vote}\n"
             self.message_history[timestep]["action"] += f"review_vote={vote}\n"
+            self.message_history[timestep]["user_prompt"] = ""
+            return
 
         elif m_type == Message.REFLECTION:
             self.message_history[timestep]["historical"] += (
                 "Reflection: " + kwargs.get("reflection_msg", "") + "\n"
             )
+            return
 
     # Parser
     @staticmethod

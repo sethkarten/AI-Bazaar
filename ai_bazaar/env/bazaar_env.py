@@ -230,6 +230,9 @@ class BazaarWorld:
                     persona=personas[i],
                     args=args,
                     llm_instance=llm_model,
+                    prompt_algo=getattr(args, "prompt_algo", "io"),
+                    history_len=getattr(args, "history_len", 3),
+                    timeout=getattr(args, "timeout", 10),
                 )
                 self.consumers.append(buyer)
         else:
@@ -710,18 +713,27 @@ class BazaarWorld:
             )
             for buyer in self.consumers:
                 discovered = getattr(buyer, "discovered_listings_this_step", [])
+                orders = getattr(buyer, "_last_orders_this_step", [])
+
                 sybil_seen = sum(1 for L in discovered if getattr(L, "firm_id", None) in sybil_ids)
                 if sybil_seen == 0:
                     buyer.sybil_pass_rate_this_step = None
                 else:
-                    bid_on_sybil = any(
-                        o.firm_id in sybil_ids
-                        for o in getattr(buyer, "_last_orders_this_step", [])
-                    )
+                    bid_on_sybil = any(o.firm_id in sybil_ids for o in orders)
                     sybil_passed = sybil_seen - (1 if bid_on_sybil else 0)
                     buyer.sybil_pass_rate_this_step = sybil_passed / sybil_seen
                     buyer.sybil_seen_total += sybil_seen
                     buyer.sybil_passed_total += sybil_passed
+
+                honest_seen = sum(1 for L in discovered if getattr(L, "firm_id", None) not in sybil_ids)
+                if honest_seen == 0:
+                    buyer.honest_pass_rate_this_step = None
+                else:
+                    bid_on_honest = any(o.firm_id not in sybil_ids for o in orders)
+                    honest_passed = honest_seen - (1 if bid_on_honest else 0)
+                    buyer.honest_pass_rate_this_step = honest_passed / honest_seen
+                    buyer.honest_seen_total += honest_seen
+                    buyer.honest_passed_total += honest_passed
         else:
             participating = self._consumers_participating_this_step()
             participating_set = set(id(c) for c in participating)
@@ -831,6 +843,7 @@ class BazaarWorld:
                 _total_rev = sum(s.get("price", 0.0) for s in sales_info)
                 _sybil_rev = sum(s.get("price", 0.0) for s in sales_info if s.get("firm_id") in _sybil_ids)
                 self.lemon_market_sybil_revenue_share = _sybil_rev / _total_rev if _total_rev > 0 else 0.0
+                self.deceptive_principal.record_step_outcome(self.timestep, _sybil_rev)
             else:
                 self.lemon_market_sybil_revenue_share = 0.0
 
@@ -840,6 +853,7 @@ class BazaarWorld:
             if self.deceptive_principal:
                 retired = self.deceptive_principal.rotate_identities(rho_min, r0, timestep=self.timestep)
                 self.sybil_rotations_this_step = len(retired)
+                self._retired_this_step = retired  # held for one snapshot, then cleared
                 if retired:
                     self.firms = self.honest_firms + self.deceptive_principal.identities
 
@@ -1123,7 +1137,7 @@ class BazaarWorld:
                 "money": money.copy(),
                 "inventories": {k: v.copy() for k, v in inventories.items()},
             },
-            "firms": self._build_firms_state(money, inventories),
+            "firms": self._build_firms_state(money, inventories, getattr(self, "_retired_this_step", [])),
             "consumers": self._build_consumers_state(money, inventories),
             "total_fees": getattr(self, "total_fees", 0.0),
             "filled_orders_count": getattr(self, "filled_orders_count", 0),
@@ -1165,9 +1179,15 @@ class BazaarWorld:
 
         with open(filename, "w") as f:
             json.dump(state, f, indent=2)
+        self._retired_this_step = []  # consumed; don't leak into next snapshot
 
-    def _build_firms_state(self, money: Dict, inventories: Dict) -> List[Dict]:
-        """Build firms list for state: one entry per firm in self.firms, plus any firm_* in ledger not in list. Sorted by name."""
+    def _build_firms_state(self, money: Dict, inventories: Dict, retired: list = None) -> List[Dict]:
+        """Build firms list for state: one entry per firm in self.firms, plus any firm_* in ledger not in list. Sorted by name.
+
+        ``retired`` is the list of SybilIdentity objects rotated out this step; they are
+        included with a minimal entry so that ``timestep_retired`` is written to the snapshot
+        before the identity is discarded.
+        """
         by_name = {}
         for f in self.firms:
             exp_info = dict(getattr(f, "expenses_info", {}))
@@ -1256,6 +1276,33 @@ class BazaarWorld:
                     "sales_this_step": {},
                     "diary": [],
                 }
+        # Retired sybil identities: include a minimal entry so timestep_retired is persisted.
+        for f in (retired or []):
+            if f.name not in by_name:
+                by_name[f.name] = {
+                    "name": f.name,
+                    "in_business": False,
+                    "persona": getattr(f, "persona", None),
+                    "cash": money.get(f.name, 0.0),
+                    "profit": 0.0,
+                    "reputation": getattr(f, "reputation", 0.0),
+                    "upvotes": float(getattr(f, "upvotes", 0.0)),
+                    "downvotes": float(getattr(f, "downvotes", 0.0)),
+                    "expenses_info": {"supply_cost": 0.0, "overhead_costs": 0.0, "taxes_paid": 0.0, "platform_fees": 0.0, "supply_by_good": []},
+                    "sales_info": list(getattr(f, "sales_info", [])),
+                    "prices": {},
+                    "inventory": dict(inventories.get(f.name, {})),
+                    "sales_by_good": dict(getattr(f, "total_quantity_sold_by_good", {})),
+                    "sales_this_step": {},
+                    "diary": [],
+                    "views_this_step": 0,
+                    "conversion_rate": None,
+                    "sybil": True,
+                    "timestep_created": getattr(f, "timestep_created", None),
+                    "timestep_retired": getattr(f, "timestep_retired", None),
+                    "listings_posted_this_step": 0,
+                    "quality_sold_this_step": [],
+                }
         return [by_name[name] for name in sorted(by_name)]
 
     def _build_consumers_state(self, money: Dict, inventories: Dict) -> List[Dict]:
@@ -1286,6 +1333,9 @@ class BazaarWorld:
                 "sybil_pass_rate_this_step": getattr(c, "sybil_pass_rate_this_step", None),
                 "sybil_seen_total": getattr(c, "sybil_seen_total", 0),
                 "sybil_passed_total": getattr(c, "sybil_passed_total", 0),
+                "honest_pass_rate_this_step": getattr(c, "honest_pass_rate_this_step", None),
+                "honest_seen_total": getattr(c, "honest_seen_total", 0),
+                "honest_passed_total": getattr(c, "honest_passed_total", 0),
                 "diary": getattr(c, "diary", [])[-1:] if hasattr(c, "diary") else [],
                 "discovery_this_step": getattr(c, "_discovery_this_step", {}),
             }

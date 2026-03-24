@@ -1301,7 +1301,14 @@ else:
                 _selected = st.selectbox("Select seller", _seller_names, key="lemon_seller_detail")
 
                 if _selected:
-                    _snap = _all_seller_snaps[_selected]
+                    # Use current-timestep snapshot for live metrics; fall back to last-seen
+                    # for sellers absent from the current state (retired or not yet spawned).
+                    _current_firm_snaps = {f.get("name"): f for f in state.get("firms", []) if f.get("name")}
+                    _snap = _current_firm_snaps.get(_selected) or _all_seller_snaps.get(_selected, {})
+                    # Always use the all-time snapshot for lifecycle fields so retirement
+                    # timestamps are visible even after the seller leaves self.firms.
+                    _snap_lifecycle = _all_seller_snaps.get(_selected, _snap)
+
                     _is_sybil = _snap.get("sybil", False)
                     _is_active = _snap.get("in_business", True)
 
@@ -1319,8 +1326,8 @@ else:
                     _mv1.metric("Upvotes", f"{_up:.1f}" if isinstance(_up, (int, float)) else "—")
                     _mv2.metric("Downvotes", f"{_dn:.1f}" if isinstance(_dn, (int, float)) else "—")
                     if _is_sybil:
-                        _mv3.metric("Created (t)", _snap.get("timestep_created", "—"))
-                        _mv4.metric("Retired (t)", _snap.get("timestep_retired", "—") if not _is_active else "—")
+                        _mv3.metric("Created (t)", _snap_lifecycle.get("timestep_created", "—"))
+                        _mv4.metric("Retired (t)", _snap_lifecycle.get("timestep_retired", "—") if not _snap_lifecycle.get("in_business", True) else "—")
 
                     # Reputation over time for this seller
                     _rep_rows = []
@@ -1725,14 +1732,20 @@ else:
             buyer_summary_rows = []
             for c in state.get("consumers", []):
                 name = c.get("name", "")
-                seen = c.get("sybil_seen_total", 0)
-                passed = c.get("sybil_passed_total", 0)
-                rate = passed / seen if seen > 0 else None
+                s_seen = c.get("sybil_seen_total", 0)
+                s_passed = c.get("sybil_passed_total", 0)
+                s_rate = s_passed / s_seen if s_seen > 0 else None
+                h_seen = c.get("honest_seen_total", 0)
+                h_passed = c.get("honest_passed_total", 0)
+                h_rate = h_passed / h_seen if h_seen > 0 else None
                 buyer_summary_rows.append({
                     "Buyer": name,
-                    "Sybil listings seen (total)": seen,
-                    "Sybil listings passed (total)": passed,
-                    "Pass rate (run-level)": f"{rate:.1%}" if rate is not None else "—",
+                    "Sybil seen": s_seen,
+                    "Sybil passed": s_passed,
+                    "Sybil pass rate": f"{s_rate:.1%}" if s_rate is not None else "—",
+                    "Honest seen": h_seen,
+                    "Honest passed": h_passed,
+                    "Honest pass rate": f"{h_rate:.1%}" if h_rate is not None else "—",
                 })
             if buyer_summary_rows:
                 st.dataframe(pd.DataFrame(buyer_summary_rows), use_container_width=True)
