@@ -109,9 +109,11 @@ class REINFORCETrainer:
 
         if self.device_base != self.device:
             print(f"Loading frozen 4-bit base model on {self.device_base} …", flush=True)
+            # Load on GPU 1 using device_map
             self.base_model, _ = FastLanguageModel.from_pretrained(
                 model_name=model_name, max_seq_length=2048,
                 load_in_4bit=True,
+                device_map={"": self.device_base},
             )
             self.base_model.eval()
             for p in self.base_model.parameters():
@@ -557,7 +559,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         self.model.save_pretrained(os.path.join(self.checkpoint_dir, "latest"))
 
         dt = time.time() - t0
-        nb = max(1, (len(trajectories) + bs - 1) // bs)
+        nb = max(1, (len(trajectories) + micro_bs - 1) // micro_bs)
         avg_loss = total_loss / ok_batches if ok_batches else 0
         mem = torch.cuda.memory_allocated() / 1024**3 if torch.cuda.is_available() else 0
         print(f"Training done: {ok_batches}/{nb} ok, {fail_batches} fail, {skipped} skip | loss={avg_loss:.6f} | {dt:.1f}s | {mem:.1f}GB", flush=True)
