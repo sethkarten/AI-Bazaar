@@ -83,11 +83,11 @@ class REINFORCETrainer:
         self.device_base = torch.device("cuda:1") if num_gpus >= 2 else self.device
         print(f"Training GPU: {self.device} | Inference GPU: {self.device_base} ({num_gpus} GPU(s))", flush=True)
 
-        # ── GPU 0: LoRA model (stabilizing firm — trained) ───────────
-        print(f"Loading {model_name} with Unsloth (bf16 + LoRA) on {self.device} …", flush=True)
+        # ── GPU 0: 4-bit QLoRA model (stabilizing firm — trained) ────
+        print(f"Loading {model_name} with Unsloth (4-bit QLoRA) on {self.device} …", flush=True)
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_name, max_seq_length=2048,
-            load_in_4bit=False, dtype=torch.bfloat16,
+            load_in_4bit=True,
         )
         self.model = FastLanguageModel.get_peft_model(
             self.model, r=16,
@@ -96,10 +96,6 @@ class REINFORCETrainer:
             lora_alpha=16, lora_dropout=0, bias="none",
             use_gradient_checkpointing="unsloth",
         )
-        # Cast LoRA params to bf16 to match base model
-        for p in self.model.parameters():
-            if p.requires_grad and p.dtype == torch.float32:
-                p.data = p.data.to(torch.bfloat16)
 
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -107,17 +103,19 @@ class REINFORCETrainer:
             self.tokenizer.tokenizer if hasattr(self.tokenizer, "tokenizer") else self.tokenizer
         )
 
-        # ── GPU 1: Frozen base model (non-stabilizing firms — inference only) ──
+        # ── GPU 1: Frozen 4-bit base model (non-stabilizing firms — inference only)
         inference_bs = getattr(args, "inference_batch_size", 32)
         max_gen_tokens = getattr(args, "max_tokens", 256)
 
         if self.device_base != self.device:
-            print(f"Loading frozen base model on {self.device_base} …", flush=True)
-            from transformers import AutoModelForCausalLM
-            self.base_model = AutoModelForCausalLM.from_pretrained(
-                model_name, dtype=torch.bfloat16, device_map=str(self.device_base),
+            print(f"Loading frozen 4-bit base model on {self.device_base} …", flush=True)
+            self.base_model, _ = FastLanguageModel.from_pretrained(
+                model_name=model_name, max_seq_length=2048,
+                load_in_4bit=True,
             )
             self.base_model.eval()
+            for p in self.base_model.parameters():
+                p.requires_grad = False
             self.inference_model_base = UnslothModel(
                 self.base_model, self.tokenizer,
                 heartbeat_func=self.heartbeat,
@@ -444,35 +442,46 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         total_loss, total_kl = 0.0, 0.0
         ok_batches, fail_batches, skipped = 0, 0, 0
         grad_norms = []
-        bs = self.args.train_batch_size
+        micro_bs = getattr(self.args, "micro_batch_size", 2)
+        effective_bs = self.args.train_batch_size
+        accum_steps = max(1, effective_bs // micro_bs)
         fmt_w = getattr(self.args, "format_reward_weight", 1.0)
 
-        for i in range(0, len(trajectories), bs):
-            self.heartbeat()
-            batch = trajectories[i:i+bs]
-            texts, prompts, rewards = [], [], []
-            for t in batch:
-                s, u, r, rw = t.get("system_prompt",""), t.get("user_prompt",""), t.get("response",""), t.get("reward")
-                valid = t.get("is_format_valid", True)
-                if rw is None or not r:
-                    skipped += 1; continue
-                bonus = fmt_w if valid else -fmt_w
-                msg = [{"role":"system","content":s},{"role":"user","content":u}]
-                p = self.tokenizer.apply_chat_template(msg, tokenize=False, add_generation_prompt=True)
-                texts.append(p + r + self.tokenizer.eos_token)
-                prompts.append(p)
-                rewards.append(rw + bonus)
+        # Prepare all samples
+        all_texts, all_prompts, all_rewards = [], [], []
+        for t in trajectories:
+            s, u, r, rw = t.get("system_prompt",""), t.get("user_prompt",""), t.get("response",""), t.get("reward")
+            valid = t.get("is_format_valid", True)
+            if rw is None or not r:
+                skipped += 1; continue
+            bonus = fmt_w if valid else -fmt_w
+            msg = [{"role":"system","content":s},{"role":"user","content":u}]
+            p = self.tokenizer.apply_chat_template(msg, tokenize=False, add_generation_prompt=True)
+            all_texts.append(p + r + self.tokenizer.eos_token)
+            all_prompts.append(p)
+            all_rewards.append(rw + bonus)
 
-            if not texts:
-                continue
+        if not all_texts:
+            FastLanguageModel.for_inference(self.model)
+            return 0.0
+
+        # Gradient accumulation loop
+        self.optimizer.zero_grad()
+        accum_loss = 0.0
+        accum_count = 0
+
+        for i in range(0, len(all_texts), micro_bs):
+            self.heartbeat()
+            texts = all_texts[i:i+micro_bs]
+            prompts = all_prompts[i:i+micro_bs]
+            rewards = all_rewards[i:i+micro_bs]
 
             try:
                 enc = self.encoding_tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=2048).to(self.device)
                 prompt_lens = [len(self.encoding_tokenizer(p, truncation=True, max_length=2048).input_ids) for p in prompts]
 
-                logits = self.model(**enc).logits.float()  # bf16→f32
-                pad_id = self.tokenizer.pad_token_id or 0
-                batch_loss = torch.tensor(0.0, device=self.device)
+                logits = self.model(**enc).logits.float()
+                micro_loss = torch.tensor(0.0, device=self.device)
                 n_valid = 0
 
                 for j in range(len(texts)):
@@ -488,7 +497,6 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                     if torch.isnan(selected).any():
                         continue
 
-                    # Advantage: running normalization + clipping
                     raw_r = rewards[j]
                     self.reward_stats.update(raw_r)
                     if self.reward_stats.n < 10:
@@ -500,31 +508,49 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                     pg = -(selected * adv).mean()
                     if torch.isnan(pg):
                         continue
-                    batch_loss = batch_loss + pg
+                    micro_loss = micro_loss + pg
                     n_valid += 1
 
                 if n_valid > 0:
-                    loss = batch_loss / n_valid
+                    # Scale loss by accumulation steps for correct gradient magnitude
+                    loss = micro_loss / (n_valid * accum_steps)
                     if torch.isnan(loss) or torch.isinf(loss):
-                        fail_batches += 1; continue
-
-                    self.optimizer.zero_grad()
-                    loss.backward()
-                    # Per-parameter grad clipping
-                    for p in self.model.parameters():
-                        if p.requires_grad and p.grad is not None:
-                            torch.nn.utils.clip_grad_norm_([p], self.grad_clip_norm)
-                    gn = sum(p.grad.norm().item()**2 for p in self.model.parameters() if p.requires_grad and p.grad is not None)**0.5
-                    grad_norms.append(gn)
-                    self.optimizer.step()
-                    total_loss += loss.item()
-                    ok_batches += 1
+                        fail_batches += 1
+                    else:
+                        loss.backward()
+                        accum_loss += loss.item() * accum_steps  # Unscale for logging
+                        accum_count += 1
+                        ok_batches += 1
 
                 del logits, enc; torch.cuda.empty_cache()
             except Exception as e:
                 print(f"  Batch failed: {e}", flush=True)
                 traceback.print_exc()
                 fail_batches += 1
+                continue
+
+            # Optimizer step after accumulation
+            if accum_count > 0 and accum_count % accum_steps == 0:
+                for p in self.model.parameters():
+                    if p.requires_grad and p.grad is not None:
+                        torch.nn.utils.clip_grad_norm_([p], self.grad_clip_norm)
+                gn = sum(p.grad.norm().item()**2 for p in self.model.parameters() if p.requires_grad and p.grad is not None)**0.5
+                grad_norms.append(gn)
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+                total_loss += accum_loss
+                accum_loss = 0.0
+
+        # Final optimizer step for remaining accumulated gradients
+        if accum_count % accum_steps != 0 and accum_count > 0:
+            for p in self.model.parameters():
+                if p.requires_grad and p.grad is not None:
+                    torch.nn.utils.clip_grad_norm_([p], self.grad_clip_norm)
+            gn = sum(p.grad.norm().item()**2 for p in self.model.parameters() if p.requires_grad and p.grad is not None)**0.5
+            grad_norms.append(gn)
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+            total_loss += accum_loss
 
         # Switch back to eval for inference
         FastLanguageModel.for_inference(self.model)
@@ -562,7 +588,8 @@ def main():
     parser.add_argument("--num_episodes", type=int, default=2)
     parser.add_argument("--num_iterations", type=int, default=25)
     parser.add_argument("--run_name", type=str, default=None)
-    parser.add_argument("--train_batch_size", type=int, default=2)
+    parser.add_argument("--train_batch_size", type=int, default=16, help="Effective batch size (via gradient accumulation)")
+    parser.add_argument("--micro_batch_size", type=int, default=2, help="Micro-batch size per forward pass (must fit in GPU memory)")
     parser.add_argument("--format_reward_weight", type=float, default=1.0)
     parser.add_argument("--inference_batch_size", type=int, default=32)
     parser.add_argument("--wandb_mode", type=str, default="offline", choices=["online","offline","disabled"])
