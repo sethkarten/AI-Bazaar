@@ -32,7 +32,6 @@ import json
 import traceback
 from typing import List, Dict, Any, Optional
 
-from unsloth import FastLanguageModel
 from transformers import AutoTokenizer
 
 from ai_bazaar.models.unsloth_model import UnslothModel
@@ -85,19 +84,31 @@ class REINFORCETrainer:
         print(f"Training GPU: {self.device} | Inference GPU: {self.device_base} ({num_gpus} GPU(s))", flush=True)
 
         # ── GPU 0: 4-bit QLoRA model (stabilizing firm — trained) ────
-        print(f"Loading {model_name} with Unsloth (4-bit QLoRA) on {self.device} …", flush=True)
-        self.model, self.tokenizer = FastLanguageModel.from_pretrained(
-            model_name=model_name, max_seq_length=2048,
+        # Use AutoModelForCausalLM to load as text-only (Unsloth loads as
+        # multimodal ConditionalGeneration which breaks in training forward)
+        from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+        from peft import get_peft_model, LoraConfig
+        print(f"Loading {model_name} as 4-bit CausalLM + LoRA on {self.device} …", flush=True)
+        bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
         )
-        self.model = FastLanguageModel.get_peft_model(
-            self.model, r=16,
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_name, quantization_config=bnb_config, device_map=str(self.device),
+        )
+        lora_cfg = LoraConfig(
+            r=16,
             target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
                             "gate_proj", "up_proj", "down_proj"],
             lora_alpha=16, lora_dropout=0, bias="none",
-            use_gradient_checkpointing="unsloth",
         )
+        self.model = get_peft_model(self.model, lora_cfg)
+        self.model.gradient_checkpointing_enable()
+        self.model.print_trainable_parameters()
 
+        from transformers import AutoTokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.encoding_tokenizer = (
@@ -110,11 +121,8 @@ class REINFORCETrainer:
 
         if self.device_base != self.device:
             print(f"Loading frozen 4-bit base model on {self.device_base} …", flush=True)
-            # Load on GPU 1 using device_map
-            self.base_model, _ = FastLanguageModel.from_pretrained(
-                model_name=model_name, max_seq_length=2048,
-                load_in_4bit=True,
-                device_map={"": self.device_base},
+            self.base_model = AutoModelForCausalLM.from_pretrained(
+                model_name, quantization_config=bnb_config, device_map=str(self.device_base),
             )
             self.base_model.eval()
             for p in self.base_model.parameters():
@@ -264,7 +272,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             examples.append((system_prompt, user, resp))
 
         # ── Train ──
-        FastLanguageModel.for_training(self.model)
+        self.model.train()
         sft_opt = torch.optim.AdamW([p for p in self.model.parameters() if p.requires_grad], lr=2e-5)
         batch_size = self.args.train_batch_size
         total_loss, total_batches = 0.0, 0
@@ -313,7 +321,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             if wandb.run:
                 wandb.log({"sft/epoch": epoch+1, "sft/loss": avg, "sft/batches": ep_batches})
 
-        FastLanguageModel.for_inference(self.model)
+        self.model.eval()
         self.model.save_pretrained(os.path.join(self.checkpoint_dir, "sft_warmup"))
         print(f"SFT warmup done: avg loss={total_loss/total_batches if total_batches else 0:.4f}\n{'='*60}\n", flush=True)
 
@@ -492,7 +500,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             all_rewards.append(rw + bonus)
 
         if not all_texts:
-            FastLanguageModel.for_inference(self.model)
+            self.model.eval()
             return 0.0
 
         # Gradient accumulation loop
