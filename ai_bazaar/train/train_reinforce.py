@@ -591,7 +591,7 @@ def main():
     parser.add_argument("--num_iterations", type=int, default=25)
     parser.add_argument("--run_name", type=str, default=None)
     parser.add_argument("--train_batch_size", type=int, default=16, help="Effective batch size (via gradient accumulation)")
-    parser.add_argument("--micro_batch_size", type=int, default=2, help="Micro-batch size per forward pass (must fit in GPU memory)")
+    parser.add_argument("--micro_batch_size", type=int, default=4, help="Micro-batch size per forward pass (must fit in GPU memory)")
     parser.add_argument("--format_reward_weight", type=float, default=1.0)
     parser.add_argument("--inference_batch_size", type=int, default=32)
     parser.add_argument("--wandb_mode", type=str, default="offline", choices=["online","offline","disabled"])
