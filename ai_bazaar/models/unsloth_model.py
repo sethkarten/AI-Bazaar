@@ -42,9 +42,9 @@ class UnslothModel(BaseLLMModel):
         self.batcher_thread.start()
 
     def _ensure_inference_mode(self):
-        """Ensure model is in inference mode (call once before batching starts)."""
+        """Ensure model is in inference mode."""
         if not self._inference_ready:
-            FastLanguageModel.for_inference(self.model)
+            self.model.eval()
             self._inference_ready = True
 
     def _batcher_loop(self):

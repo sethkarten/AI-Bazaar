@@ -465,7 +465,10 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         print(f"Training: iter {iteration}, {len(trajectories)} samples", flush=True)
         torch.cuda.empty_cache()
 
-        FastLanguageModel.for_training(self.model)
+        # Use model.train()/eval() instead of FastLanguageModel.for_training/for_inference —
+        # Unsloth's mode switching corrupts Qwen3.5's compiled forward after inference
+        self.model.train()
+        self.inference_model._inference_ready = False  # Reset so next inference call re-applies eval
         total_loss, total_kl = 0.0, 0.0
         ok_batches, fail_batches, skipped = 0, 0, 0
         grad_norms = []
@@ -580,7 +583,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             total_loss += accum_loss
 
         # Switch back to eval for inference
-        FastLanguageModel.for_inference(self.model)
+        self.model.eval()
         self.model.save_pretrained(os.path.join(self.checkpoint_dir, "latest"))
 
         dt = time.time() - t0
