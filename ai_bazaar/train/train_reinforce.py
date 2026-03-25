@@ -316,118 +316,142 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         self.model.save_pretrained(os.path.join(self.checkpoint_dir, "sft_warmup"))
         print(f"SFT warmup done: avg loss={total_loss/total_batches if total_batches else 0:.4f}\n{'='*60}\n", flush=True)
 
-    # ── Composite reward ────────────────────────────────────────────────
+    # ── Curriculum ─────────────────────────────────────────────────────
 
-    def compute_composite_rewards(self, trajectories, health_history, trainable_survived):
-        w_profit, w_survival, w_floor = self.reward_weights[:3]
-        raw = [t["reward"] for t in trajectories if t.get("reward") is not None]
-        if not raw:
-            return trajectories
-        mu, sigma = np.mean(raw), np.std(raw) + 1e-8
-        for t in trajectories:
-            if t.get("reward") is None:
-                continue
-            ts = t.get("timestep", 0)
-            h = health_history[ts] if ts < len(health_history) else {}
-            pn = (t["reward"] - mu) / sigma
-            sr = h.get("firms_alive", 1) / h.get("total_firms", 1)
-            fl = 1.0 if h.get("all_prices_above_cost", True) else 0.0
-            sb = self.survival_bonus if trainable_survived else 0.0
-            t["reward"] = w_profit * pn + w_survival * sr + w_floor * fl + sb
-        return trajectories
+    def get_num_stabilizing(self, iteration, ep_idx):
+        """Curriculum: 5/5 → 4/5 → 3/5, then sample {1..5}."""
+        if not getattr(self.args, "curriculum", True):
+            return getattr(self.args, "num_stabilizing_firms", 1)
+        if iteration < 20:
+            return 5
+        elif iteration < 40:
+            return 4
+        elif iteration < 60:
+            return 3
+        else:
+            return random.Random(self.args.seed + iteration * 1000 + ep_idx).randint(1, 5)
 
     # ── Episode collection ──────────────────────────────────────────────
 
     def collect_trajectories(self, num_episodes: int, iteration: int):
         t0 = time.time()
-        all_trajs, all_health, all_survived, stats_list = [], [], [], []
+        all_trajs, all_survived, stats_list = [], [], []
+        w_profit, w_survival, w_floor = self.reward_weights[:3]
+        market_seed = self.args.seed + iteration * 1000
 
         def run_episode(ep_idx):
             t_ep = time.time()
-            print(f"  Episode {ep_idx+1}/{num_episodes} starting", flush=True)
+
+            # Curriculum: vary num_stabilizing_firms
+            n_stab = self.get_num_stabilizing(iteration, ep_idx)
+            # Thread-safe: copy args to avoid race conditions
+            import copy
+            ep_args = copy.copy(self.args)
+            ep_args.num_stabilizing_firms = n_stab
+
+            # Fixed market structure: same costs/preferences across episodes
+            np.random.seed(market_seed)
+            random.seed(market_seed)
             world = BazaarWorld(
-                self.args,
+                ep_args,
                 llm_model=self.inference_model,
                 llm_model_base=self.inference_model_base,
             )
-            ep_util, ep_prof, ep_sales, steps, step_times = [], [], 0, 0, []
-            health = []
+            # Re-seed for episode-specific dynamics (LLM sampling, Poisson demand)
+            np.random.seed(market_seed + ep_idx + 1)
+            random.seed(market_seed + ep_idx + 1)
+
+            ep_sales, steps = 0, 0
+            total_stab_profit = 0.0
+            steps_above_cost = 0
+            max_ts = ep_args.max_timesteps
 
             while not world.is_done():
                 try:
                     st = world.step()
                 except (ValueError, RecursionError) as e:
-                    print(f"  Ep {ep_idx+1}: step {steps} crashed ({type(e).__name__}), ending early", flush=True)
+                    print(f"  Ep {ep_idx+1}: step {steps} crashed ({type(e).__name__})", flush=True)
                     break
                 steps += 1
-                step_times.append(time.time() - t_ep)
-                ep_util.append(np.mean([c["utility"] for c in st["consumers"].values()]))
-                ep_prof.append(np.mean([f["profit"] for f in st["firms"].values()]))
                 ep_sales += st["sales_count"]
-                # Market health
-                alive = sum(1 for f in world.firms if getattr(f, "in_business", True))
-                above_cost = True
+
+                # Track stabilizing firm metrics
                 for fn, fd in st["firms"].items():
                     for f in world.firms:
-                        if f.name == fn:
-                            for g, p in fd.get("prices", {}).items():
-                                if p < getattr(f, "supply_unit_costs", {}).get(g, 1.0):
-                                    above_cost = False
-                            break
-                health.append({"firms_alive": alive, "total_firms": len(world.firms), "all_prices_above_cost": above_cost})
+                        if f.name == fn and getattr(f, "stabilizing_firm", False):
+                            total_stab_profit += fd.get("profit", 0.0)
+                            prices = fd.get("prices", {})
+                            costs = getattr(f, "supply_unit_costs", {})
+                            if all(prices.get(g, 0) >= costs.get(g, 1.0) for g in costs):
+                                steps_above_cost += 1
                 self.heartbeat()
 
-            # Collect only stabilizing firm trajectories
+            # Collect stabilizing firm trajectories
             ep_trajs = []
             for agent in world.firms:
                 if getattr(agent, "stabilizing_firm", False) and hasattr(agent, "trajectory"):
                     ep_trajs.extend(agent.trajectory)
                     agent.trajectory = []
 
-            # Did the stabilizing firm survive?
             survived = any(
                 getattr(f, "in_business", True) for f in world.firms if getattr(f, "stabilizing_firm", False)
             )
+            final_alive = sum(1 for f in world.firms if getattr(f, "in_business", True))
+
+            # ── Episode return: assign SAME reward to ALL trajectories ──
+            if steps > 0:
+                episode_return = (
+                    w_profit * (total_stab_profit / max(steps, 1))
+                    + w_survival * (final_alive / len(world.firms))
+                    + w_floor * (steps_above_cost / steps)
+                    + self.survival_bonus * (1.0 if survived else 0.0)
+                )
+            else:
+                episode_return = 0.0
+
+            for traj in ep_trajs:
+                traj["reward"] = episode_return
 
             dt = time.time() - t_ep
-            avg_st = np.mean(step_times) if step_times else 0
-            print(f"  Episode {ep_idx+1}/{num_episodes} done in {dt:.1f}s ({steps} steps, {avg_st:.1f}s/step)", flush=True)
-            return ep_trajs, health, survived, {
-                "avg_utility": np.mean(ep_util) if ep_util else 0,
-                "avg_profit": np.mean(ep_prof) if ep_prof else 0,
+            if ep_idx < 3 or ep_idx == num_episodes - 1:
+                print(f"  Ep {ep_idx+1}/{num_episodes}: {steps} steps, stab={'alive' if survived else 'DEAD'}, "
+                      f"return={episode_return:.2f}, n_stab={n_stab}, {dt:.0f}s", flush=True)
+            return ep_trajs, survived, {
+                "avg_profit": total_stab_profit / max(steps, 1),
                 "total_sales": ep_sales, "steps": steps,
+                "survived": survived, "episode_return": episode_return,
+                "n_stab": n_stab,
             }
 
-        # Run episodes (sequentially if 1, parallel otherwise)
+        # Run episodes in parallel
         if num_episodes > 1:
             with concurrent.futures.ThreadPoolExecutor(max_workers=num_episodes) as ex:
                 results = list(ex.map(run_episode, range(num_episodes)))
-            for tr, h, sv, st in results:
-                all_trajs.extend(tr); all_health.append(h); all_survived.append(sv); stats_list.append(st)
+            for tr, sv, st in results:
+                all_trajs.extend(tr); all_survived.append(sv); stats_list.append(st)
         else:
-            tr, h, sv, st = run_episode(0)
-            all_trajs.extend(tr); all_health.append(h); all_survived.append(sv); stats_list.append(st)
-
-        # Apply composite reward
-        if all_health:
-            combined = max(all_health, key=len)
-            all_trajs = self.compute_composite_rewards(all_trajs, combined, any(all_survived))
+            tr, sv, st = run_episode(0)
+            all_trajs.extend(tr); all_survived.append(sv); stats_list.append(st)
 
         dt = time.time() - t0
         valid = [t for t in all_trajs if t.get("reward") is not None and t.get("response")]
-        print(f"\nCollected {len(all_trajs)} trajs ({len(valid)} valid) in {dt:.1f}s", flush=True)
+        surv_rate = np.mean(all_survived) if all_survived else 0
+        returns = [s["episode_return"] for s in stats_list]
+        avg_steps = np.mean([s["steps"] for s in stats_list])
+        print(f"\nCollected {len(all_trajs)} trajs ({len(valid)} valid) in {dt:.1f}s | "
+              f"survived={surv_rate:.0%} | avg_return={np.mean(returns):.2f} | avg_steps={avg_steps:.0f}", flush=True)
 
         if wandb.run:
-            env_r = [t["reward"] for t in all_trajs if t.get("reward") is not None]
             wandb.log({
                 "env/avg_profit": np.mean([s["avg_profit"] for s in stats_list]),
                 "env/total_sales": sum(s["total_sales"] for s in stats_list),
-                "env/survived_rate": np.mean(all_survived) if all_survived else 0,
-                "env/steps": np.mean([s["steps"] for s in stats_list]),
+                "env/survived_rate": surv_rate,
+                "env/steps": avg_steps,
+                "env/episode_return_avg": np.mean(returns),
+                "env/episode_return_std": np.std(returns),
                 "trajectories/count": len(all_trajs),
                 "trajectories/valid": len(valid),
-                "rewards/avg": np.mean(env_r) if env_r else 0,
-                "rewards/std": np.std(env_r) if env_r else 0,
+                "curriculum/n_stab_avg": np.mean([s["n_stab"] for s in stats_list]),
                 "iteration": iteration,
                 "perf/collect_time_s": dt,
             })
@@ -587,19 +611,20 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
 def main():
     parser = create_argument_parser()
     parser.add_argument("--lr", type=float, default=1e-5)
-    parser.add_argument("--num_episodes", type=int, default=2)
-    parser.add_argument("--num_iterations", type=int, default=25)
+    parser.add_argument("--num_episodes", type=int, default=64)
+    parser.add_argument("--num_iterations", type=int, default=100)
     parser.add_argument("--run_name", type=str, default=None)
-    parser.add_argument("--train_batch_size", type=int, default=16, help="Effective batch size (via gradient accumulation)")
+    parser.add_argument("--train_batch_size", type=int, default=64, help="Effective batch size (via gradient accumulation)")
     parser.add_argument("--micro_batch_size", type=int, default=4, help="Micro-batch size per forward pass (must fit in GPU memory)")
-    parser.add_argument("--format_reward_weight", type=float, default=1.0)
+    parser.add_argument("--format_reward_weight", type=float, default=2.0)
     parser.add_argument("--inference_batch_size", type=int, default=32)
     parser.add_argument("--wandb_mode", type=str, default="offline", choices=["online","offline","disabled"])
     # REINFORCE++
     parser.add_argument("--advantage_clip", type=float, default=3.0)
     parser.add_argument("--grad_clip_norm", type=float, default=0.5)
-    parser.add_argument("--reward_weights", type=str, default="0.3,0.3,0.3")
+    parser.add_argument("--reward_weights", type=str, default="0.4,0.3,0.3")
     parser.add_argument("--survival_bonus", type=float, default=5.0)
+    parser.add_argument("--curriculum", action="store_true", default=True, help="Enable curriculum: 5/5→4/5→3/5 then sample")
     # SFT warmup
     parser.add_argument("--sft_warmup", type=int, default=0, help="SFT examples (0=skip)")
     parser.add_argument("--sft_epochs", type=int, default=3)
@@ -617,8 +642,9 @@ def main():
 
     print(f"\n{'='*60}")
     print(f"REINFORCE++ | {args.num_iterations} iters × {args.num_episodes} eps")
-    print(f"Stabilizing firms: {getattr(args, 'num_stabilizing_firms', 0)}")
-    print(f"Reward: {args.reward_weights} + survival={args.survival_bonus}")
+    print(f"Stabilizing firms: {getattr(args, 'num_stabilizing_firms', 0)} (curriculum={'ON' if args.curriculum else 'OFF'})")
+    print(f"Reward: episode return (weights={args.reward_weights}, survival_bonus={args.survival_bonus})")
+    print(f"Batch: {args.train_batch_size} effective, {getattr(args, 'micro_batch_size', 4)} micro, {args.num_episodes} episodes")
     print(f"{'='*60}\n")
 
     # Optional SFT warmup
