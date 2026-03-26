@@ -402,18 +402,30 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                     ep_trajs.extend(agent.trajectory)
                     agent.trajectory = []
 
-            survived = any(
+            # ── Economic metrics for paper ──
+            stab_survived = any(
                 getattr(f, "in_business", True) for f in world.firms if getattr(f, "stabilizing_firm", False)
             )
             final_alive = sum(1 for f in world.firms if getattr(f, "in_business", True))
+            total_firms = len(world.firms)
+
+            # Per-firm-type survival and profit
+            stab_alive = sum(1 for f in world.firms if getattr(f, "stabilizing_firm", False) and getattr(f, "in_business", True))
+            stab_total = sum(1 for f in world.firms if getattr(f, "stabilizing_firm", False))
+            nonstab_alive = sum(1 for f in world.firms if not getattr(f, "stabilizing_firm", False) and getattr(f, "in_business", True))
+            nonstab_total = sum(1 for f in world.firms if not getattr(f, "stabilizing_firm", False))
+
+            # Collect final cash and prices for all firms
+            stab_cash = [f.cash for f in world.firms if getattr(f, "stabilizing_firm", False) and getattr(f, "in_business", True)]
+            nonstab_cash = [f.cash for f in world.firms if not getattr(f, "stabilizing_firm", False) and getattr(f, "in_business", True)]
 
             # ── Episode return: assign SAME reward to ALL trajectories ──
             if steps > 0:
                 episode_return = (
                     w_profit * (total_stab_profit / max(steps, 1))
-                    + w_survival * (final_alive / len(world.firms))
+                    + w_survival * (final_alive / total_firms)
                     + w_floor * (steps_above_cost / steps)
-                    + self.survival_bonus * (1.0 if survived else 0.0)
+                    + self.survival_bonus * (1.0 if stab_survived else 0.0)
                 )
             else:
                 episode_return = 0.0
@@ -423,13 +435,21 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
 
             dt = time.time() - t_ep
             if ep_idx < 3 or ep_idx == num_episodes - 1:
-                print(f"  Ep {ep_idx+1}/{num_episodes}: {steps} steps, stab={'alive' if survived else 'DEAD'}, "
-                      f"return={episode_return:.2f}, n_stab={n_stab}, {dt:.0f}s", flush=True)
-            return ep_trajs, survived, {
+                print(f"  Ep {ep_idx+1}/{num_episodes}: {steps} steps, alive={final_alive}/{total_firms}, "
+                      f"stab={'alive' if stab_survived else 'DEAD'}, return={episode_return:.2f}, n_stab={n_stab}, {dt:.0f}s", flush=True)
+            return ep_trajs, stab_survived, {
                 "avg_profit": total_stab_profit / max(steps, 1),
                 "total_sales": ep_sales, "steps": steps,
-                "survived": survived, "episode_return": episode_return,
+                "stab_survived": stab_survived, "episode_return": episode_return,
                 "n_stab": n_stab,
+                # Economic alignment metrics for paper
+                "market_survival_rate": final_alive / total_firms,
+                "stab_survival_rate": stab_alive / max(stab_total, 1),
+                "nonstab_survival_rate": nonstab_alive / max(nonstab_total, 1),
+                "stab_avg_cash": np.mean(stab_cash) if stab_cash else 0,
+                "nonstab_avg_cash": np.mean(nonstab_cash) if nonstab_cash else 0,
+                "price_floor_compliance": steps_above_cost / max(steps, 1),
+                "bankruptcy_rate": 1.0 - final_alive / total_firms,
             }
 
         # Run episodes in parallel
@@ -447,14 +467,28 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         surv_rate = np.mean(all_survived) if all_survived else 0
         returns = [s["episode_return"] for s in stats_list]
         avg_steps = np.mean([s["steps"] for s in stats_list])
+        mkt_surv = np.mean([s["market_survival_rate"] for s in stats_list])
+        stab_surv = np.mean([s["stab_survival_rate"] for s in stats_list])
+        nonstab_surv = np.mean([s["nonstab_survival_rate"] for s in stats_list])
+        bankruptcy = np.mean([s["bankruptcy_rate"] for s in stats_list])
+        floor_comp = np.mean([s["price_floor_compliance"] for s in stats_list])
         print(f"\nCollected {len(all_trajs)} trajs ({len(valid)} valid) in {dt:.1f}s | "
-              f"survived={surv_rate:.0%} | avg_return={np.mean(returns):.2f} | avg_steps={avg_steps:.0f}", flush=True)
+              f"stab_surv={stab_surv:.0%} nonstab_surv={nonstab_surv:.0%} mkt={mkt_surv:.0%} | "
+              f"return={np.mean(returns):.2f} | steps={avg_steps:.0f} | floor={floor_comp:.0%}", flush=True)
 
         if wandb.run:
             wandb.log({
                 "env/avg_profit": np.mean([s["avg_profit"] for s in stats_list]),
                 "env/total_sales": sum(s["total_sales"] for s in stats_list),
                 "env/survived_rate": surv_rate,
+                # Economic alignment metrics
+                "econ/market_survival": mkt_surv,
+                "econ/stab_survival": stab_surv,
+                "econ/nonstab_survival": nonstab_surv,
+                "econ/bankruptcy_rate": bankruptcy,
+                "econ/price_floor_compliance": floor_comp,
+                "econ/stab_avg_cash": np.mean([s["stab_avg_cash"] for s in stats_list]),
+                "econ/nonstab_avg_cash": np.mean([s["nonstab_avg_cash"] for s in stats_list]),
                 "env/steps": avg_steps,
                 "env/episode_return_avg": np.mean(returns),
                 "env/episode_return_std": np.std(returns),
