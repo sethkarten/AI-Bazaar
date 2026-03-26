@@ -274,7 +274,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         # ── Train ──
         self.model.train()
         sft_opt = torch.optim.AdamW([p for p in self.model.parameters() if p.requires_grad], lr=2e-5)
-        batch_size = self.args.train_batch_size
+        batch_size = getattr(self.args, "micro_batch_size", 4)  # SFT uses micro_batch_size (not train_batch_size)
         total_loss, total_batches = 0.0, 0
 
         for epoch in range(num_epochs):
