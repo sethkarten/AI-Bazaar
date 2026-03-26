@@ -535,21 +535,39 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             self.model.eval()
             return 0.0
 
+        # Sort by sequence length for efficient batching — short sequences together
+        # allows larger micro-batches, better GPU utilization
+        seq_lens = [len(self.encoding_tokenizer(t, truncation=False).input_ids) for t in all_texts]
+        sorted_indices = sorted(range(len(all_texts)), key=lambda i: seq_lens[i])
+        all_texts = [all_texts[i] for i in sorted_indices]
+        all_prompts = [all_prompts[i] for i in sorted_indices]
+        all_advantages = [all_advantages[i] for i in sorted_indices]
+        seq_lens = [seq_lens[i] for i in sorted_indices]
+
         n_groups = len(groups)
-        print(f"  REINFORCE++: {len(all_texts)} samples, {n_groups} timestep groups, "
-              f"kl_coeff={kl_coeff}", flush=True)
+        print(f"  REINFORCE++: {len(all_texts)} samples, {n_groups} groups, "
+              f"seq_lens=[{min(seq_lens)}-{max(seq_lens)}], kl={kl_coeff}", flush=True)
 
         # ── Step 2: Gradient accumulation with KL penalty ──
+        # Dynamic micro-batching: 2× micro_bs for short seqs (<2048), 1× for long
         self.optimizer.zero_grad()
         accum_loss = 0.0
         accum_kl = 0.0
         accum_count = 0
 
-        for i in range(0, len(all_texts), micro_bs):
+        i = 0
+        while i < len(all_texts):
             self.heartbeat()
-            texts = all_texts[i:i+micro_bs]
-            prompts = all_prompts[i:i+micro_bs]
-            advantages = all_advantages[i:i+micro_bs]
+            # Dynamic batch size based on max sequence length in this chunk
+            chunk_max_len = seq_lens[min(i + micro_bs * 2 - 1, len(seq_lens) - 1)]
+            if chunk_max_len <= 2048:
+                cur_bs = micro_bs * 2  # Double batch for short sequences
+            else:
+                cur_bs = micro_bs
+            texts = all_texts[i:i+cur_bs]
+            prompts = all_prompts[i:i+cur_bs]
+            advantages = all_advantages[i:i+cur_bs]
+            i += cur_bs
 
             try:
                 enc = self.encoding_tokenizer(texts, return_tensors="pt", padding=True,
@@ -705,7 +723,7 @@ def main():
     parser.add_argument("--train_batch_size", type=int, default=64, help="Effective batch size (via gradient accumulation)")
     parser.add_argument("--micro_batch_size", type=int, default=4, help="Micro-batch size per forward pass (must fit in GPU memory)")
     parser.add_argument("--format_reward_weight", type=float, default=2.0)
-    parser.add_argument("--inference_batch_size", type=int, default=32)
+    parser.add_argument("--inference_batch_size", type=int, default=128)
     parser.add_argument("--wandb_mode", type=str, default="offline", choices=["online","offline","disabled"])
     # REINFORCE++
     parser.add_argument("--advantage_clip", type=float, default=3.0)
