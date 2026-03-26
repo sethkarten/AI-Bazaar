@@ -218,7 +218,7 @@ class LLMAgent:
 
         # Extract expected format from message_history if available
         expected_format = None
-        if timestep in self.message_history:
+        if isinstance(timestep, int) and 0 <= timestep < len(self.message_history):
             expected_format = self.message_history[timestep].get(
                 "expected_format", None
             )

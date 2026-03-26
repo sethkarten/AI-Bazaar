@@ -1,17 +1,19 @@
 """
-Fig Exp2-D: Experiment 2 — Consumer Welfare Under Sybil Conditions
+Fig Exp2-D: Consumer Welfare — average consumer surplus over time per condition.
 
-Row 1: Average consumer surplus per transaction (per n_sybil, mean ± 1σ across seeds)
-Row 2: Cumulative consumer surplus over time, averaged per buyer (per n_sybil, mean ± 1σ)
+Single panel: mean consumer surplus per timestep, lines per (K, rep_visible).
+Lines coloured by K; solid = rep visible, dashed = rep hidden.
+Mean ± 1σ bands across seeds.
+
+Uses lemon_market_avg_consumer_surplus from state files (the per-step average
+surplus among buyers who transacted that timestep).
 
 Usage:
-    python exp2_lemon_consumer_welfare.py [--logs-dir logs/] [--good car] [--output ...] [--workers 8]
+    python exp2_lemon_consumer_welfare.py [--logs-dir logs/] [--good car] [--output ...]
 """
 
 import argparse
 import concurrent.futures
-import glob
-import json
 import os
 import sys
 
@@ -21,263 +23,49 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
-from ai_bazaar.utils.dataframe_builder import DataFrameBuilder
-from exp2_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data
+from exp2_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data, infer_name_prefix
+from exp2_common import (
+    SEEDS, K_VALUES, COLORS_K, LS_REP,
+    resolve_run_dir, collect_all_run_dirs,
+    load_state_files, build_aggregate, serialize_agg, deserialize_agg, plot_band,
+)
 
 plt.rcParams.update({
-    "font.family":       "serif",
-    "font.size":         9,
-    "axes.labelsize":    9,
-    "axes.titlesize":    10,
-    "xtick.labelsize":   8,
-    "ytick.labelsize":   8,
-    "legend.fontsize":   8,
-    "lines.linewidth":   1.5,
-    "lines.markersize":  5,
-    "axes.linewidth":    0.8,
-    "axes.grid":         True,
-    "axes.axisbelow":    True,
-    "grid.alpha":        0.3,
-    "grid.linewidth":    0.5,
-    "grid.color":        "gray",
-    "legend.frameon":    True,
-    "legend.framealpha": 0.9,
-    "legend.edgecolor":  "0.8",
-    "figure.dpi":        100,
-    "savefig.dpi":       300,
-    "savefig.bbox":      "tight",
-    "savefig.pad_inches": 0.01,
-    "text.usetex":       False,
-    "pdf.fonttype":      42,
+    "font.family": "serif", "font.size": 9,
+    "axes.labelsize": 9, "axes.titlesize": 10,
+    "xtick.labelsize": 8, "ytick.labelsize": 8, "legend.fontsize": 8,
+    "lines.linewidth": 1.5, "axes.linewidth": 0.8,
+    "axes.grid": True, "axes.axisbelow": True,
+    "grid.alpha": 0.3, "grid.linewidth": 0.5, "grid.color": "gray",
+    "legend.frameon": True, "legend.framealpha": 0.9, "legend.edgecolor": "0.8",
+    "figure.dpi": 100, "savefig.dpi": 300,
+    "savefig.bbox": "tight", "savefig.pad_inches": 0.01,
+    "text.usetex": False, "pdf.fonttype": 42,
 })
 
-SEEDS = [8, 16, 64]
-N_SYBIL_VALUES = [0, 3, 6, 9, 12]
-RHO_MIN = 0.3
-
-COLORS_N_SYBIL = {
-    0:  "#999999",
-    3:  "#56B4E9",
-    6:  "#E69F00",
-    9:  "#009E73",
-    12: "#D55E00",
-}
-
 
 # ---------------------------------------------------------------------------
-# Run directory helpers
+# Metric extraction
 # ---------------------------------------------------------------------------
 
-def resolve_run_dir(logs_dir, n_sybil, seed):
-    if n_sybil == 0:
-        path = os.path.join(logs_dir, "exp2", f"exp2_baseline_seed{seed}")
-    else:
-        path = os.path.join(logs_dir, "exp2", f"exp2_sybil_{n_sybil}_rho{RHO_MIN}_seed{seed}")
-    return path if os.path.isdir(path) else None
-
-
-def collect_run_dirs(logs_dir):
-    dirs = []
-    for n in N_SYBIL_VALUES:
-        for s in SEEDS:
-            d = resolve_run_dir(logs_dir, n, s)
-            if d:
-                dirs.append(d)
-    return dirs
-
-
-def load_states(run_dir):
-    files = glob.glob(os.path.join(run_dir, "state_t*.json"))
-    files.sort(key=lambda p: int("".join(filter(str.isdigit, os.path.basename(p))) or "0"))
-    valid = []
+def get_welfare_series(run_dir: str):
+    """Return (ts_array, surplus_array) or None."""
+    import json
+    files = load_state_files(run_dir)
+    if not files:
+        return None
+    pts = []
     for p in files:
-        if os.path.getsize(p) == 0:
-            continue
-        try:
-            with open(p) as f:
-                json.load(f)
-            valid.append(p)
-        except (json.JSONDecodeError, OSError):
-            pass
-    return valid
-
-
-# ---------------------------------------------------------------------------
-# Metric extractors
-# ---------------------------------------------------------------------------
-
-def get_avg_cs_series(run_dir):
-    """
-    Returns (timesteps, avg_consumer_surplus_per_step) or None.
-    Uses lemon_market_avg_consumer_surplus state key via DataFrameBuilder.
-    """
-    files = load_states(run_dir)
-    if not files:
+        with open(p) as f:
+            s = json.load(f)
+        t = s.get("timestep")
+        v = s.get("lemon_market_avg_consumer_surplus")
+        if t is not None and v is not None:
+            pts.append((t, float(v)))
+    if not pts:
         return None
-    db = DataFrameBuilder(state_files=files)
-    df = db.lemon_avg_consumer_surplus_over_time()
-    if df.empty:
-        return None
-    df = df.sort_values("timestep")
-    return df["timestep"].values, df["value"].values
-
-
-def get_cum_cs_series(run_dir):
-    """
-    Returns (timesteps, mean_cumulative_CS_across_consumers_per_step) or None.
-
-    At each timestep, takes the mean of consumer_surplus_cumulative across all
-    consumers, yielding one scalar per step representing the average buyer's
-    cumulative surplus so far.
-    """
-    files = load_states(run_dir)
-    if not files:
-        return None
-    db = DataFrameBuilder(state_files=files)
-    df = db.lemon_consumer_surplus_cumulative_per_buyer_over_time()
-    if df.empty:
-        return None
-    per_ts = (
-        df.groupby("timestep")["value"]
-        .mean()
-        .reset_index()
-        .sort_values("timestep")
-    )
-    if per_ts.empty:
-        return None
-    return per_ts["timestep"].values, per_ts["value"].values
-
-
-def load_one_run(run_dir):
-    avg_cs = get_avg_cs_series(run_dir)
-    cum_cs = get_cum_cs_series(run_dir)
-    return {"avg_cs": avg_cs, "cum_cs": cum_cs}
-
-
-# ---------------------------------------------------------------------------
-# Interpolation helper
-# ---------------------------------------------------------------------------
-
-def interp_common(ts_list, val_list):
-    if not ts_list:
-        return None, None
-    t_min = int(min(ts[0] for ts in ts_list))
-    t_max = int(max(ts[-1] for ts in ts_list))
-    common = np.arange(t_min, t_max + 1, dtype=float)
-    arr = np.array([
-        np.interp(common, ts.astype(float), v.astype(float))
-        for ts, v in zip(ts_list, val_list)
-    ])
-    return common, arr
-
-
-# ---------------------------------------------------------------------------
-# Cache serialisation
-# ---------------------------------------------------------------------------
-
-def build_cs_agg(results_by_n, cs_key):
-    """
-    Aggregate a consumer-surplus metric across seeds per n_sybil.
-    Returns dict: {n_sybil_str: {"ts": [...], "mean": [...], "std": [...]}} or None entries.
-    """
-    agg = {}
-    for n in N_SYBIL_VALUES:
-        seed_data = results_by_n.get(n, {})
-        series = [v[cs_key] for v in seed_data.values() if v.get(cs_key) is not None]
-        if not series:
-            agg[str(n)] = None
-            continue
-        ts_list  = [s[0] for s in series]
-        val_list = [s[1] for s in series]
-        common, arr = interp_common(ts_list, val_list)
-        if common is None:
-            agg[str(n)] = None
-            continue
-        mean_v = arr.mean(axis=0)
-        std_v  = arr.std(axis=0) if arr.shape[0] > 1 else np.zeros_like(mean_v)
-        agg[str(n)] = {
-            "ts":   common.tolist(),
-            "mean": mean_v.tolist(),
-            "std":  std_v.tolist(),
-        }
-    return agg
-
-
-def _deserialize_agg(raw):
-    out = {}
-    for n in N_SYBIL_VALUES:
-        entry = raw.get(str(n))
-        if entry is None:
-            out[n] = None
-        else:
-            out[n] = {
-                "ts":   np.array(entry["ts"]),
-                "mean": np.array(entry["mean"]),
-                "std":  np.array(entry["std"]),
-            }
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Plotting helpers
-# ---------------------------------------------------------------------------
-
-def plot_band(ax, agg_entry, color, label, lw=1.8, ls="-"):
-    if agg_entry is None:
-        return
-    ts   = agg_entry["ts"]
-    mean = agg_entry["mean"]
-    std  = agg_entry["std"]
-    ax.plot(ts, mean, color=color, lw=lw, ls=ls, label=label, zorder=4)
-    if np.any(std > 0):
-        ax.fill_between(ts, mean - std, mean + std, color=color, alpha=0.15, zorder=3)
-
-
-# ---------------------------------------------------------------------------
-# Figure
-# ---------------------------------------------------------------------------
-
-def make_figure(avg_cs_agg, cum_cs_agg):
-    fig, axes = plt.subplots(
-        2, 1,
-        figsize=(7, 6),
-        constrained_layout=True,
-    )
-    fig.suptitle(
-        "Experiment 2: Lemon Market — Consumer Welfare",
-        fontweight="bold",
-        fontsize=10,
-    )
-
-    # --- Row 1: Avg CS per transaction ---
-    ax = axes[0]
-    for n in N_SYBIL_VALUES:
-        entry = avg_cs_agg.get(n)
-        ls  = "--" if n == 0 else "-"
-        lbl = f"n_sybil={n}" + (" (baseline)" if n == 0 else "")
-        plot_band(ax, entry, COLORS_N_SYBIL[n], lbl, ls=ls)
-    ax.set_ylabel("Avg consumer surplus per transaction")
-    ax.set_title(
-        "Average consumer surplus per transaction (mean ± 1σ across seeds)"
-    )
-    ax.legend(loc="best")
-    ax.set_xlabel("Timestep")
-
-    # --- Row 2: Cumulative CS per buyer ---
-    ax = axes[1]
-    for n in N_SYBIL_VALUES:
-        entry = cum_cs_agg.get(n)
-        ls  = "--" if n == 0 else "-"
-        lbl = f"n_sybil={n}" + (" (baseline)" if n == 0 else "")
-        plot_band(ax, entry, COLORS_N_SYBIL[n], lbl, ls=ls)
-    ax.set_ylabel("Cumulative consumer surplus (avg per buyer)")
-    ax.set_title(
-        "Cumulative consumer surplus per buyer over time (mean ± 1σ across seeds)"
-    )
-    ax.legend(loc="best")
-    ax.set_xlabel("Timestep")
-
-    return fig
+    pts.sort()
+    return np.array([x[0] for x in pts]), np.array([x[1] for x in pts])
 
 
 # ---------------------------------------------------------------------------
@@ -285,73 +73,81 @@ def make_figure(avg_cs_agg, cum_cs_agg):
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Exp2 Fig D: Consumer Welfare")
-    parser.add_argument("--logs-dir", default="logs/")
-    parser.add_argument("--good", default="car")
-    parser.add_argument(
-        "--output",
-        default=os.path.join(
-            os.path.dirname(__file__), "..", "..", "exp2", "exp2_lemon_consumer_welfare.pdf"
-        ),
-    )
-    parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--force", action="store_true", help="Ignore cache and rebuild from scratch")
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser(description="Exp2 Fig D: Consumer Welfare")
+    ap.add_argument("--logs-dir", default="logs/")
+    ap.add_argument("--good", default="car")
+    ap.add_argument("--output", default=os.path.join(
+        os.path.dirname(__file__), "..", "..", "exp2", "exp2_lemon_consumer_welfare.pdf"))
+    ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--force", action="store_true")
+    args = ap.parse_args()
 
+    name_prefix = infer_name_prefix(args.logs_dir)
+    print(f"Auto-detected name_prefix: {name_prefix}", flush=True)
+
+    run_dirs   = collect_all_run_dirs(args.logs_dir, name_prefix, include_baseline=True)
     data_dir   = get_data_dir(args.output)
     cache_path = get_cache_path(data_dir, "exp2_lemon_consumer_welfare", args.good)
-    run_dirs   = collect_run_dirs(args.logs_dir)
 
     if not args.force and is_cache_fresh(cache_path, run_dirs, args.logs_dir, args.good):
         print(f"Using cached data: {cache_path}", flush=True)
-        raw = load_cache_data(cache_path)
-        avg_cs_agg = _deserialize_agg(raw["avg_cs"])
-        cum_cs_agg = _deserialize_agg(raw["cum_cs"])
+        agg = deserialize_agg(load_cache_data(cache_path)["agg"])
     else:
         jobs = []
-        for n in N_SYBIL_VALUES:
-            for seed in SEEDS:
-                run_dir = resolve_run_dir(args.logs_dir, n, seed)
-                if run_dir:
-                    jobs.append((n, seed, run_dir))
-                else:
-                    print(f"  Missing: n_sybil={n}, seed={seed}", flush=True)
+        # Include K=0 baseline (rep_visible=True only)
+        for k in [0] + K_VALUES:
+            rep_opts = [True] if k == 0 else [True, False]
+            for rv in rep_opts:
+                for seed in SEEDS:
+                    d = resolve_run_dir(args.logs_dir, name_prefix, k, rv, seed)
+                    if d:
+                        jobs.append((k, rv, seed, d))
+                    else:
+                        print(f"  Missing: K={k} rep={int(rv)} seed={seed}", flush=True)
 
         print(f"Loading {len(jobs)} runs ...", flush=True)
-        results_by_n = {n: {} for n in N_SYBIL_VALUES}
-
+        results: dict = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as ex:
-            future_map = {
-                ex.submit(load_one_run, run_dir): (n, seed)
-                for n, seed, run_dir in jobs
-            }
-            done = 0
-            total = len(jobs)
+            future_map = {ex.submit(get_welfare_series, d): (k, rv, seed) for k, rv, seed, d in jobs}
+            done, total = 0, len(jobs)
             for future in concurrent.futures.as_completed(future_map):
-                n, seed = future_map[future]
+                k, rv, seed = future_map[future]
                 done += 1
-                data = future.result()
-                has_avg = data["avg_cs"] is not None
-                has_cum = data["cum_cs"] is not None
-                print(
-                    f"  [{done}/{total}] n_sybil={n} seed={seed}"
-                    f" — avg_cs={'ok' if has_avg else 'empty'}"
-                    f", cum_cs={'ok' if has_cum else 'empty'}",
-                    flush=True,
-                )
-                results_by_n[n][seed] = data
+                results[(k, rv, seed)] = future.result()
+                print(f"  [{done}/{total}] K={k} rep={int(rv)} seed={seed} — "
+                      f"{'ok' if results[(k, rv, seed)] else 'empty'}", flush=True)
 
-        avg_cs_agg = build_cs_agg(results_by_n, "avg_cs")
-        cum_cs_agg = build_cs_agg(results_by_n, "cum_cs")
-
-        cache_data = {"avg_cs": avg_cs_agg, "cum_cs": cum_cs_agg}
+        agg = build_aggregate(results)
+        cache_data = {"agg": serialize_agg(agg)}
         save_cache(cache_path, cache_data, args.logs_dir, args.good)
-        print(f"Cached data: {cache_path}", flush=True)
+        print(f"Cached: {cache_path}", flush=True)
+        agg = deserialize_agg(cache_data["agg"])
 
-        avg_cs_agg = _deserialize_agg(avg_cs_agg)
-        cum_cs_agg = _deserialize_agg(cum_cs_agg)
+    # ── Figure ──────────────────────────────────────────────────────────────
+    fig, ax = plt.subplots(1, 1, figsize=(7, 3.5), constrained_layout=True)
+    fig.suptitle("Consumer Surplus over Time", fontsize=10, fontweight="bold")
 
-    fig = make_figure(avg_cs_agg, cum_cs_agg)
+    # Baseline K=0
+    b_entry = agg.get((0, True))
+    if b_entry is not None:
+        plot_band(ax, b_entry, COLORS_K[0], "K=0 (baseline)", ls="-")
+
+    for k in K_VALUES:
+        color = COLORS_K[k]
+        sat   = k / 12
+        for rv in [True, False]:
+            entry = agg.get((k, rv))
+            if entry is None:
+                continue
+            rep_tag = "rep" if rv else "no-rep"
+            lbl = f"K={k} ({sat:.0%}), {rep_tag}"
+            plot_band(ax, entry, color, lbl, ls=LS_REP[rv])
+
+    ax.axhline(0.0, color="#555555", lw=1.2, ls=":", alpha=0.7, zorder=2, label="Break-even ($=0$)")
+    ax.set_xlabel("Timestep")
+    ax.set_ylabel("Avg. consumer surplus (\\$)")
+    ax.legend(loc="best", fontsize=7.5)
+
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)
     print(f"Saved: {args.output}")

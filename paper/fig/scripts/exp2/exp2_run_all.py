@@ -2,7 +2,11 @@
 Master script: runs all Experiment 2 figure scripts.
 
 Usage:
-    python exp2_run_all.py [--logs-dir logs/] [--good food] [--fig-dir paper/fig/exp2/]
+    python exp2_run_all.py --src <logs-subdir> [--dst <fig-subdir>] [--good car]
+    python exp2_run_all.py [--logs-dir logs/] [--good car] [--fig-dir paper/fig/exp2/]
+
+--src sets the subdirectory within logs/ to read from.
+--dst sets the subdirectory within paper/fig/exp2/ to write to (defaults to --src name).
 """
 
 import argparse
@@ -20,19 +24,37 @@ SCRIPTS = [
     "exp2_lemon_consumer_welfare.py",
     "exp2_sybil_revenue_share.py",
     "exp2_market_collapse.py",
+    "exp2_tokens.py",
+    "exp2_heatmap.py",
 ]
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run all Exp2 figure scripts")
-    parser.add_argument("--logs-dir", default="logs/")
-    parser.add_argument("--good", default="food")
-    parser.add_argument("--fig-dir", default=os.path.join(SCRIPTS_DIR, "..", "..", "exp2"))
+    parser.add_argument("--src", default=None,
+                        help="Subdirectory within logs/ to read from (e.g. 'exp2_gemini-2.5-flash')")
+    parser.add_argument("--dst", default=None,
+                        help="Subdirectory within paper/fig/exp2/ to write to; defaults to --src name")
+    parser.add_argument("--logs-dir", default="logs/",
+                        help="Base logs directory (overridden by --src if provided)")
+    parser.add_argument("--good", default="car")
+    parser.add_argument("--fig-dir", default=os.path.join(SCRIPTS_DIR, "..", "..", "exp2"),
+                        help="Base fig directory (overridden by --dst/--src if provided)")
     parser.add_argument("--workers", type=int, default=8, help="Parallel load workers per script")
     parser.add_argument("--force", action="store_true", help="Ignore cache and rebuild from scratch")
     args = parser.parse_args()
 
-    fig_dir = os.path.abspath(args.fig_dir)
+    if args.src:
+        logs_dir = os.path.join(args.logs_dir, args.src)
+    else:
+        logs_dir = args.logs_dir
+
+    dst_name = args.dst or args.src
+    if dst_name:
+        fig_dir = os.path.abspath(os.path.join(args.fig_dir, dst_name))
+    else:
+        fig_dir = os.path.abspath(args.fig_dir)
+
     os.makedirs(fig_dir, exist_ok=True)
 
     outputs = {
@@ -42,6 +64,8 @@ def main():
         "exp2_lemon_consumer_welfare.py":   os.path.join(fig_dir, "exp2_lemon_consumer_welfare.pdf"),
         "exp2_sybil_revenue_share.py":      os.path.join(fig_dir, "exp2_sybil_revenue_share.pdf"),
         "exp2_market_collapse.py":          os.path.join(fig_dir, "exp2_market_collapse.pdf"),
+        "exp2_tokens.py":                   os.path.join(fig_dir, "exp2_tokens.pdf"),
+        "exp2_heatmap.py":                  os.path.join(fig_dir, "exp2_heatmap.pdf"),
     }
 
     # Launch all scripts in parallel
@@ -51,7 +75,7 @@ def main():
         output_path = outputs[script_name]
         cmd = [
             sys.executable, script_path,
-            "--logs-dir", args.logs_dir,
+            "--logs-dir", logs_dir,
             "--good", args.good,
             "--output", output_path,
             "--workers", str(args.workers),

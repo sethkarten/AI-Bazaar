@@ -42,7 +42,7 @@ QUALITY_DICT = {
 }
 
 # Lemon market: fixed dollar value per quality tier and max valuation
-QUALITY_VALUE_MAP = {'mint': 50000, 'good': 30000, 'fair': 15000, 'poor': 5000}
+QUALITY_VALUE_MAP = {'mint': 50000, 'good': 35000, 'fair': 20000, 'poor': 5000}
 V_MAX = 50000  # quality 1.0 -> $50,000; CS = quality_value * V_MAX - price_paid
 
 # Ordered tiers for Sybil misrepresentation: advertise one tier above true quality

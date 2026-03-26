@@ -115,17 +115,22 @@ After runs have produced state files, generate figures from the **project root**
 Use `--src` to point at the model-specific subdirectory inside `logs/` where runs are stored. `--src` also sets the model prefix automatically (e.g. `exp1_gemini-2.5-flash` → `--model gemini-2.5-flash`). Output PDFs go to `paper/fig/exp1/<src-name>/`.
 
 ```bash
-# All figures for a Gemini 2.5 Flash sweep
+# Regenerate all Exp1 figures — reads from logs/exp1_gemini-2.5-flash/, writes to paper/fig/exp1/exp1_gemini-2.5-flash/
 python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash
 
-# All figures for a Claude Sonnet sweep
-python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_anthropic_claude-sonnet-4.6
+# --dst overrides the output subdirectory (defaults to --src name)
+python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash --dst my_run
 
-# Override output directory
-python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash --dst my_figs
+# Optional arguments
+#   --src DIR        subdirectory within logs/ to read from
+#   --dst DIR        subdirectory within paper/fig/exp1/ to write to (default: --src name)
+#   --logs-dir DIR   base logs directory (default: logs/)
+#   --good NAME      good name for price/volume metrics (default: food)
+#   --fig-dir DIR    base output directory for PDFs (default: paper/fig/exp1/)
 
-# Run with more parallel workers (speeds up state-file loading)
-python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash --workers 12
+# Single figure
+python paper/fig/scripts/exp1/exp1_heatmap.py --logs-dir logs/exp1_gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_score.py   --logs-dir logs/exp1_gemini-2.5-flash
 ```
 
 ---
@@ -383,56 +388,149 @@ python -m ai_bazaar.main --name exp1_stab_5_dlc5_seed64 --use-cost-pref-gen --ma
 
 ---
 
-## Experiment 2
+## EXPERIMENT 2
 
-**Scenario:** LEMON_MARKET — LLM firms sell used cars, LLM buyers bid/pass, Sybil cluster misrepresents quality. Reputation EMA governs trust; Sybil identities rotate when reputation falls below `rho_min`.
+**Scenario:** LEMON_MARKET — LLM sellers (honest + Sybil cluster) post used-car listings; LLM buyers bid/pass based on description, price, and seller reputation. Sybil identities rotate when their rolling-window reputation drops below `rho_min`. Ablation: reputation visible vs. hidden.
 
-**Common settings:** 5 LLM firms (3 honest + 2 Sybil), 5 LLM buyers, 20 timesteps, `--consumer-scenario LEMON_MARKET`, `--no-diaries`, `--prompt-algo cot`, `--max-tokens 512`, `--llm gemini-2.5-flash`, `--reputation-alpha 0.9`, `--reputation-initial 0.8`, `--sybil-rho-min 0.3`, `--discovery-limit-consumers 5`.
+**Common settings:** 12 total LLM sellers (honest = 12 − K, sybil = K), 12 LLM buyers, 50 timesteps, `--discovery-limit-consumers 3`, `--no-diaries`, `--prompt-algo cot`, `--max-tokens 2000`, `--llm gemini-2.5-flash`, `--reputation-initial 0.8`, `--reputation-pseudo-count 10`, `--sybil-rho-min 0.3`. Seller personas distributed evenly across `standard/detailed/terse/optimistic` for the honest slot count.
 
 ### Tests
 
-Unit tests — verify SellerAgent, SybilIdentity, DeceptivePrincipal, and BazaarWorld construction without any LLM calls:
+Unit tests — verify SellerAgent, SybilIdentity, DeceptivePrincipal, and BazaarWorld construction without LLM calls:
 
 ```bash
 conda run -n AI-Bazaar python -m pytest tests/test_lemon_market.py -v
 ```
 
-Smoke test — verifies the full pipeline (BuyerAgent LLM calls, honest SellerAgent listings, DeceptivePrincipal sybil cluster, market clearing, reputation updates, identity rotation) runs without error. Use a short episode and cheap token budget.
+Smoke test — full pipeline (BuyerAgent LLM calls, honest SellerAgent listings, DeceptivePrincipal sybil cluster, market clearing, rolling-window reputation, identity rotation). K=2, 10 honest sellers, 2 sybil, 12 total:
 
 ```bash
-python -m ai_bazaar.main --name exp2_smoke --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 5 --num-consumers 5 --max-timesteps 5 --sybil-cluster-size 2 --reputation-alpha 0.9 --reputation-initial 0.8 --sybil-rho-min 0.3 --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
+conda run -n AI-Bazaar python -m ai_bazaar.main --name exp2_smoke --consumer-scenario LEMON_MARKET --firm-type LLM --num-sellers 12 --num-buyers 12 --max-timesteps 5 --sybil-cluster-size 2 --seller-type LLM --seller-personas "standard:3,detailed:3,terse:2,optimistic:2" --reputation-initial 0.8 --reputation-pseudo-count 10 --sybil-rho-min 0.3 --discovery-limit-consumers 3 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
 ```
 
-Ablation smoke test — same run with `--no-buyer-rep` to confirm seller reputation is withheld from buyer observations:
+Vote-based reputation test — K=6 (50% saturation), 6 honest + 6 sybil = 12 total, at short episode length:
 
 ```bash
-python -m ai_bazaar.main --name exp2_smoke_no_rep --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 5 --num-consumers 5 --max-timesteps 5 --sybil-cluster-size 2 --reputation-alpha 0.9 --reputation-initial 0.8 --sybil-rho-min 0.3  --discovery-limit-consumers 5 --no-buyer-rep --llm gemini-2.5-flash --max-tokens 512 --prompt-algo cot --no-diaries --seed 42
+conda run -n AI-Bazaar python -m ai_bazaar.main --name exp2_vote_rep_test --consumer-scenario LEMON_MARKET --firm-type LLM --num-sellers 12 --num-buyers 12 --max-timesteps 10 --sybil-cluster-size 6 --seller-type LLM --seller-personas "standard:2,detailed:2,terse:1,optimistic:1" --reputation-initial 0.8 --reputation-pseudo-count 10 --sybil-rho-min 0.3 --discovery-limit-consumers 3 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
 ```
 
-Exp2 Setup. (Test)
+---
+
+### `scripts/exp2.py` — Experiment 2 runner
+
+`scripts/exp2.py` runs the full 3×3×2 matrix and supports flexible subsetting. Always run from the **project root**.
+
+**Full matrix:** 24 runs — 6 baseline (K=0 × rep\_visible ∈ {True,False} × seeds {8,16,64}) + 18 sybil grid (K ∈ {3,6,9} × rep\_visible ∈ {True,False} × seeds {8,16,64}).
+
+**Fixed settings:** `--num-sellers 12` always; honest = 12 − K; sybil saturation 25% / 50% / 75%; `rho_min=0.3`; `discovery-limit-consumers=3`; `max-timesteps=50`. Run logs go to `logs/exp2/`; state files go to `logs/<run_name>/`.
+
+#### Basic usage
 
 ```bash
-python -m ai_bazaar.main --name exp2_lemon_base_test --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 10 --num-consumers 10 --max-timesteps 30 --sybil-cluster-size 5 --reputation-alpha 0.9 --reputation-initial 0.8 --sybil-rho-min 0.3  --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
+# Run everything sequentially (default)
+python scripts/exp2.py
+
+# Run in parallel — keep workers low (2–4) to respect API rate limits
+python scripts/exp2.py --workers 3
 ```
 
+#### Model / service
+
 ```bash
-python -m ai_bazaar.main --name exp2_lemon_base_test2 --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 10 --num-consumers 10 --max-timesteps 30 --sybil-cluster-size 5 --reputation-alpha 0.9 --reputation-initial 0.8 --sybil-rho-min 0.3  --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
+# Different Gemini model
+python scripts/exp2.py --llm gemini-2.0-flash
+
+# OpenRouter (e.g. Claude Sonnet via Anthropic)
+python scripts/exp2.py --llm anthropic/claude-sonnet-4-6 --openrouter-provider anthropic
+
+# Ollama (local GPU) — start Ollama first with OLLAMA_NUM_PARALLEL=4
+python scripts/exp2.py --llm gemma3:4b --service ollama --port 11434
+
+# vLLM local server
+python scripts/exp2.py --llm google/gemma-3-4b-it --service vllm --port 8009
 ```
 
+#### Prompt algorithm
+
 ```bash
-python -m ai_bazaar.main --name exp2_lemon_base_test3 --allow-persistent-listings --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 10 --num-consumers 10 --max-timesteps 30 --sybil-cluster-size 5 --reputation-alpha 0.9 --reputation-initial 0.8 --sybil-rho-min 0.3  --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
+# Default is cot; override for ablation or faster runs
+python scripts/exp2.py --prompt-algo io
+python scripts/exp2.py --prompt-algo cot
 ```
 
-Heterogeneous personas — honest sellers use mixed description styles (`detailed`, `terse`, `optimistic`), sybil cluster active, listing persistence enabled. Verifies `--seller-personas`, `--seller-type LLM`, and `--allow-listing-persistence` all wire through correctly.
+#### Prompt logging
 
 ```bash
-python -m ai_bazaar.main --name exp2_personas_smoke3 --consumer-scenario LEMON_MARKET --firm-type LLM --num-firms 10 --num-consumers 10 --max-timesteps 10 --sybil-cluster-size 4 --seller-type LLM --seller-personas "detailed:2,terse:2" --allow-listing-persistence --reputation-alpha 0.8 --reputation-initial 0.8 --sybil-rho-min 0.3 --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
+# Log buyer bid/review prompts to lemon_agent_prompts.jsonl
+python scripts/exp2.py --log-buyer-prompts
+
+# Log seller (honest LLM + sybil principal) prompts
+python scripts/exp2.py --log-seller-prompts
+
+# Log both
+python scripts/exp2.py --log-buyer-prompts --log-seller-prompts
 ```
 
-Vote-based reputation test — exercises the new review system: buyers make a second LLM call per transaction to upvote/downvote sellers, sybil sellers accumulate downvotes and rotate when reputation falls below `rho_min`. Uses exp2 production settings (12 sellers, 12 buyers, heterogeneous personas) at short episode length.
+#### Filtering runs
+
+All filters combine with AND logic. Use `--list` to preview before executing.
 
 ```bash
-python -m ai_bazaar.main --name exp2_vote_rep_test --consumer-scenario LEMON_MARKET --firm-type LLM --num-sellers 12 --num-buyers 12 --max-timesteps 10 --sybil-cluster-size 6 --seller-type LLM --seller-personas "standard:3,detailed:3,terse:3,optimistic:3" --reputation-initial 0.8 --reputation-pseudo-count 10 --sybil-rho-min 0.3 --discovery-limit-consumers 5 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
+# Preview all matching runs without executing
+python scripts/exp2.py --list
+
+# Baseline only (K=0)
+python scripts/exp2.py --k 0
+
+# Only K=3 and K=6 sybil cells
+python scripts/exp2.py --k 3 6
+
+# Only rep-visible cells (1=visible, 0=hidden)
+python scripts/exp2.py --rep-visible 1
+
+# Only rep-hidden cells
+python scripts/exp2.py --rep-visible 0
+
+# Only seed=8
+python scripts/exp2.py --seeds 8
+
+# Combine filters: K=9, rep hidden, seeds 8 and 16
+python scripts/exp2.py --k 9 --rep-visible 0 --seeds 8 16
+
+# Specific runs by exact label
+python scripts/exp2.py --run exp2_gemini-2.5-flash_k0_rep1_seed8 exp2_gemini-2.5-flash_k6_rep0_seed16
+
+# Skip runs whose log directory already exists (resume a partial sweep)
+python scripts/exp2.py --skip-existing
+```
+
+#### Experiment 2 figures
+
+After runs have produced state files under `logs/<run_name>/`, generate figures from the **project root**. Figure scripts live in `paper/fig/scripts/exp2/` and write PDFs to `paper/fig/exp2/` by default.
+
+```bash
+# Regenerate all Exp2 figures — reads from logs/exp2_gemini-2.5-flash/, writes to paper/fig/exp2/exp2_gemini-2.5-flash/
+python paper/fig/scripts/exp2/exp2_run_all.py --src exp2_gemini-2.5-flash
+
+# --dst overrides the output subdirectory (defaults to --src name)
+python paper/fig/scripts/exp2/exp2_run_all.py --src exp2_gemini-2.5-flash --dst my_run
+
+# Optional arguments
+#   --src DIR        subdirectory within logs/ to read from
+#   --dst DIR        subdirectory within paper/fig/exp2/ to write to (default: --src name)
+#   --logs-dir DIR   base logs directory (default: logs/)
+#   --good NAME      good name for price/volume metrics (default: car)
+#   --fig-dir DIR    base output directory for PDFs (default: paper/fig/exp2/)
+#   --workers N      parallel load workers per script (default: 8)
+#   --force          ignore cache and rebuild from scratch
+
+# Single figure
+python paper/fig/scripts/exp2/exp2_sybil_detection.py          --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_lemon_volume.py             --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_lemon_reputation_quality.py --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_lemon_consumer_welfare.py   --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_sybil_revenue_share.py      --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_market_collapse.py          --logs-dir logs/exp2_gemini-2.5-flash
 ```
 
 ---
