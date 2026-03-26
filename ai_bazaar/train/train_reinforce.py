@@ -287,10 +287,10 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                     msg = [{"role": "system", "content": sp}, {"role": "user", "content": up}]
                     p = self.tokenizer.apply_chat_template(msg, tokenize=False, add_generation_prompt=True)
                     full_texts.append(p + rp + self.tokenizer.eos_token)
-                    prompt_lens.append(len(self.encoding_tokenizer(p, truncation=True, max_length=2048).input_ids))
+                    prompt_lens.append(len(self.encoding_tokenizer(p, truncation=True, max_length=4096).input_ids))
 
                 try:
-                    enc = self.encoding_tokenizer(full_texts, return_tensors="pt", padding=True, truncation=True, max_length=2048).to(self.device)
+                    enc = self.encoding_tokenizer(full_texts, return_tensors="pt", padding=True, truncation=True, max_length=4096).to(self.device)
                     logits = self.model(**enc).logits.float()  # bf16→f32 for stable loss
 
                     loss, cnt = torch.tensor(0.0, device=self.device), 0
@@ -505,8 +505,14 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             ts = t.get("timestep", 0)
             msg = [{"role":"system","content":s},{"role":"user","content":u}]
             p = self.tokenizer.apply_chat_template(msg, tokenize=False, add_generation_prompt=True)
+            full = p + r + self.tokenizer.eos_token
+            # Pre-filter: skip if prompt is so long that response would be truncated
+            p_len = len(self.encoding_tokenizer(p, truncation=False).input_ids)
+            f_len = len(self.encoding_tokenizer(full, truncation=False).input_ids)
+            if f_len - p_len < 5:
+                skipped += 1; continue  # Response too short after potential truncation
             groups[ts].append({
-                "text": p + r + self.tokenizer.eos_token,
+                "text": full,
                 "prompt": p,
                 "reward": rw + bonus,
             })
@@ -547,8 +553,8 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
 
             try:
                 enc = self.encoding_tokenizer(texts, return_tensors="pt", padding=True,
-                                              truncation=True, max_length=2048).to(self.device)
-                prompt_lens = [len(self.encoding_tokenizer(p, truncation=True, max_length=2048).input_ids)
+                                              truncation=True, max_length=4096).to(self.device)
+                prompt_lens = [len(self.encoding_tokenizer(p, truncation=True, max_length=4096).input_ids)
                                for p in prompts]
 
                 # Policy forward pass
@@ -559,7 +565,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                 if self.base_model is not None and kl_coeff > 0:
                     with torch.no_grad():
                         ref_enc = self.encoding_tokenizer(texts, return_tensors="pt", padding=True,
-                                                          truncation=True, max_length=2048).to(self.device_base)
+                                                          truncation=True, max_length=4096).to(self.device_base)
                         ref_out = self.base_model(**ref_enc).logits.float()
                         # Compute log_softmax on GPU 1, only move selected log-probs to GPU 0
                         ref_log_probs_all = torch.log_softmax(ref_out, dim=-1)
