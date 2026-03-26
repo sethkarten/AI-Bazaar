@@ -554,14 +554,16 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                 # Policy forward pass
                 logits = self.model(**enc).logits.float()
 
-                # Reference model forward pass for KL penalty (on GPU 1)
-                ref_logits = None
+                # Reference model forward pass for KL penalty (computed on GPU 1, results moved to GPU 0)
+                ref_log_probs_all = None
                 if self.base_model is not None and kl_coeff > 0:
                     with torch.no_grad():
                         ref_enc = self.encoding_tokenizer(texts, return_tensors="pt", padding=True,
                                                           truncation=True, max_length=2048).to(self.device_base)
-                        ref_logits = self.base_model(**ref_enc).logits.float().to(self.device)
-                        del ref_enc
+                        ref_out = self.base_model(**ref_enc).logits.float()
+                        # Compute log_softmax on GPU 1, only move selected log-probs to GPU 0
+                        ref_log_probs_all = torch.log_softmax(ref_out, dim=-1)
+                        del ref_out, ref_enc
 
                 micro_loss = torch.tensor(0.0, device=self.device)
                 micro_kl = 0.0
@@ -588,13 +590,13 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
 
                     # Token-level KL penalty against reference model
                     kl_loss = torch.tensor(0.0, device=self.device)
-                    if ref_logits is not None:
-                        ref_sl = ref_logits[j, pl-1:-1, :].contiguous()
-                        ref_lp = torch.log_softmax(ref_sl, dim=-1)
-                        ref_selected = torch.gather(ref_lp, -1, lb.unsqueeze(-1)).squeeze(-1)
-                        ref_selected = torch.clamp(ref_selected, min=-100.0)
-                        # KL(policy || ref) ≈ mean(policy_log_prob - ref_log_prob)
-                        kl_loss = (policy_selected - ref_selected).mean()
+                    if ref_log_probs_all is not None:
+                        ref_lp_j = ref_log_probs_all[j, pl-1:-1, :].contiguous()
+                        lb_base = enc.input_ids[j, pl:].to(self.device_base)
+                        ref_selected = torch.gather(ref_lp_j, -1, lb_base.unsqueeze(-1)).squeeze(-1)
+                        ref_selected = torch.clamp(ref_selected, min=-100.0).to(self.device)
+                        # KL(policy || ref) — ref is detached (no grad), policy gets gradient
+                        kl_loss = (policy_selected - ref_selected.detach()).mean()
                         micro_kl += kl_loss.item()
 
                     sample_loss = pg_loss + kl_coeff * kl_loss
@@ -615,8 +617,8 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                         ok_batches += 1
 
                 del logits, enc
-                if ref_logits is not None:
-                    del ref_logits
+                if ref_log_probs_all is not None:
+                    del ref_log_probs_all
                 torch.cuda.empty_cache()
             except Exception as e:
                 print(f"  Batch failed: {e}", flush=True)
