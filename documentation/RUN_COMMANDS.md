@@ -81,7 +81,7 @@ python scripts/exp1.py --run exp1_baseline exp1_stab_2_dlc3_seed8
 # Skip runs whose log directory already exists (resume a partial run)
 python scripts/exp1.py --skip-existing
 
-python scripts/exp1.py --workers 3 --llm anthropic/claude-sonnet-4.6 --openrouter-provider anthropic --skip-existing --n-stab 1 3 5 --dlc 3 --enable-n-stab-3 --list
+python scripts/exp1.py --workers 3 --llm anthropic/claude-sonnet-4.6 --openrouter-provider anthropic --skip-existing --n-stab 1 3 5 --dlc 3 --list
 
 Matching runs (6 / 46 total):
   exp1_anthropic_claude-sonnet-4.6_stab_1_dlc3_seed16  [dlc=3 n_stab=1 seed=16]
@@ -96,7 +96,7 @@ Matching runs (6 / 46 total):
 
 ```bash
 # 3 workers, claud sonnet with anthropic as OpenRouter provider, skip any existing runs overlapping with this filter, list the runs (doesn't launch jobs)
-python scripts/exp1.py --workers 3 --llm anthropic/claude-sonnet-4.6 --openrouter-provider anthropic --skip-existing --n-stab 1 3 5 --dlc 3 --enable-n-stab-3 --list
+python scripts/exp1.py --workers 3 --llm anthropic/claude-sonnet-4.6 --openrouter-provider anthropic --skip-existing --n-stab 1 3 5 --dlc 3 --list
 
 # OUTPUT (seed 8 runs missing since they were already ran
 Matching runs (6 / 46 total):
@@ -127,6 +127,49 @@ python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash --dst 
 # Run with more parallel workers (speeds up state-file loading)
 python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash --workers 12
 ```
+
+---
+
+### Experiment 1 Model Comparison Figure
+
+Compares M models side-by-side across 5 metrics (bankruptcy rate, final price, volume, volatility, health score) for k ∈ {0,1,3,5} and dlc ∈ {1,3,5}. Pass `--name` to name the comparison and `--src` once per model.
+
+Data loading priority per model:
+
+1. Comparison cache (`paper/fig/exp1/comparisons/{name}/data/`)
+2. Heatmap cache written by `exp1_run_all` (`paper/fig/exp1/{src}/data/exp1_heatmap_food.json`) — reused to avoid recomputation
+3. Fallback: compute from raw state files
+
+```bash
+# Compare two models
+python paper/fig/scripts/exp1/exp1_model_comparison.py --name claude_vs_gpt --src exp1_anthropic_claude-sonnet-4.6 --src exp1_openai_gpt-5.4
+
+# Compare three models
+python paper/fig/scripts/exp1/exp1_model_comparison.py --name frontier_3way --src exp1_anthropic_claude-sonnet-4.6 --src exp1_openai_gpt-5.4 --src exp1_meta-llama_llama-3.2-3b-instruct
+```
+
+Output: `paper/fig/exp1/comparisons/{name}/{name}.pdf`
+Cache:  `paper/fig/exp1/comparisons/{name}/data/exp1_model_comparison_{model}_food.json`
+
+Colormaps for rows B–D (price, volume, volatility) are normalized globally across all models so color values are directly comparable. The health score row uses global normalization too.
+
+---
+
+### Experiment 1 Health Score vs. Model Size
+
+Scatter plot of composite market health score (y) vs. parameter count (x, log scale) for all dense open-weight models with `include=1` in `EAS_vs_MODEL_SIZE.md`, at the fixed setting dlc=3, k=3. Points are colored by developer; error bars show min/max across seeds 8/16/64.
+
+Data is read from the heatmap cache written by `exp1_run_all` — no recomputation needed if runs have already been processed. Falls back to raw state files if no cache exists.
+
+```bash
+python paper/fig/scripts/exp1/exp1_health_vs_size.py --logs-dir logs/
+```
+
+Output: `paper/fig/exp1/exp1_health_vs_size.pdf`
+
+The title reports how many of the 21 models have data (e.g. `[8/21 models with data]`), so partial sweeps render cleanly.
+
+---
 
 Individual figure scripts can also be called directly with the same `--logs-dir` / `--model` args that `exp1_run_all.py` passes internally:
 
@@ -559,4 +602,57 @@ If you have access to a model on Hugging Face (e.g. **google/gemma-3-4b-it**), r
    Or use the short name: `--llm gemma3:4b`.
 
 ---
+
+## EAS vs Model Size
+
+Runs all included dense models from `documentation/EAS_vs_MODEL_SIZE.md` through Experiment 1 at **n-stab=3, dlc=3** (3 seeds: 8, 16, 64 → 3 runs per model). Models route to OpenRouter automatically via the `org/model` slug.
+
+Each command below runs a single model. Use `--workers N` for parallelism; use `--skip-existing` to resume a partial run; use `--list` to preview without launching.
+
+```bash
+# Llama 3.2 3B (3B)
+python scripts/exp1.py --llm meta-llama/llama-3.2-3b-instruct --n-stab 3 --dlc 3
+# Gemma 3 4B (4B)
+python scripts/exp1.py --llm google/gemma-3-4b-it --n-stab 3 --dlc 3
+# Mistral 7B (7.3B)
+python scripts/exp1.py --llm mistralai/mistral-7b-instruct --n-stab 3 --dlc 3
+# Llama 3.1 8B (8B)
+python scripts/exp1.py --llm meta-llama/llama-3.1-8b-instruct --n-stab 3 --dlc 3
+# Qwen3 8B (8.2B)
+python scripts/exp1.py --llm qwen/qwen3-8b --n-stab 3 --dlc 3
+# Gemma 3 12B (12B)
+python scripts/exp1.py --llm google/gemma-3-12b-it --n-stab 3 --dlc 3
+# Phi-4 (14B)
+python scripts/exp1.py --llm microsoft/phi-4 --n-stab 3 --dlc 3
+# DeepSeek R1 Distill Qwen 14B (14B)
+python scripts/exp1.py --llm deepseek/deepseek-r1-distill-qwen-14b --n-stab 3 --dlc 3
+# Mistral Small 3.1 24B (24B)
+python scripts/exp1.py --llm mistralai/mistral-small-3.1-24b-instruct --n-stab 3 --dlc 3
+# Gemma 3 27B (27B)
+python scripts/exp1.py --llm google/gemma-3-27b-it --n-stab 3 --dlc 3
+# OLMo 2 32B Instruct (32B)
+python scripts/exp1.py --llm allenai/olmo-2-32b-instruct --n-stab 3 --dlc 3
+# OLMo 3.1 32B Think (32B)
+python scripts/exp1.py --llm allenai/olmo-3.1-32b-think --n-stab 3 --dlc 3
+# DeepSeek R1 Distill Qwen 32B (32B)
+python scripts/exp1.py --llm deepseek/deepseek-r1-distill-qwen-32b --n-stab 3 --dlc 3
+# Llama 3.3 70B (70B)
+python scripts/exp1.py --llm meta-llama/llama-3.3-70b-instruct --n-stab 3 --dlc 3
+# Llama 3.1 70B (70B)
+python scripts/exp1.py --llm meta-llama/llama-3.1-70b-instruct --n-stab 3 --dlc 3
+# DeepSeek R1 Distill Llama 70B (70B)
+python scripts/exp1.py --llm deepseek/deepseek-r1-distill-llama-70b --n-stab 3 --dlc 3
+# Llama 3.1 Nemotron 70B (70B)
+python scripts/exp1.py --llm nvidia/llama-3.1-nemotron-70b-instruct --n-stab 3 --dlc 3
+# Qwen2.5 72B (72B)
+python scripts/exp1.py --llm qwen/qwen-2.5-72b-instruct --n-stab 3 --dlc 3
+# Llama 3.1 405B (405B)
+python scripts/exp1.py --llm meta-llama/llama-3.1-405b-instruct --n-stab 3 --dlc 3
+# Hermes 3 405B (405B)
+python scripts/exp1.py --llm nousresearch/hermes-3-llama-3.1-405b --n-stab 3 --dlc 3
+# Hermes 4 405B (405B)
+python scripts/exp1.py --llm nousresearch/hermes-4-405b --n-stab 3 --dlc 3
+
+
+```
 

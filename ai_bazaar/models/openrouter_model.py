@@ -82,8 +82,21 @@ class OpenRouterModel(BaseLLMModel):
                     "temperature": temperature,
                     "max_tokens": self.max_tokens
                 }
+
+                # Disable "thinking mode" for Qwen models.
+                # OpenRouter supports this both via extra_body and via provider.thinking.
+                is_qwen = isinstance(self.model_name, str) and self.model_name.lower().startswith("qwen/")
+                if is_qwen:
+                    payload["extra_body"] = {"thinking": False}
+
+                # Provider routing options
+                provider: dict = {}
                 if self.provider_order:
-                    payload["provider"] = {"order": self.provider_order}
+                    provider["order"] = self.provider_order
+                if is_qwen:
+                    provider["thinking"] = {"type": "disabled"}
+                if provider:
+                    payload["provider"] = provider
                 
                 # Add JSON format if requested (for compatible models)
                 if json_format:

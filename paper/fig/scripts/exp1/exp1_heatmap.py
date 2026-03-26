@@ -1,5 +1,5 @@
 """
-Fig 1: Experiment 1 Heatmap — 2×2 metric heatmap over dlc × n_stab grid.
+Fig 1: Experiment 1 Heatmap — 1×4 metric heatmap over dlc × n_stab grid.
 
 Metrics:
   A) Bankruptcy rate  (RdPu, higher = worse)
@@ -387,11 +387,12 @@ def main():
         ("(D) Price Volatility $σ$",   "price_std",       "coolwarm", "regular"),
     ]
 
-    # 5 n_stab rows × 3 dlc cols — use full two-column width
-    fig, axes = plt.subplots(2, 2, figsize=(8.5, 8.5), constrained_layout=True)
-    axes_flat = axes.flatten()
+    # 4 panels across, 1 row
+    # Slightly smaller figure -> slightly smaller cells (improves readability in-paper).
+    fig, axes = plt.subplots(1, 4, figsize=(15.2, 4.7), constrained_layout=True)
+    axes_flat = axes  # already 1D
 
-    for ax, (title, metric_key, cmap_name, mode) in zip(axes_flat, panels):
+    for panel_idx, (ax, (title, metric_key, cmap_name, mode)) in enumerate(zip(axes_flat, panels)):
         # Select grid and annotations
         if metric_key == "vol_norm":
             grid   = vol_norm_grid
@@ -466,7 +467,7 @@ def main():
                 if not available[i, j]:
                     draw_hatch_cell(ax, j, i)
 
-        # Cell annotations (shifted up to make room for dots)
+        # Cell annotations (slightly shifted up to make room for dots)
         for i in range(len(N_STAB_VALUES)):
             for j in range(len(DLC_VALUES)):
                 if annots[i][j] is None:
@@ -477,9 +478,9 @@ def main():
                 lum      = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
                 txt_color = "white" if lum < 0.5 else "black"
                 ax.text(
-                    j, i, annots[i][j],
+                    j, i - 0.07, annots[i][j],
                     ha="center", va="center",
-                    fontsize=7.5, color=txt_color,
+                    fontsize=9.0, linespacing=0.95, color=txt_color,
                     zorder=10,
                 )
 
@@ -502,7 +503,8 @@ def main():
         ax.set_yticks(range(len(N_STAB_VALUES)))
         ax.set_yticklabels([f"$k$={n}" for n in N_STAB_VALUES])
         ax.set_xlabel("Consumer discovery limit (dlc)")
-        ax.set_ylabel("Stabilizing firms ($k$)")
+        if panel_idx == 0:
+            ax.set_ylabel("Stabilizing firms ($k$)")
         ax.set_title(title)
 
     # Shared legend
@@ -512,7 +514,7 @@ def main():
         (0, 0), 1, 1, linewidth=2.5, edgecolor="black", facecolor="none",
         label="Stable zone (bankrupt $<$50\\%, price $\\geq c$)")
     fig.legend(handles=[hatch_patch, border_patch], loc="lower center", ncol=2,
-               bbox_to_anchor=(0.5, -0.05), fontsize=9)
+               bbox_to_anchor=(0.5, -0.08), fontsize=9)
 
     fig.suptitle("Experiment 1: Stabilizing Firm Ablation", fontweight="bold")
 

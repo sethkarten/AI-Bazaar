@@ -29,6 +29,7 @@ import argparse
 import subprocess
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -37,11 +38,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if not (PROJECT_ROOT / "ai_bazaar").exists():
     PROJECT_ROOT = Path.cwd()
-LOGS_DIR = PROJECT_ROOT / "logs" / "exp2"
-LOGS_DIR.mkdir(parents=True, exist_ok=True)
-
 TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M")
-SUMMARY_LOG = LOGS_DIR / f"exp2_{TIMESTAMP}.log"
+LOGS_DIR: Path | None = None
+SUMMARY_LOG: Path | None = None
 
 # Fixed base args shared by all runs.
 # 12 total seller slots (honest = 12 - sybil_cluster_size); 12 LLM buyers; 100 timesteps.
@@ -56,11 +55,19 @@ _BASE_FIXED = [
     "--reputation-alpha", "0.9",
     "--reputation-initial", "0.8",
     "--discovery-limit-consumers", "5",
-    "--max-tokens", "2000",
     "--prompt-algo", "cot",
     "--no-diaries",
     "--seller-personas", "standard:3,detailed:3,terse:3,optimistic:3",
 ]
+
+
+def llm_filesystem_slug(llm: str) -> str:
+    """Make model id safe as a single path segment (Windows + POSIX)."""
+    s = llm.strip()
+    for ch in '<>:"/\\|?*':
+        s = s.replace(ch, "_")
+    s = s.replace(":", "_")
+    return s or "model"
 
 
 def build_runs(base: list[str]) -> list[tuple[str, list[str], dict]]:
@@ -96,9 +103,24 @@ def build_runs(base: list[str]) -> list[tuple[str, list[str], dict]]:
 
 
 _print_lock = threading.Lock()
+_progress_lock = threading.Lock()
+
+
+def format_duration(seconds: float) -> str:
+    """Human-readable duration for logs."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    if seconds < 3600:
+        m = int(seconds // 60)
+        s = seconds - m * 60
+        return f"{m}m {s:.0f}s"
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    return f"{h}h {m}m"
 
 
 def log(msg: str) -> None:
+    assert SUMMARY_LOG is not None
     line = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
     with _print_lock:
         print(line, flush=True)
@@ -106,11 +128,43 @@ def log(msg: str) -> None:
         f.write(line + "\n")
 
 
-def run_one(log_label: str, args: list[str]) -> int:
-    """Run a single simulation; returns the process exit code."""
+def log_run_finished(
+    log_label: str,
+    elapsed_sec: float,
+    completed_durations: list[float],
+    total_runs: int,
+    worker_count: int,
+    batch_wall_start: float,
+) -> None:
+    """Log per-run duration, ETA for remaining jobs, and % of est. total time left."""
+    with _progress_lock:
+        completed_durations.append(elapsed_sec)
+        n_done = len(completed_durations)
+        n_rem = total_runs - n_done
+        dur_fmt = format_duration(elapsed_sec)
+        if n_rem == 0:
+            log(f"Finished: {log_label} ({dur_fmt}) — all {total_runs} run(s) complete.")
+            return
+        avg = sum(completed_durations) / n_done
+        eta_remaining = (n_rem * avg) / worker_count
+        wall_elapsed = time.monotonic() - batch_wall_start
+        total_est = wall_elapsed + eta_remaining
+        pct_left = (100.0 * eta_remaining / total_est) if total_est > 0 else 0.0
+        log(
+            f"Finished: {log_label} ({dur_fmt}) | "
+            f"est. {format_duration(eta_remaining)} left for {n_rem} run(s) "
+            f"({pct_left:.1f}% of est. total time remaining)"
+        )
+
+
+def run_one(log_label: str, args: list[str]) -> tuple[int, float]:
+    """Run a single simulation; returns (exit code, elapsed seconds)."""
     cmd = [sys.executable, "-m", "ai_bazaar.main"] + args
+    assert LOGS_DIR is not None
     log_path = LOGS_DIR / f"{log_label}_{TIMESTAMP}.log"
     log(f"Starting: {log_label}")
+    t0 = time.monotonic()
+    proc: subprocess.Popen[str] | None = None
     try:
         with open(log_path, "w", encoding="utf-8") as logf:
             proc = subprocess.Popen(
@@ -125,16 +179,16 @@ def run_one(log_label: str, args: list[str]) -> int:
             for line in proc.stdout:
                 logf.write(line)
                 logf.flush()
-                with _print_lock:
-                    print(f"[{log_label}] {line}", end="", flush=True)
             proc.wait()
+        elapsed = time.monotonic() - t0
+        assert proc is not None
         if proc.returncode != 0:
             log(f"WARNING: {log_label} exited with code {proc.returncode}")
+        return proc.returncode, elapsed
     except Exception as e:
+        elapsed = time.monotonic() - t0
         log(f"ERROR in {log_label}: {e}")
-        return -1
-    log(f"Finished: {log_label}")
-    return proc.returncode
+        return -1, elapsed
 
 
 def filter_runs(
@@ -144,6 +198,7 @@ def filter_runs(
     seed_filter: list[int] | None,
     run_filter: list[str] | None,
     skip_existing: bool,
+    name_prefix: str,
 ) -> list[tuple[str, list[str], dict]]:
     """Return the subset of runs matching all supplied filters (AND logic)."""
     selected = []
@@ -158,7 +213,7 @@ def filter_runs(
                 continue
         if seed_filter is not None and meta["seed"] not in seed_filter:
             continue
-        if skip_existing and (PROJECT_ROOT / "logs" / label).is_dir():
+        if skip_existing and (PROJECT_ROOT / "logs" / name_prefix / label).is_dir():
             continue
         selected.append((label, argv, meta))
     return selected
@@ -196,6 +251,10 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--max-tokens", type=int, default=2000, metavar="N",
+        help="Maximum LLM completion tokens per call (default: 2000).",
+    )
+    parser.add_argument(
         "--n-sybil", type=int, nargs="+", metavar="N", dest="n_sybil",
         help="Only run cells with these sybil cluster sizes (e.g. --n-sybil 0 3 6 9 12). 0 = baseline.",
     )
@@ -221,6 +280,12 @@ def main() -> None:
     )
     cli = parser.parse_args()
 
+    global LOGS_DIR, SUMMARY_LOG
+    name_prefix = f"exp2_{llm_filesystem_slug(cli.llm)}"
+    LOGS_DIR = PROJECT_ROOT / "logs" / name_prefix
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    SUMMARY_LOG = LOGS_DIR / f"exp2_{TIMESTAMP}.log"
+
     llm_args = ["--llm", cli.llm]
     if cli.service:
         llm_args += ["--service", cli.service]
@@ -228,7 +293,7 @@ def main() -> None:
         llm_args += ["--port", str(cli.port)]
     if cli.openrouter_provider:
         llm_args += ["--openrouter-provider", *cli.openrouter_provider]
-    base = _BASE_FIXED + llm_args
+    base = _BASE_FIXED + ["--max-tokens", str(cli.max_tokens)] + llm_args
 
     all_runs = build_runs(base)
 
@@ -239,6 +304,7 @@ def main() -> None:
         seed_filter=cli.seeds,
         run_filter=cli.runs,
         skip_existing=cli.skip_existing,
+        name_prefix=name_prefix,
     )
 
     if cli.list:
@@ -255,26 +321,38 @@ def main() -> None:
     log(f"Experiment 2 started. Project root: {PROJECT_ROOT}")
     log(f"Selected runs: {len(selected)} / {len(all_runs)}  |  workers: {cli.workers}  |  llm: {cli.llm}")
 
+    total = len(selected)
+    worker_count = 1 if cli.workers <= 1 else min(cli.workers, total)
+    completed_durations: list[float] = []
+    batch_start = time.monotonic()
+
     if cli.workers <= 1:
         for log_label, args, _ in selected:
-            run_one(log_label, args)
+            rc, elapsed = run_one(log_label, args)
+            log_run_finished(log_label, elapsed, completed_durations, total, worker_count, batch_start)
+            if rc != 0:
+                log(f"Run {log_label} finished with non-zero exit code {rc}")
     else:
-        workers = min(cli.workers, len(selected))
         futures = {}
-        with ThreadPoolExecutor(max_workers=workers) as pool:
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
             for log_label, args, _ in selected:
                 fut = pool.submit(run_one, log_label, args)
                 futures[fut] = log_label
             for fut in as_completed(futures):
                 label = futures[fut]
                 try:
-                    rc = fut.result()
+                    rc, elapsed = fut.result()
+                    log_run_finished(label, elapsed, completed_durations, total, worker_count, batch_start)
                     if rc != 0:
                         log(f"Run {label} finished with non-zero exit code {rc}")
                 except Exception as e:
                     log(f"Run {label} raised an exception: {e}")
 
-    log("Experiment 2 completed.")
+    total_wall = time.monotonic() - batch_start
+    log(
+        f"Experiment 2 completed. Total wall time: {format_duration(total_wall)}. "
+        f"Runs directory: logs/{name_prefix}/"
+    )
 
 
 if __name__ == "__main__":
