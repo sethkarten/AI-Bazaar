@@ -469,57 +469,102 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
     # ── REINFORCE++ training step ───────────────────────────────────────
 
     def train_step(self, trajectories: List[Dict[str, Any]], iteration: int):
+        """REINFORCE++ with group-based advantage normalization and token-level KL penalty.
+
+        Key differences from vanilla REINFORCE:
+        1. Group trajectories by timestep — normalize advantages within each group
+           (64 episodes × same timestep = 64 responses to the same prompt)
+        2. Token-level KL penalty against reference model (frozen base on GPU 1)
+        3. Per-token advantage weighting with clipping
+        """
         t0 = time.time()
         print(f"Training: iter {iteration}, {len(trajectories)} samples", flush=True)
         torch.cuda.empty_cache()
 
-        # Use model.train()/eval() instead of FastLanguageModel.for_training/for_inference —
-        # Unsloth's mode switching corrupts Qwen3.5's compiled forward after inference
         self.model.train()
-        self.inference_model._inference_ready = False  # Reset so next inference call re-applies eval
-        total_loss, total_kl = 0.0, 0.0
+        self.inference_model._inference_ready = False
+        total_loss, total_kl_val = 0.0, 0.0
         ok_batches, fail_batches, skipped = 0, 0, 0
         grad_norms = []
-        micro_bs = getattr(self.args, "micro_batch_size", 2)
+        micro_bs = getattr(self.args, "micro_batch_size", 4)
         effective_bs = self.args.train_batch_size
         accum_steps = max(1, effective_bs // micro_bs)
-        fmt_w = getattr(self.args, "format_reward_weight", 1.0)
+        fmt_w = getattr(self.args, "format_reward_weight", 2.0)
+        kl_coeff = getattr(self.args, "kl_coeff", 0.05)
 
-        # Prepare all samples
-        all_texts, all_prompts, all_rewards = [], [], []
+        # ── Step 1: Prepare samples with group-based advantage normalization ──
+        # Group by timestep for REINFORCE++ normalization
+        from collections import defaultdict
+        groups = defaultdict(list)  # timestep → list of (text, prompt, reward)
         for t in trajectories:
             s, u, r, rw = t.get("system_prompt",""), t.get("user_prompt",""), t.get("response",""), t.get("reward")
             valid = t.get("is_format_valid", True)
             if rw is None or not r:
                 skipped += 1; continue
             bonus = fmt_w if valid else -fmt_w
+            ts = t.get("timestep", 0)
             msg = [{"role":"system","content":s},{"role":"user","content":u}]
             p = self.tokenizer.apply_chat_template(msg, tokenize=False, add_generation_prompt=True)
-            all_texts.append(p + r + self.tokenizer.eos_token)
-            all_prompts.append(p)
-            all_rewards.append(rw + bonus)
+            groups[ts].append({
+                "text": p + r + self.tokenizer.eos_token,
+                "prompt": p,
+                "reward": rw + bonus,
+            })
+
+        # Normalize advantages within each timestep group (REINFORCE++ key feature)
+        all_texts, all_prompts, all_advantages = [], [], []
+        for ts in sorted(groups.keys()):
+            group = groups[ts]
+            rewards = [g["reward"] for g in group]
+            mu = np.mean(rewards)
+            std = np.std(rewards) + 1e-8
+            for g in group:
+                adv = (g["reward"] - mu) / std
+                adv = max(-self.advantage_clip, min(self.advantage_clip, adv))
+                all_texts.append(g["text"])
+                all_prompts.append(g["prompt"])
+                all_advantages.append(adv)
 
         if not all_texts:
             self.model.eval()
             return 0.0
 
-        # Gradient accumulation loop
+        n_groups = len(groups)
+        print(f"  REINFORCE++: {len(all_texts)} samples, {n_groups} timestep groups, "
+              f"kl_coeff={kl_coeff}", flush=True)
+
+        # ── Step 2: Gradient accumulation with KL penalty ──
         self.optimizer.zero_grad()
         accum_loss = 0.0
+        accum_kl = 0.0
         accum_count = 0
 
         for i in range(0, len(all_texts), micro_bs):
             self.heartbeat()
             texts = all_texts[i:i+micro_bs]
             prompts = all_prompts[i:i+micro_bs]
-            rewards = all_rewards[i:i+micro_bs]
+            advantages = all_advantages[i:i+micro_bs]
 
             try:
-                enc = self.encoding_tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=2048).to(self.device)
-                prompt_lens = [len(self.encoding_tokenizer(p, truncation=True, max_length=2048).input_ids) for p in prompts]
+                enc = self.encoding_tokenizer(texts, return_tensors="pt", padding=True,
+                                              truncation=True, max_length=2048).to(self.device)
+                prompt_lens = [len(self.encoding_tokenizer(p, truncation=True, max_length=2048).input_ids)
+                               for p in prompts]
 
+                # Policy forward pass
                 logits = self.model(**enc).logits.float()
+
+                # Reference model forward pass for KL penalty (on GPU 1)
+                ref_logits = None
+                if self.base_model is not None and kl_coeff > 0:
+                    with torch.no_grad():
+                        ref_enc = self.encoding_tokenizer(texts, return_tensors="pt", padding=True,
+                                                          truncation=True, max_length=2048).to(self.device_base)
+                        ref_logits = self.base_model(**ref_enc).logits.float().to(self.device)
+                        del ref_enc
+
                 micro_loss = torch.tensor(0.0, device=self.device)
+                micro_kl = 0.0
                 n_valid = 0
 
                 for j in range(len(texts)):
@@ -529,38 +574,50 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                     if lb.size(0) == 0:
                         continue
 
-                    lp = torch.log_softmax(sl, dim=-1)
-                    selected = torch.gather(lp, -1, lb.unsqueeze(-1)).squeeze(-1)
-                    selected = torch.clamp(selected, min=-100.0)
-                    if torch.isnan(selected).any():
+                    # Policy log-probs
+                    policy_lp = torch.log_softmax(sl, dim=-1)
+                    policy_selected = torch.gather(policy_lp, -1, lb.unsqueeze(-1)).squeeze(-1)
+                    policy_selected = torch.clamp(policy_selected, min=-100.0)
+                    if torch.isnan(policy_selected).any():
                         continue
 
-                    raw_r = rewards[j]
-                    self.reward_stats.update(raw_r)
-                    if self.reward_stats.n < 10:
-                        adv = raw_r - self.reward_stats.mean
-                    else:
-                        adv = self.reward_stats.normalize(raw_r)
-                        adv = max(-self.advantage_clip, min(self.advantage_clip, adv))
+                    adv = advantages[j]
 
-                    pg = -(selected * adv).mean()
-                    if torch.isnan(pg):
+                    # REINFORCE++ loss: -log_prob * advantage (per-token, then mean)
+                    pg_loss = -(policy_selected * adv).mean()
+
+                    # Token-level KL penalty against reference model
+                    kl_loss = torch.tensor(0.0, device=self.device)
+                    if ref_logits is not None:
+                        ref_sl = ref_logits[j, pl-1:-1, :].contiguous()
+                        ref_lp = torch.log_softmax(ref_sl, dim=-1)
+                        ref_selected = torch.gather(ref_lp, -1, lb.unsqueeze(-1)).squeeze(-1)
+                        ref_selected = torch.clamp(ref_selected, min=-100.0)
+                        # KL(policy || ref) ≈ mean(policy_log_prob - ref_log_prob)
+                        kl_loss = (policy_selected - ref_selected).mean()
+                        micro_kl += kl_loss.item()
+
+                    sample_loss = pg_loss + kl_coeff * kl_loss
+                    if torch.isnan(sample_loss):
                         continue
-                    micro_loss = micro_loss + pg
+                    micro_loss = micro_loss + sample_loss
                     n_valid += 1
 
                 if n_valid > 0:
-                    # Scale loss by accumulation steps for correct gradient magnitude
                     loss = micro_loss / (n_valid * accum_steps)
                     if torch.isnan(loss) or torch.isinf(loss):
                         fail_batches += 1
                     else:
                         loss.backward()
-                        accum_loss += loss.item() * accum_steps  # Unscale for logging
+                        accum_loss += loss.item() * accum_steps
+                        accum_kl += micro_kl / n_valid
                         accum_count += 1
                         ok_batches += 1
 
-                del logits, enc; torch.cuda.empty_cache()
+                del logits, enc
+                if ref_logits is not None:
+                    del ref_logits
+                torch.cuda.empty_cache()
             except Exception as e:
                 print(f"  Batch failed: {e}", flush=True)
                 traceback.print_exc()
@@ -572,23 +629,28 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                 for p in self.model.parameters():
                     if p.requires_grad and p.grad is not None:
                         torch.nn.utils.clip_grad_norm_([p], self.grad_clip_norm)
-                gn = sum(p.grad.norm().item()**2 for p in self.model.parameters() if p.requires_grad and p.grad is not None)**0.5
+                gn = sum(p.grad.norm().item()**2 for p in self.model.parameters()
+                         if p.requires_grad and p.grad is not None)**0.5
                 grad_norms.append(gn)
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 total_loss += accum_loss
+                total_kl_val += accum_kl
                 accum_loss = 0.0
+                accum_kl = 0.0
 
         # Final optimizer step for remaining accumulated gradients
         if accum_count % accum_steps != 0 and accum_count > 0:
             for p in self.model.parameters():
                 if p.requires_grad and p.grad is not None:
                     torch.nn.utils.clip_grad_norm_([p], self.grad_clip_norm)
-            gn = sum(p.grad.norm().item()**2 for p in self.model.parameters() if p.requires_grad and p.grad is not None)**0.5
+            gn = sum(p.grad.norm().item()**2 for p in self.model.parameters()
+                     if p.requires_grad and p.grad is not None)**0.5
             grad_norms.append(gn)
             self.optimizer.step()
             self.optimizer.zero_grad()
             total_loss += accum_loss
+            total_kl_val += accum_kl
 
         # Switch back to eval for inference
         self.model.eval()
@@ -596,13 +658,19 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
 
         dt = time.time() - t0
         nb = max(1, (len(trajectories) + micro_bs - 1) // micro_bs)
-        avg_loss = total_loss / ok_batches if ok_batches else 0
+        avg_loss = total_loss / max(ok_batches, 1)
+        avg_kl = total_kl_val / max(ok_batches, 1)
+        n_updates = len(grad_norms)
         mem = torch.cuda.memory_allocated() / 1024**3 if torch.cuda.is_available() else 0
-        print(f"Training done: {ok_batches}/{nb} ok, {fail_batches} fail, {skipped} skip | loss={avg_loss:.6f} | {dt:.1f}s | {mem:.1f}GB", flush=True)
+        print(f"Training done: {ok_batches}/{nb} ok, {fail_batches} fail, {skipped} skip | "
+              f"loss={avg_loss:.4f} kl={avg_kl:.4f} | {n_updates} updates | {dt:.1f}s | {mem:.1f}GB", flush=True)
 
         if wandb.run:
             wandb.log({
                 "train/loss": avg_loss,
+                "train/kl": avg_kl,
+                "train/n_updates": n_updates,
+                "train/n_groups": n_groups,
                 "train/ok_batches": ok_batches,
                 "train/fail_batches": fail_batches,
                 "train/skip": skipped,
@@ -634,6 +702,7 @@ def main():
     # REINFORCE++
     parser.add_argument("--advantage_clip", type=float, default=3.0)
     parser.add_argument("--grad_clip_norm", type=float, default=0.5)
+    parser.add_argument("--kl_coeff", type=float, default=0.05, help="Token-level KL penalty coefficient against reference model")
     parser.add_argument("--reward_weights", type=str, default="0.4,0.3,0.3")
     parser.add_argument("--survival_bonus", type=float, default=5.0)
     parser.add_argument("--curriculum", action="store_true", default=True, help="Enable curriculum: 5/5→4/5→3/5 then sample")
