@@ -162,6 +162,25 @@ class REINFORCETrainer:
         self.reward_weights = [float(w) for w in rw.split(",")]
         self.survival_bonus = getattr(args, "survival_bonus", 5.0)
 
+        # ── Resume from checkpoint if available ─────────────────────
+        self.start_iteration = 0
+        resume_path = os.path.join(self.checkpoint_dir, "train_state.pt")
+        lora_path = os.path.join(self.checkpoint_dir, "latest")
+        if getattr(args, "resume", False) and os.path.exists(resume_path):
+            print(f"Resuming from {resume_path} …", flush=True)
+            state = torch.load(resume_path, map_location="cpu")
+            self.optimizer.load_state_dict(state["optimizer"])
+            self.start_iteration = state["iteration"] + 1
+            rs = state.get("reward_stats", {})
+            self.reward_stats.n = rs.get("n", 0)
+            self.reward_stats.mean = rs.get("mean", 0.0)
+            self.reward_stats.M2 = rs.get("M2", 0.0)
+            if os.path.exists(lora_path):
+                from peft import PeftModel
+                self.model.load_adapter(lora_path, adapter_name="default")
+                print(f"Loaded LoRA from {lora_path}", flush=True)
+            print(f"Resuming from iteration {self.start_iteration}", flush=True)
+
         mem0 = torch.cuda.memory_allocated(0) / 1024**3
         mem1 = torch.cuda.memory_allocated(1) / 1024**3 if num_gpus >= 2 else 0
         print(f"GPU memory: {mem0:.1f} GB (train) + {mem1:.1f} GB (inference)", flush=True)
@@ -716,6 +735,13 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         self.model.eval()
         self.model.save_pretrained(os.path.join(self.checkpoint_dir, "latest"))
 
+        # Save full training state for resumption
+        torch.save({
+            "optimizer": self.optimizer.state_dict(),
+            "iteration": iteration,
+            "reward_stats": {"n": self.reward_stats.n, "mean": self.reward_stats.mean, "M2": self.reward_stats.M2},
+        }, os.path.join(self.checkpoint_dir, "train_state.pt"))
+
         dt = time.time() - t0
         nb = max(1, (len(trajectories) + micro_bs - 1) // micro_bs)
         avg_loss = total_loss / max(ok_batches, 1)
@@ -769,6 +795,7 @@ def main():
     # SFT warmup
     parser.add_argument("--sft_warmup", type=int, default=0, help="SFT examples (0=skip)")
     parser.add_argument("--sft_epochs", type=int, default=3)
+    parser.add_argument("--resume", action="store_true", help="Resume from last checkpoint")
     args = parser.parse_args()
 
     # Training defaults: disable diaries (confuse base model), use io prompts
@@ -788,11 +815,11 @@ def main():
     print(f"Batch: {args.train_batch_size} effective, {getattr(args, 'micro_batch_size', 4)} micro, {args.num_episodes} episodes")
     print(f"{'='*60}\n")
 
-    # Optional SFT warmup
-    if getattr(args, "sft_warmup", 0) > 0:
+    # Optional SFT warmup (skip on resume — already done)
+    if getattr(args, "sft_warmup", 0) > 0 and trainer.start_iteration == 0:
         trainer.sft_warmup(args.sft_warmup, getattr(args, "sft_epochs", 3))
 
-    for i in range(args.num_iterations):
+    for i in range(trainer.start_iteration, args.num_iterations):
         t_iter = time.time()
         print(f"\n{'='*60}\nITERATION {i+1}/{args.num_iterations}\n{'='*60}")
 
