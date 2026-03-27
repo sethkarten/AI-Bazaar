@@ -27,6 +27,7 @@ from exp2_common import (
     resolve_run_dir, collect_all_run_dirs,
     load_state_files, build_aggregate, serialize_agg, deserialize_agg, plot_band,
 )
+K_ALL = [0] + K_VALUES
 
 plt.rcParams.update({
     "font.family":        "serif",
@@ -95,7 +96,7 @@ def main():
     name_prefix = infer_name_prefix(args.logs_dir)
     print(f"Auto-detected name_prefix: {name_prefix}", flush=True)
 
-    run_dirs   = collect_all_run_dirs(args.logs_dir, name_prefix, include_baseline=False)
+    run_dirs   = collect_all_run_dirs(args.logs_dir, name_prefix, include_baseline=True)
     data_dir   = get_data_dir(args.output)
     cache_path = get_cache_path(data_dir, "exp2_sybil_revenue_share", args.good)
 
@@ -104,7 +105,7 @@ def main():
         agg = deserialize_agg(load_cache_data(cache_path)["agg"])
     else:
         jobs = []
-        for k in K_VALUES:
+        for k in K_ALL:
             for rv in [True, False]:
                 for seed in SEEDS:
                     d = resolve_run_dir(args.logs_dir, name_prefix, k, rv, seed)
@@ -140,7 +141,7 @@ def main():
     ax.axhline(0.5, color="#555555", lw=1.2, ls="--", alpha=0.8, zorder=2,
                label="Majority threshold (0.5)")
 
-    for k in K_VALUES:
+    for k in K_ALL:
         color = COLORS_K[k]
         sat   = k / 12
         for rv in [True, False]:

@@ -142,7 +142,7 @@ def build_grid(logs_dir: str, name_prefix: str, workers: int = 8):
     # Build job list
     jobs = []
     for i, k in enumerate(K_ALL):
-        rep_opts = [True] if k == 0 else REP_ALL
+        rep_opts = REP_ALL
         for j, rv in enumerate(REP_ALL):
             if rv not in rep_opts:
                 continue
@@ -388,11 +388,9 @@ def main():
         # Hatch unavailable cells
         for i in range(len(K_ALL)):
             for j in range(len(REP_ALL)):
-                # K=0, rep_hidden is always unavailable
-                k0_unavail = (K_ALL[i] == 0 and not REP_ALL[j])
                 # detection_premium for K=0 is undefined
                 det_unavail = (metric_key == "detection_premium" and K_ALL[i] == 0)
-                if k0_unavail or det_unavail or not available[i, j]:
+                if det_unavail or not available[i, j]:
                     draw_hatch_cell(ax, j, i)
 
         # Cell text annotations

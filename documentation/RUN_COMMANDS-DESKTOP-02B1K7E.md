@@ -20,7 +20,6 @@ After running Exp2 with prompt logging enabled, extract only the Sybil principal
 conversations from `lemon_agent_prompts.jsonl`.
 
 Default outputs written in the run directory:
-
 - `lemon_sybil_prompts.json` (all `agent == "sybil_principal"` rows)
 - `lemon_sybil_tier_refusals.json` (`call == "sybil_tier"` rows where the model response appears to refuse the task)
 
@@ -36,6 +35,9 @@ python scripts/extract_sybil_prompts.py "logs/exp2_anthropic_claude-sonnet-4.6/e
 
 # Optional: custom output filenames.
 python scripts/extract_sybil_prompts.py "logs/exp2_anthropic_claude-sonnet-4.6/exp2_anthropic_claude-sonnet-4.6_k3_rep1_seed8" --output lemon_sybil_prompts.json --refusals-output lemon_sybil_tier_refusals.json
+
+# Optional: fail fast if any JSONL line is malformed.
+python scripts/extract_sybil_prompts.py "logs/exp2_anthropic_claude-sonnet-4.6" --strict-jsonl
 ```
 
 Run from project root so the dashboard finds the `logs/` directory.
@@ -142,31 +144,29 @@ Runs the full Experiment 1 matrix for every dense open-weight model listed with 
 
 **Models (dense, include=1):**
 
-
-| Display name            | Params | OpenRouter ID                              |
-| ----------------------- | ------ | ------------------------------------------ |
-| Llama 3.2 3B            | 3B     | `meta-llama/llama-3.2-3b-instruct`         |
-| Gemma 3 4B              | 4B     | `google/gemma-3-4b-it`                     |
-| Mistral 7B              | 7.3B   | `mistralai/mistral-7b-instruct`            |
-| Llama 3.1 8B            | 8B     | `meta-llama/llama-3.1-8b-instruct`         |
-| Qwen3 8B                | 8.2B   | `qwen/qwen3-8b`                            |
-| Gemma 3 12B             | 12B    | `google/gemma-3-12b-it`                    |
-| Phi-4                   | 14B    | `microsoft/phi-4`                          |
-| DeepSeek R1 Distill 14B | 14B    | `deepseek/deepseek-r1-distill-qwen-14b`    |
-| Mistral Small 3.1 24B   | 24B    | `mistralai/mistral-small-3.1-24b-instruct` |
-| Gemma 3 27B             | 27B    | `google/gemma-3-27b-it`                    |
-| OLMo 2 32B              | 32B    | `allenai/olmo-2-32b-instruct`              |
-| OLMo 3.1 32B Think      | 32B    | `allenai/olmo-3.1-32b-think`               |
-| DeepSeek R1 Distill 32B | 32B    | `deepseek/deepseek-r1-distill-qwen-32b`    |
-| Llama 3.3 70B           | 70B    | `meta-llama/llama-3.3-70b-instruct`        |
-| Llama 3.1 70B           | 70B    | `meta-llama/llama-3.1-70b-instruct`        |
-| DeepSeek R1 Distill 70B | 70B    | `deepseek/deepseek-r1-distill-llama-70b`   |
-| Nemotron 70B            | 70B    | `nvidia/llama-3.1-nemotron-70b-instruct`   |
-| Qwen2.5 72B             | 72B    | `qwen/qwen-2.5-72b-instruct`               |
-| Llama 3.1 405B          | 405B   | `meta-llama/llama-3.1-405b-instruct`       |
-| Hermes 3 405B           | 405B   | `nousresearch/hermes-3-llama-3.1-405b`     |
-| Hermes 4 405B           | 405B   | `nousresearch/hermes-4-405b`               |
-
+| Display name | Params | OpenRouter ID |
+|---|---|---|
+| Llama 3.2 3B | 3B | `meta-llama/llama-3.2-3b-instruct` |
+| Gemma 3 4B | 4B | `google/gemma-3-4b-it` |
+| Mistral 7B | 7.3B | `mistralai/mistral-7b-instruct` |
+| Llama 3.1 8B | 8B | `meta-llama/llama-3.1-8b-instruct` |
+| Qwen3 8B | 8.2B | `qwen/qwen3-8b` |
+| Gemma 3 12B | 12B | `google/gemma-3-12b-it` |
+| Phi-4 | 14B | `microsoft/phi-4` |
+| DeepSeek R1 Distill 14B | 14B | `deepseek/deepseek-r1-distill-qwen-14b` |
+| Mistral Small 3.1 24B | 24B | `mistralai/mistral-small-3.1-24b-instruct` |
+| Gemma 3 27B | 27B | `google/gemma-3-27b-it` |
+| OLMo 2 32B | 32B | `allenai/olmo-2-32b-instruct` |
+| OLMo 3.1 32B Think | 32B | `allenai/olmo-3.1-32b-think` |
+| DeepSeek R1 Distill 32B | 32B | `deepseek/deepseek-r1-distill-qwen-32b` |
+| Llama 3.3 70B | 70B | `meta-llama/llama-3.3-70b-instruct` |
+| Llama 3.1 70B | 70B | `meta-llama/llama-3.1-70b-instruct` |
+| DeepSeek R1 Distill 70B | 70B | `deepseek/deepseek-r1-distill-llama-70b` |
+| Nemotron 70B | 70B | `nvidia/llama-3.1-nemotron-70b-instruct` |
+| Qwen2.5 72B | 72B | `qwen/qwen-2.5-72b-instruct` |
+| Llama 3.1 405B | 405B | `meta-llama/llama-3.1-405b-instruct` |
+| Hermes 3 405B | 405B | `nousresearch/hermes-3-llama-3.1-405b` |
+| Hermes 4 405B | 405B | `nousresearch/hermes-4-405b` |
 
 ```bash
 # Dry-run: print all matching runs grouped by model, no execution
@@ -195,7 +195,6 @@ python scripts/exp1_eas_sweep.py --openrouter-provider Together --workers 4
 ```
 
 Outputs:
-
 - Per-run state files: `logs/exp1_{model_slug}/{run_name}/`
 - Per-run stdout logs: `logs/exp1_{model_slug}/{run_name}_{timestamp}.log`
 - Summary log: `logs/exp1_eas_sweep_{timestamp}.log`
@@ -318,7 +317,7 @@ conda run -n AI-Bazaar python -m ai_bazaar.main --name exp2_vote_rep_test --cons
 
 `scripts/exp2.py` runs the full 3×3×2 matrix and supports flexible subsetting. Always run from the **project root**.
 
-**Full matrix:** 24 runs — 6 baseline (K=0 × repvisible ∈ {True,False} × seeds {8,16,64}) + 18 sybil grid (K ∈ {3,6,9} × repvisible ∈ {True,False} × seeds {8,16,64}).
+**Full matrix:** 24 runs — 6 baseline (K=0 × rep\_visible ∈ {True,False} × seeds {8,16,64}) + 18 sybil grid (K ∈ {3,6,9} × rep\_visible ∈ {True,False} × seeds {8,16,64}).
 
 **Fixed settings:** `--num-sellers 12` always; honest = 12 − K; sybil saturation 25% / 50% / 75%; `rho_min=0.3`; `discovery-limit-consumers=3`; `max-timesteps=50`. Run logs go to `logs/exp2/`; state files go to `logs/<run_name>/`.
 

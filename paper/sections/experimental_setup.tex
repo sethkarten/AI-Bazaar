@@ -7,7 +7,7 @@ We conduct four sets of experiments to characterize the failure modes and evalua
 \label{exp:crash}
 
 \textbf{Setup.}
-We instantiate Environment A (Section~\ref{setup:crash}) with $N=5$ firm agents and $M=50$ consumer agents. Each episode runs for $T=50$ timesteps. Unit cost is fixed at $c = \$5.00$ and holding cost $f = 0$. Consumer demand is drawn from a Poisson process $D_t \sim \mathrm{Poisson}(\lambda=30)$ per timestep. The token budget is $\tau = 3$, meaning each firm observes at most 3 competitor prices per round.
+We instantiate Environment~A (Section~\ref{setup:crash}) with $N=5$ LLM-driven firm agents and $M=50$ consumer agents. Each episode runs for $T=365$ time steps. Firms are initialized with cash $C_0 = 500$, per-unit supply costs $c^i$ = 1.0, and fixed daily overhead $f = 2$. Consumer demand is drawn each timestep from a Poisson process $D_t \sim \mathrm{Poisson}(\lambda=30)$.
 
 \textbf{Models.}
 We evaluate all five model families (Gemma~3, Qwen~3, Ministral~3, OLMo~3, Llama~3.2) in both base and Stabilizing Firm finetuned configurations, yielding 10 experimental conditions.
@@ -15,13 +15,29 @@ We evaluate all five model families (Gemma~3, Qwen~3, Ministral~3, OLMo~3, Llama
 \textbf{Baseline.}
 A rule-based \textit{FixedFirmAgent} that always posts $P_t = c + \delta$ (where $\delta = \$0.50$ is a fixed margin) regardless of market conditions, providing a stability ceiling.
 
+\textbf{Ablation.}
+The experiment is a $5 \times 3$ factorial ablation over two variables:
+\begin{itemize}
+    \item $k \in [0, 5]$: the number of Stabilizing Firm agents among the $N=5$ firms. The remaining $N-k$ firms use the competitive persona.
+    \item $\mathrm{dlc} \in \{1, 3, 5\}$: the consumer discovery limit, i.e., the number of distinct firm listings each consumer compares before purchasing. Higher \textrm{dlc} increases competitive pressure by exposing more of the price distribution to each consumer.
+\end{itemize}
+The LLM backbone is held fixed across all 15 cells; the experiment characterizes the mechanism (how many stabilizing firms and how much consumer search friction) rather than model capability.
+
 \textbf{Metrics.}
 \begin{itemize}
-    \item \textbf{Bankruptcy Rate}: Fraction of firms with $C_{T}^i < 0$ at episode end.
-    \item \textbf{Final Price}: Average price $\bar{P}_{T}$ across surviving firms at $t = T$.
-    \item \textbf{Market Volume}: Total units sold $\sum_{t=1}^T \sum_i Q_t^{i,\text{sold}}$.
-    \item \textbf{Price Volatility}: Standard deviation $\sigma(P_t)$ across all firms and timesteps.
+    \item \textbf{Bankruptcy rate} $b_r$ ($\downarrow$): fraction of firms with \texttt{in\_business}$=\texttt{False}$ at $t=T$. A firm exits when its cash balance is depleted to zero.
+    \item \textbf{Price distortion} $|\bar{p}/\bar{c} - 1|$ ($\downarrow$): deviation of mean surviving price from unit cost; zero indicates break-even pricing, large values indicate either a price war (below cost) or excessive margin.
+    \item \textbf{Market volume} ($\uparrow$): total units sold $\sum_{t=1}^{T}\sum_i Q_t^{i,\text{sold}}$, normalised to the $k=0$ baseline.
+    \item \textbf{Price volatility} $\sigma$ ($\downarrow$): standard deviation of posted price across all firms and timesteps.
+    \item \textbf{Composite health score} ($\uparrow$):
+\begin{equation}
+      s = \tfrac{1}{3}\bigl[(1 - b_r)
+      + (1 - \sigma/\sigma_{\max})
+      + (1 - |\bar{p}/\bar{c} - 1|/d_{\max})\bigr],
+\end{equation}
+        where $\sigma_{\max}$ and $d_{\max}$ are normalised to the observe maximum across the grid. $s=1$ is a fully healthy              market; $s=0$ is complete collapse.
 \end{itemize}
+
 We run 10 independent episodes per condition and report mean $\pm$ standard deviation.
 
 \subsection{Experiment 2: The Lemon Market (C2C Fraud)}

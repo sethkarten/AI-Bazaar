@@ -29,6 +29,7 @@ from exp2_common import (
     resolve_run_dir, collect_all_run_dirs,
     load_state_files, build_aggregate, serialize_agg, deserialize_agg, plot_band,
 )
+K_ALL = [0] + K_VALUES
 
 plt.rcParams.update({
     "font.family": "serif", "font.size": 9,
@@ -94,10 +95,8 @@ def main():
         agg = deserialize_agg(load_cache_data(cache_path)["agg"])
     else:
         jobs = []
-        # Include K=0 baseline (rep_visible=True only)
-        for k in [0] + K_VALUES:
-            rep_opts = [True] if k == 0 else [True, False]
-            for rv in rep_opts:
+        for k in K_ALL:
+            for rv in [True, False]:
                 for seed in SEEDS:
                     d = resolve_run_dir(args.logs_dir, name_prefix, k, rv, seed)
                     if d:
@@ -127,12 +126,7 @@ def main():
     fig, ax = plt.subplots(1, 1, figsize=(7, 3.5), constrained_layout=True)
     fig.suptitle("Consumer Surplus over Time", fontsize=10, fontweight="bold")
 
-    # Baseline K=0
-    b_entry = agg.get((0, True))
-    if b_entry is not None:
-        plot_band(ax, b_entry, COLORS_K[0], "K=0 (baseline)", ls="-")
-
-    for k in K_VALUES:
+    for k in K_ALL:
         color = COLORS_K[k]
         sat   = k / 12
         for rv in [True, False]:

@@ -21,20 +21,24 @@ the trust signal available to buyers.}
 \subsection{Agent Architectures}
 \label{method:agents}
 
-All agents in Agent Bazaar are powered by open-weights LLMs as their reasoning backbone. We study five model families: Gemma~3, Qwen~3, Ministral~3, OLMo~3, and Llama~3.2. Each agent follows a structured \textit{observe-reason-act} loop: the market state is formatted as a structured JSON context, passed to the LLM with a task-specific system prompt, and the model generates a chain-of-thought (CoT) reasoning trace followed by a structured JSON action. Actions are parsed via regex extraction; malformed outputs are re-prompted once and then replaced by a default no-op action.
+All agents in Agent Bazaar are powered by LLMs as their reasoning backbone. We study three frontier models: Gemini 3 Flash, Claude Sonnet 4.6, and GPT 5.4; as well as five open-weights model families: Gemma 3, Qwen 3, Ministral 3, Olmo 3, and Llama 3.2. Each agent follows a structured \textit{observe-reason-act} loop: the market state is formatted as a structured JSON context, passed to the LLM with a task-specific system prompt, and the model generates a chain-of-thought (CoT) reasoning trace (only done in \ref{setup:crash}) followed by a structured JSON action. Actions are parsed via regex extraction; malformed outputs are re-prompted once and then replaced by a default no-op action.
 
 \textbf{Firm Agent (Stabilizing Firm target).}
 The Firm Agent operates in Environment A. Its observation at time $t$ is:
 \begin{equation}
-    o_t^{\text{firm}} = (\{P_{t-H:t}^{1:N}\}, I_t, C_t, D_{t-1}),
+    o_t^{\text{firm}} = \bigl(\{P_{t-1}^{j}\}_{j \in \mathcal{N}_t},\; I_t,\; C_t,\; c^i\bigr),
 \end{equation}
-consisting of the last $H=5$ timesteps of all visible competitor prices (sampled under token budget $\tau$), current inventory $I_t$, cash balance $C_t$, and realized demand from the previous round. The action is:
-\begin{equation}
-    a_t^{\text{firm}} = (P_t^i, Q_t^i) \in \mathbb{R}_{>0} \times \mathbb{Z}_{\geq 0}.
-\end{equation}
-The system prompt instructs the agent to reason about price trends, demand signals, and the risk of bankruptcy before committing to a price. In the \textit{Stabilizing Firm} finetuned variant, the prompt is augmented with a market health reflection: the agent is prompted to consider the effect of its pricing decision on overall market stability, not just its own profit.
+where $\mathcal{N}_t$ is a random sample of currently active competitor firms (bounded by the firm discovery limit; default: all competitors), $P_{t-1}^{j}$ is firm $j$'s price from the immediately preceding time step only, $I_t$ is current inventory, $C_t$ is current cash, and $c$ is per-unit supply cost. The agent observes its own actions and realized demand from the last $H=3$ time steps, including prior prices set, supply purchased, units sold, revenue, and various expenses expenses per step. 
+The agent also reflects on it's own $B=3$ highest-scoring time steps from the current episode history, selected by a composite metric rewarding profitability and market health.
 
-\textbf{Consumer Agent (Skeptical Guardian target).}
+The action is:
+\begin{equation}
+    a_t^{\text{firm}} = \bigl(P_t^i,\; Q_t^{i,\text{buy}},\; \alpha_t^i\bigr)
+    \;\in\; \mathbb{R}_{>0} \times \mathbb{R}_{\geq 0} \times [0,1],
+\end{equation}
+where $P_t^i$ is the price the agent will advertise to the market for each good, $Q_t^{i,\text{buy}}$ is the quantity of raw supply purchased at unit cost $c^i$ (automatically capped by available cash $C_t$), and $\alpha_t^i$ is the fraction of on-hand supply allocated to production (bound to 1.0 in single-good settings). The system prompt instructs the agent to reason about price trends, demand signals, and bankruptcy risk before committing to each decision. In the \textbf{Stabilizing Firm} variant, the strategy section of the system prompt instructs them to hold a stable price above $c^i$ regardless of competitor behavior with the goal of overall market stability rather than short-term profit; it is explicitly told not to follow rivals into a race to the bottom.
+
+\textbf{Buyer Agent (Skeptical Guardian target).}
 The Consumer Agent operates in Environment B. Its observation is:
 \begin{equation}
     o_t^{\text{buyer}} = (D_k, R_k, P_k, \text{persona}),

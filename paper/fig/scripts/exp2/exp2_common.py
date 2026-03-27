@@ -36,17 +36,19 @@ def resolve_run_dir(logs_dir: str, name_prefix: str, k: int, rep_visible: bool, 
     Canonical: logs/{name_prefix}/{run_name}/
     Flat fallback: logs/{run_name}/  (legacy prototype runs)
     """
-    rep_tag  = "rep1" if rep_visible else "rep0"
-    run_name = (
-        f"{name_prefix}_baseline_seed{seed}" if k == 0
-        else f"{name_prefix}_k{k}_{rep_tag}_seed{seed}"
+    rep_tag = "rep1" if rep_visible else "rep0"
+    run_names = (
+        [f"{name_prefix}_k0_{rep_tag}_seed{seed}", f"{name_prefix}_baseline_seed{seed}"]
+        if k == 0
+        else [f"{name_prefix}_k{k}_{rep_tag}_seed{seed}"]
     )
-    canonical = os.path.join(logs_dir, name_prefix, run_name)
-    if os.path.isdir(canonical):
-        return canonical
-    flat = os.path.join(logs_dir, run_name)
-    if os.path.isdir(flat):
-        return flat
+    for run_name in run_names:
+        canonical = os.path.join(logs_dir, name_prefix, run_name)
+        if os.path.isdir(canonical):
+            return canonical
+        flat = os.path.join(logs_dir, run_name)
+        if os.path.isdir(flat):
+            return flat
     return None
 
 
@@ -55,7 +57,7 @@ def collect_all_run_dirs(logs_dir: str, name_prefix: str, include_baseline: bool
     dirs = []
     k_list = ([0] + K_VALUES) if include_baseline else K_VALUES
     for k in k_list:
-        rep_opts = [True] if k == 0 else [True, False]
+        rep_opts = [True, False]
         for rv in rep_opts:
             for seed in SEEDS:
                 d = resolve_run_dir(logs_dir, name_prefix, k, rv, seed)

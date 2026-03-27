@@ -31,6 +31,7 @@ from exp2_common import (
     load_state_files, load_firm_types,
     build_aggregate, serialize_agg, deserialize_agg, plot_band,
 )
+K_ALL = [0] + K_VALUES
 
 plt.rcParams.update({
     "font.family": "serif", "font.size": 9,
@@ -112,7 +113,7 @@ def main():
     name_prefix = infer_name_prefix(args.logs_dir)
     print(f"Auto-detected name_prefix: {name_prefix}", flush=True)
 
-    run_dirs   = collect_all_run_dirs(args.logs_dir, name_prefix, include_baseline=False)
+    run_dirs   = collect_all_run_dirs(args.logs_dir, name_prefix, include_baseline=True)
     data_dir   = get_data_dir(args.output)
     cache_path = get_cache_path(data_dir, "exp2_lemon_reputation_quality", args.good)
 
@@ -123,7 +124,7 @@ def main():
         sybil_agg  = deserialize_agg(raw["sybil"])
     else:
         jobs = []
-        for k in K_VALUES:
+        for k in K_ALL:
             for rv in [True, False]:
                 for seed in SEEDS:
                     d = resolve_run_dir(args.logs_dir, name_prefix, k, rv, seed)
@@ -156,7 +157,7 @@ def main():
     fig, (ax_h, ax_s) = plt.subplots(2, 1, figsize=(7, 5.5), constrained_layout=True, sharex=True)
     fig.suptitle("Firm Reputation over Time", fontsize=10, fontweight="bold")
 
-    for k in K_VALUES:
+    for k in K_ALL:
         color = COLORS_K[k]
         sat   = k / 12
         for rv in [True, False]:

@@ -43,6 +43,7 @@ import argparse
 import subprocess
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -145,6 +146,20 @@ def build_runs(base: list[str], name_prefix: str) -> list[tuple[str, list[str], 
 
 
 _print_lock = threading.Lock()
+_progress_lock = threading.Lock()
+
+
+def format_duration(seconds: float) -> str:
+    """Human-readable duration for logs."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    if seconds < 3600:
+        m = int(seconds // 60)
+        s = seconds - m * 60
+        return f"{m}m {s:.0f}s"
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    return f"{h}h {m}m"
 
 
 def log(msg: str) -> None:
@@ -156,12 +171,43 @@ def log(msg: str) -> None:
         f.write(line + "\n")
 
 
-def run_one(log_label: str, args: list[str]) -> int:
-    """Run a single simulation; return the process exit code."""
+def log_run_finished(
+    log_label: str,
+    elapsed_sec: float,
+    completed_durations: list[float],
+    total_runs: int,
+    worker_count: int,
+    batch_wall_start: float,
+) -> None:
+    """Log per-run duration, ETA for remaining jobs, and % of est. total time left."""
+    with _progress_lock:
+        completed_durations.append(elapsed_sec)
+        n_done = len(completed_durations)
+        n_rem = total_runs - n_done
+        dur_fmt = format_duration(elapsed_sec)
+        if n_rem == 0:
+            log(f"Finished: {log_label} ({dur_fmt}) — all {total_runs} run(s) complete.")
+            return
+        avg = sum(completed_durations) / n_done
+        eta_remaining = (n_rem * avg) / worker_count
+        wall_elapsed = time.monotonic() - batch_wall_start
+        total_est = wall_elapsed + eta_remaining
+        pct_left = (100.0 * eta_remaining / total_est) if total_est > 0 else 0.0
+        log(
+            f"Finished: {log_label} ({dur_fmt}) | "
+            f"est. {format_duration(eta_remaining)} left for {n_rem} run(s) "
+            f"({pct_left:.1f}% of est. total time remaining)"
+        )
+
+
+def run_one(log_label: str, args: list[str]) -> tuple[int, float]:
+    """Run a single simulation; returns (exit code, elapsed seconds)."""
     cmd = [sys.executable, "-m", "ai_bazaar.main"] + args
     assert LOGS_DIR is not None
     log_path = LOGS_DIR / f"{log_label}_{TIMESTAMP}.log"
     log(f"Starting: {log_label}")
+    t0 = time.monotonic()
+    proc: subprocess.Popen[str] | None = None
     try:
         output_lines: list[str] = []
         with open(log_path, "w", encoding="utf-8") as logf:
@@ -179,16 +225,18 @@ def run_one(log_label: str, args: list[str]) -> int:
                 logf.flush()
                 output_lines.append(line)
             proc.wait()
+        elapsed = time.monotonic() - t0
+        assert proc is not None
         if proc.returncode != 0:
             with _print_lock:
                 for line in output_lines:
                     print(f"[{log_label}] {line}", end="", flush=True)
             log(f"WARNING: {log_label} exited with code {proc.returncode}")
+        return proc.returncode, elapsed
     except Exception as e:
+        elapsed = time.monotonic() - t0
         log(f"ERROR in {log_label}: {e}")
-        return -1
-    log(f"Finished: {log_label}")
-    return proc.returncode
+        return -1, elapsed
 
 
 def filter_runs(
@@ -341,26 +389,38 @@ def main() -> None:
     log(f"Grid: K∈{{0,*{K_VALUES}}}  rep_visible∈{{True,False}}  seeds={SEEDS}  rho_min={RHO_MIN}")
     log(f"Total sellers fixed at {NUM_TOTAL_SELLERS}; honest = {NUM_TOTAL_SELLERS} - K")
 
+    total = len(selected)
+    worker_count = 1 if cli.workers <= 1 else min(cli.workers, total)
+    completed_durations: list[float] = []
+    batch_start = time.monotonic()
+
     if cli.workers <= 1:
         for label, args, _ in selected:
-            run_one(label, args)
+            rc, elapsed = run_one(label, args)
+            log_run_finished(label, elapsed, completed_durations, total, worker_count, batch_start)
+            if rc != 0:
+                log(f"Run {label} finished with non-zero exit code {rc}")
     else:
-        workers = min(cli.workers, len(selected))
         futures = {}
-        with ThreadPoolExecutor(max_workers=workers) as pool:
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
             for label, args, _ in selected:
                 fut = pool.submit(run_one, label, args)
                 futures[fut] = label
             for fut in as_completed(futures):
                 label = futures[fut]
                 try:
-                    rc = fut.result()
+                    rc, elapsed = fut.result()
+                    log_run_finished(label, elapsed, completed_durations, total, worker_count, batch_start)
                     if rc != 0:
                         log(f"Run {label} finished with non-zero exit code {rc}")
                 except Exception as e:
                     log(f"Run {label} raised an exception: {e}")
 
-    log("Experiment 2 completed.")
+    total_wall = time.monotonic() - batch_start
+    log(
+        f"Experiment 2 completed. Total wall time: {format_duration(total_wall)}. "
+        f"Runs directory: logs/{name_prefix}/"
+    )
 
 
 if __name__ == "__main__":

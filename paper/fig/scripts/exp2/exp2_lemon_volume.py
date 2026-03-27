@@ -29,6 +29,7 @@ from exp2_common import (
     resolve_run_dir, collect_all_run_dirs,
     load_state_files, build_aggregate, serialize_agg, deserialize_agg, plot_band,
 )
+K_ALL = [0] + K_VALUES
 
 plt.rcParams.update({
     "font.family": "serif", "font.size": 9,
@@ -104,7 +105,7 @@ def main():
     name_prefix = infer_name_prefix(args.logs_dir)
     print(f"Auto-detected name_prefix: {name_prefix}", flush=True)
 
-    run_dirs   = collect_all_run_dirs(args.logs_dir, name_prefix, include_baseline=False)
+    run_dirs   = collect_all_run_dirs(args.logs_dir, name_prefix, include_baseline=True)
     data_dir   = get_data_dir(args.output)
     cache_path = get_cache_path(data_dir, "exp2_lemon_volume", args.good)
 
@@ -115,7 +116,7 @@ def main():
         passes_agg = deserialize_agg(raw["passes"])
     else:
         jobs = []
-        for k in K_VALUES:
+        for k in K_ALL:
             for rv in [True, False]:
                 for seed in SEEDS:
                     d = resolve_run_dir(args.logs_dir, name_prefix, k, rv, seed)
@@ -151,7 +152,7 @@ def main():
     for rep_visible, ax, title in [(True, axes[0], "(A) Reputation visible"), (False, axes[1], "(B) Reputation hidden")]:
         ax.set_title(title, fontsize=9)
         ax.set_xlabel("Timestep")
-        for k in K_VALUES:
+        for k in K_ALL:
             color = COLORS_K[k]
             sat   = k / 12
             b_entry = bids_agg.get((k, rep_visible))

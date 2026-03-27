@@ -4,9 +4,11 @@
 We conduct three sets of experiments to demonstrate the fragility of base models and the efficacy of our alignment finetuning.
 
 \subsection{Exp 1: The Crash (B2C Instability)}
-\textbf{Setup:} 5 Firms, 50 Consumers. 50 Timesteps.
-\textbf{Result:} Base Llama-3 agents aggressively undercut, driving prices to \$0.01 (below cost \$5.00) within 10 steps. 80\% of firms go bankrupt.
-\textbf{Intervention:} Firms finetuned on "Survival Traces" (top 10\% of episodes) learn to signal and maintain a price floor, reducing bankruptcy rate to 10\%.
+\textbf{Setup:} We instantiate Environment A (Section~\ref{setup:crash}) with $N=5$ firm agents endowed with \$500 in cash and $M=50$ consumer agents. Each episode runs for $T=365$ timesteps. Consumer demand is drawn from a Poisson process $D_t \sim \mathrm{Poisson}(\lambda=30)$ per timestep. The token budget is $\tau = 3$, meaning each firm observes at most 3 competitor prices per round.
+\textbf{Baseline Result:} Gemini-2.5 flash base agents aggressively undercut prices, causing price collapse below unit costs until one agent remains in business. The last remaining firm exploits their monopolistic position to maximize revenue. 
+\textbf{Untrained Intervention:} Stabilizing firm agents coupled with limited discovery for consumers decreases collapse probability. 
+\textbf{Trained Intervention:} FIRMS FINETUNED ON "SURVIVAL TRACES" (TOP 10\% OF EPISODES) LEARN TO SIGNAL AND MAINTAIN A PRICE FLOOR, REDUCING BANKRUPTCY RATE TO 10\%.
+
 
 \subsection{Exp 2: The Lemon Market (C2C Fraud)}
 \textbf{Setup:} 10 Sellers (5 Honest, 5 Deceptive), 10 Buyers. 
