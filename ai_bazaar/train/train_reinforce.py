@@ -142,13 +142,15 @@ class REINFORCETrainer:
             self.inference_model_base = None
 
         # ── Stabilizing firm inference wrapper (GPU 0) ───────────────
+        # Short max_tokens for stabilizing firm: only needs JSON output (~30 tokens)
+        # Non-stabilizing firms keep full max_tokens for CoT reasoning
         self.inference_model = UnslothModel(
             self.model, self.tokenizer,
             heartbeat_func=self.heartbeat,
             encoding_tokenizer=self.encoding_tokenizer,
             device=self.device,
             max_batch_size=inference_bs,
-            max_tokens=max_gen_tokens,
+            max_tokens=64,  # Just enough for JSON action
         )
 
         # ── Optimizer (only LoRA params) ─────────────────────────────
