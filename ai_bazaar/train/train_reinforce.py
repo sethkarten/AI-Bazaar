@@ -559,12 +559,14 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             msg = [{"role":"system","content":s},{"role":"user","content":u}]
             p = self.tokenizer.apply_chat_template(msg, tokenize=False, add_generation_prompt=True)
             full = p + r + self.tokenizer.eos_token
-            # Pre-filter: skip bad samples before expensive tokenization in training loop
-            p_len = len(self.encoding_tokenizer(p, truncation=False).input_ids)
+            # Pre-filter: only train on clean JSON responses, skip echoed prompts
+            r_stripped = r.strip()
+            if not r_stripped.startswith("{") or "supply_quantity" not in r_stripped:
+                skipped += 1; continue  # Skip: not a valid JSON action response
             r_len = len(self.encoding_tokenizer(r, truncation=False).input_ids)
-            f_len = p_len + r_len + 1  # +1 for eos token
-            if r_len < 5 or r_len > 200 or f_len > 2048:
-                skipped += 1; continue  # Skip: too short, too long (echoed prompt), or exceeds max_length
+            p_len = len(self.encoding_tokenizer(p, truncation=False).input_ids)
+            if p_len + r_len + 1 > 2048:
+                skipped += 1; continue  # Skip: exceeds max_length
             groups[ts].append({
                 "text": full,
                 "prompt": p,
