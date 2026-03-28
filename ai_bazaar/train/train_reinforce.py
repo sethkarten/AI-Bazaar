@@ -559,11 +559,12 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             msg = [{"role":"system","content":s},{"role":"user","content":u}]
             p = self.tokenizer.apply_chat_template(msg, tokenize=False, add_generation_prompt=True)
             full = p + r + self.tokenizer.eos_token
-            # Pre-filter: skip if prompt is so long that response would be truncated
+            # Pre-filter: skip bad samples before expensive tokenization in training loop
             p_len = len(self.encoding_tokenizer(p, truncation=False).input_ids)
-            f_len = len(self.encoding_tokenizer(full, truncation=False).input_ids)
-            if f_len - p_len < 5:
-                skipped += 1; continue  # Response too short after potential truncation
+            r_len = len(self.encoding_tokenizer(r, truncation=False).input_ids)
+            f_len = p_len + r_len + 1  # +1 for eos token
+            if r_len < 5 or r_len > 200 or f_len > 2048:
+                skipped += 1; continue  # Skip: too short, too long (echoed prompt), or exceeds max_length
             groups[ts].append({
                 "text": full,
                 "prompt": p,
@@ -802,6 +803,7 @@ def main():
     args.no_diaries = True
     args.firm_tax_rate = 0.0  # Disable wealth tax — use overhead_costs only
     args.history_len = 1  # Short history to keep prompts under 2048 tokens
+    args.best_n = 1  # Only 1 best historical timestep (reduces prompt length)
     if not hasattr(args, 'prompt_algo') or args.prompt_algo == "cot":
         args.prompt_algo = "io"
 
