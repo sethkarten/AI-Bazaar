@@ -96,6 +96,7 @@ class REINFORCETrainer:
         )
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name, quantization_config=bnb_config, device_map=str(self.device),
+            attn_implementation="flash_attention_2",
         )
         lora_cfg = LoraConfig(
             r=16,
@@ -123,6 +124,7 @@ class REINFORCETrainer:
             print(f"Loading frozen 4-bit base model on {self.device_base} …", flush=True)
             self.base_model = AutoModelForCausalLM.from_pretrained(
                 model_name, quantization_config=bnb_config, device_map=str(self.device_base),
+                attn_implementation="flash_attention_2",
             )
             self.base_model.eval()
             for p in self.base_model.parameters():
