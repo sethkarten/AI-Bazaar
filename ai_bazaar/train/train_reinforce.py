@@ -306,10 +306,10 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                     msg = [{"role": "system", "content": sp}, {"role": "user", "content": up}]
                     p = self.tokenizer.apply_chat_template(msg, tokenize=False, add_generation_prompt=True)
                     full_texts.append(p + rp + self.tokenizer.eos_token)
-                    prompt_lens.append(len(self.encoding_tokenizer(p, truncation=True, max_length=4096).input_ids))
+                    prompt_lens.append(len(self.encoding_tokenizer(p, truncation=True, max_length=2048).input_ids))
 
                 try:
-                    enc = self.encoding_tokenizer(full_texts, return_tensors="pt", padding=True, truncation=True, max_length=4096).to(self.device)
+                    enc = self.encoding_tokenizer(full_texts, return_tensors="pt", padding=True, truncation=True, max_length=2048).to(self.device)
                     logits = self.model(**enc).logits.float()  # bf16→f32 for stable loss
 
                     loss, cnt = torch.tensor(0.0, device=self.device), 0
@@ -624,8 +624,8 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
 
             try:
                 enc = self.encoding_tokenizer(texts, return_tensors="pt", padding=True,
-                                              truncation=True, max_length=4096).to(self.device)
-                prompt_lens = [len(self.encoding_tokenizer(p, truncation=True, max_length=4096).input_ids)
+                                              truncation=True, max_length=2048).to(self.device)
+                prompt_lens = [len(self.encoding_tokenizer(p, truncation=True, max_length=2048).input_ids)
                                for p in prompts]
 
                 # Policy forward pass
@@ -636,7 +636,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                 if self.base_model is not None and kl_coeff > 0:
                     with torch.no_grad():
                         ref_enc = self.encoding_tokenizer(texts, return_tensors="pt", padding=True,
-                                                          truncation=True, max_length=4096).to(self.device_base)
+                                                          truncation=True, max_length=2048).to(self.device_base)
                         ref_out = self.base_model(**ref_enc).logits.float()
                         # Compute log_softmax on GPU 1, only move selected log-probs to GPU 0
                         ref_log_probs_all = torch.log_softmax(ref_out, dim=-1)
@@ -777,18 +777,18 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
 def main():
     parser = create_argument_parser()
     parser.add_argument("--lr", type=float, default=1e-5)
-    parser.add_argument("--num_episodes", type=int, default=64)
+    parser.add_argument("--num_episodes", type=int, default=32)
     parser.add_argument("--num_iterations", type=int, default=100)
     parser.add_argument("--run_name", type=str, default=None)
     parser.add_argument("--train_batch_size", type=int, default=64, help="Effective batch size (via gradient accumulation)")
-    parser.add_argument("--micro_batch_size", type=int, default=4, help="Micro-batch size per forward pass (must fit in GPU memory)")
+    parser.add_argument("--micro_batch_size", type=int, default=16, help="Micro-batch size per forward pass")
     parser.add_argument("--format_reward_weight", type=float, default=2.0)
     parser.add_argument("--inference_batch_size", type=int, default=128)
     parser.add_argument("--wandb_mode", type=str, default="offline", choices=["online","offline","disabled"])
     # REINFORCE++
     parser.add_argument("--advantage_clip", type=float, default=3.0)
     parser.add_argument("--grad_clip_norm", type=float, default=0.5)
-    parser.add_argument("--kl_coeff", type=float, default=0.05, help="Token-level KL penalty coefficient against reference model")
+    parser.add_argument("--kl_coeff", type=float, default=0.2, help="Token-level KL penalty coefficient against reference model")
     parser.add_argument("--reward_weights", type=str, default="0.4,0.3,0.3")
     parser.add_argument("--survival_bonus", type=float, default=5.0)
     parser.add_argument("--curriculum", action="store_true", default=True, help="Enable curriculum: 5/5→4/5→3/5 then sample")
