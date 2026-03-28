@@ -801,6 +801,7 @@ def main():
     # Training defaults
     args.no_diaries = True
     args.firm_tax_rate = 0.0  # Disable wealth tax — use overhead_costs only
+    args.history_len = 1  # Short history to keep prompts under 2048 tokens
     if not hasattr(args, 'prompt_algo') or args.prompt_algo == "cot":
         args.prompt_algo = "io"
 
