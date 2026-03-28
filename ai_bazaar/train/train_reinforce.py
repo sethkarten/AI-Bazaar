@@ -798,8 +798,9 @@ def main():
     parser.add_argument("--resume", action="store_true", help="Resume from last checkpoint")
     args = parser.parse_args()
 
-    # Training defaults: disable diaries (confuse base model), use io prompts
+    # Training defaults
     args.no_diaries = True
+    args.firm_tax_rate = 0.0  # Disable wealth tax — use overhead_costs only
     if not hasattr(args, 'prompt_algo') or args.prompt_algo == "cot":
         args.prompt_algo = "io"
 
