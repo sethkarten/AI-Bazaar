@@ -838,11 +838,27 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         self.model.eval()
         self.model.save_pretrained(os.path.join(self.checkpoint_dir, "latest"))
 
+        # Periodic snapshot every 5 iterations (for eval/analysis)
+        if iteration % 5 == 0 or iteration == self.args.num_iterations - 1:
+            snap_dir = os.path.join(self.checkpoint_dir, f"iter_{iteration:04d}")
+            self.model.save_pretrained(snap_dir)
+            print(f"  Saved snapshot: {snap_dir}", flush=True)
+
+        # Track best checkpoint by composite score (updated in collect_trajectories)
+        if not hasattr(self, "_best_composite"):
+            self._best_composite = -float("inf")
+        if hasattr(self, "last_stab_surv") and self.last_stab_surv > self._best_composite:
+            self._best_composite = self.last_stab_surv
+            self.model.save_pretrained(os.path.join(self.checkpoint_dir, "best"))
+            print(f"  New best checkpoint (stab_surv={self.last_stab_surv:.0%})", flush=True)
+
         # Save full training state for resumption
         torch.save({
             "optimizer": self.optimizer.state_dict(),
             "iteration": iteration,
             "reward_stats": {"n": self.reward_stats.n, "mean": self.reward_stats.mean, "M2": self.reward_stats.M2},
+            "best_stab_surv": getattr(self, "_best_composite", 0),
+            "last_stab_surv": self.last_stab_surv,
         }, os.path.join(self.checkpoint_dir, "train_state.pt"))
 
         dt = time.time() - t0
