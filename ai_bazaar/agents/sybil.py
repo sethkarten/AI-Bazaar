@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 from typing import Any, Dict, List, Optional, Tuple
 
 from ai_bazaar.agents.llm_agent import LLMAgent

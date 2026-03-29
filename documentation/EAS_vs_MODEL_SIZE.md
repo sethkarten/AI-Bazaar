@@ -64,15 +64,15 @@ Excludes all MoE architectures. Useful for clean scaling-law comparisons.
 | ----------------------------- | --------------- | ---------- | ------------------------------------------------ | -------------- | --------------- | ------------------------------------- | --------------- |
 | Llama 3.2 3B Instruct         | Meta            | 3B         | `meta-llama/llama-3.2-3b-instruct`               | $0.00 (free)   | $0.00 (free)    | Edge/mobile; free on OpenRouter       | 1               |
 | Gemma 3 4B                    | Google DeepMind | 4B         | `google/gemma-3-4b-it`                           | $0.04          | $0.08           | Free tier also available              | 1               |
-| Mistral 7B Instruct           | Mistral AI      | 7.3B       | `mistralai/mistral-7b-instruct`                  | $0.14          | $0.20           | 32K context                           | 1               |
+| Mistral 7B Instruct           | Mistral AI      | 7.3B       | `mistralai/mistral-7b-instruct-v0.1`             | $0.14          | $0.20           | 32K context                           | 1               |
 | Llama 3.1 8B Instruct         | Meta            | 8B         | `meta-llama/llama-3.1-8b-instruct`               | $0.02          | $0.05           | 16K context                           | 1               |
 | Qwen3 8B                      | Alibaba         | 8.2B       | `qwen/qwen3-8b`                                  | $0.05          | $0.40           | Hybrid thinking/non-thinking modes    | 1               |
 | Gemma 3 12B                   | Google DeepMind | 12B        | `google/gemma-3-12b-it`                          | $0.04          | $0.13           | Free tier also available              | 1               |
 | Phi-4                         | Microsoft       | 14B        | `microsoft/phi-4`                                | $0.065         | $0.14           | Strong reasoning for size             | 1               |
-| DeepSeek R1 Distill Qwen 14B  | DeepSeek        | 14B        | `deepseek/deepseek-r1-distill-qwen-14b`          | $0.875         | $0.875          | Reasoning distillation                | 1               |
+| DeepSeek R1 Distill Qwen 14B  | DeepSeek        | 14B        | ~~`deepseek/deepseek-r1-distill-qwen-14b`~~ — removed from OpenRouter | — | — | Reasoning distillation | 0 |
 | Mistral Small 3.1 24B         | Mistral AI      | 24B        | `mistralai/mistral-small-3.1-24b-instruct`       | $0.03          | $0.11           | 131K context; free tier available     | 1               |
 | Gemma 3 27B                   | Google DeepMind | 27B        | `google/gemma-3-27b-it`                          | $0.08          | $0.16           | Vision-language capable               | 1               |
-| OLMo 2 32B Instruct           | Allen AI        | 32B        | `allenai/olmo-2-32b-instruct`                    | $0.05          | $0.20           | Fully open (data + weights); 128K ctx | 1               |
+| OLMo 2 32B Instruct           | Allen AI        | 32B        | `allenai/olmo-2-0325-32b-instruct`               | $0.05          | $0.20           | Fully open (data + weights); 128K ctx | 1               |
 | OLMo 3.1 32B Think            | Allen AI        | 32B        | `allenai/olmo-3.1-32b-think`                     | $0.15          | $0.50           | Reasoning/thinking model              | 1               |
 | DeepSeek R1 Distill Qwen 32B  | DeepSeek        | 32B        | `deepseek/deepseek-r1-distill-qwen-32b`          | $0.29          | $0.29           | Reasoning distillation                | 1               |
 | Llama 3.3 70B Instruct        | Meta            | 70B        | `meta-llama/llama-3.3-70b-instruct`              | $0.10          | $0.32           | 131K context; free tier available     | 1               |
@@ -81,7 +81,7 @@ Excludes all MoE architectures. Useful for clean scaling-law comparisons.
 | Llama 3.1 Nemotron 70B        | NVIDIA          | 70B        | `nvidia/llama-3.1-nemotron-70b-instruct`         | $1.20          | $1.20           | RLHF fine-tune of Llama 3.1 70B       | 1               |
 | Qwen2.5 72B Instruct          | Alibaba         | 72B        | `qwen/qwen-2.5-72b-instruct`                     | $0.12          | $0.39           | Strong general-purpose                | 1               |
 | Command R+                    | Cohere          | 104B       | `cohere/command-r-plus`                          | $2.50          | $10.00          | 128K context; strong RAG/tool use     | 0               |
-| Llama 3.1 405B Instruct       | Meta            | 405B       | `meta-llama/llama-3.1-405b-instruct`             | $4.00          | $4.00           | Largest dense open Llama; 131K ctx    | 1               |
+| Llama 3.1 405B Instruct       | Meta            | 405B       | ~~`meta-llama/llama-3.1-405b-instruct`~~ — removed from OpenRouter | — | — | Largest dense open Llama; 131K ctx | 0 |
 | Hermes 3 405B Instruct        | NousResearch    | 405B       | `nousresearch/hermes-3-llama-3.1-405b`           | $1.00          | $1.00           | Fine-tune of Llama 3.1 405B           | 1               |
 | Hermes 4 405B                 | NousResearch    | 405B       | `nousresearch/hermes-4-405b`                     | $1.00          | $3.00           | Hybrid thinking/direct modes          | 1               |
 

@@ -14,32 +14,6 @@ Run the Streamlit dashboard to inspect simulation state (requires state files fr
 streamlit run ai_bazaar/viz/dashboard.py
 ```
 
-## Extract Sybil Principal Prompts (Exp2)
-
-After running Exp2 with prompt logging enabled, extract only the Sybil principal
-conversations from `lemon_agent_prompts.jsonl`.
-
-Default outputs written in the run directory:
-
-- `lemon_sybil_prompts.json` (all `agent == "sybil_principal"` rows)
-- `lemon_sybil_tier_refusals.json` (`call == "sybil_tier"` rows where the model response appears to refuse the task)
-
-```bash
-# Pass an Exp2 model directory; processes all run subfolders inside it.
-python scripts/extract_sybil_prompts.py "logs/exp2_anthropic_claude-sonnet-4.6"
-
-# Pass an Exp2 run directory; writes both output files inside that run.
-python scripts/extract_sybil_prompts.py "logs/exp2_anthropic_claude-sonnet-4.6/exp2_anthropic_claude-sonnet-4.6_k3_rep1_seed8"
-
-# You can also pass the JSONL file directly.
-python scripts/extract_sybil_prompts.py "logs/exp2_anthropic_claude-sonnet-4.6/exp2_anthropic_claude-sonnet-4.6_k3_rep1_seed8/lemon_agent_prompts.jsonl"
-
-# Optional: custom output filenames.
-python scripts/extract_sybil_prompts.py "logs/exp2_anthropic_claude-sonnet-4.6/exp2_anthropic_claude-sonnet-4.6_k3_rep1_seed8" --output lemon_sybil_prompts.json --refusals-output lemon_sybil_tier_refusals.json
-```
-
-Run from project root so the dashboard finds the `logs/` directory.
-
 ---
 
 ## EXPERIMENT 1
@@ -147,15 +121,15 @@ Runs the full Experiment 1 matrix for every dense open-weight model listed with 
 | ----------------------- | ------ | ------------------------------------------ |
 | Llama 3.2 3B            | 3B     | `meta-llama/llama-3.2-3b-instruct`         |
 | Gemma 3 4B              | 4B     | `google/gemma-3-4b-it`                     |
-| Mistral 7B              | 7.3B   | `mistralai/mistral-7b-instruct`            |
+| Mistral 7B              | 7.3B   | `mistralai/mistral-7b-instruct-v0.1`            |
 | Llama 3.1 8B            | 8B     | `meta-llama/llama-3.1-8b-instruct`         |
 | Qwen3 8B                | 8.2B   | `qwen/qwen3-8b`                            |
 | Gemma 3 12B             | 12B    | `google/gemma-3-12b-it`                    |
 | Phi-4                   | 14B    | `microsoft/phi-4`                          |
-| DeepSeek R1 Distill 14B | 14B    | `deepseek/deepseek-r1-distill-qwen-14b`    |
+| ~~DeepSeek R1 Distill 14B~~ | ~~14B~~ | ~~`deepseek/deepseek-r1-distill-qwen-14b`~~ — removed from OpenRouter |
 | Mistral Small 3.1 24B   | 24B    | `mistralai/mistral-small-3.1-24b-instruct` |
 | Gemma 3 27B             | 27B    | `google/gemma-3-27b-it`                    |
-| OLMo 2 32B              | 32B    | `allenai/olmo-2-32b-instruct`              |
+| OLMo 2 32B              | 32B    | `allenai/olmo-2-0325-32b-instruct`         |
 | OLMo 3.1 32B Think      | 32B    | `allenai/olmo-3.1-32b-think`               |
 | DeepSeek R1 Distill 32B | 32B    | `deepseek/deepseek-r1-distill-qwen-32b`    |
 | Llama 3.3 70B           | 70B    | `meta-llama/llama-3.3-70b-instruct`        |
@@ -163,7 +137,7 @@ Runs the full Experiment 1 matrix for every dense open-weight model listed with 
 | DeepSeek R1 Distill 70B | 70B    | `deepseek/deepseek-r1-distill-llama-70b`   |
 | Nemotron 70B            | 70B    | `nvidia/llama-3.1-nemotron-70b-instruct`   |
 | Qwen2.5 72B             | 72B    | `qwen/qwen-2.5-72b-instruct`               |
-| Llama 3.1 405B          | 405B   | `meta-llama/llama-3.1-405b-instruct`       |
+| ~~Llama 3.1 405B~~      | ~~405B~~ | ~~`meta-llama/llama-3.1-405b-instruct`~~ — removed from OpenRouter |
 | Hermes 3 405B           | 405B   | `nousresearch/hermes-3-llama-3.1-405b`     |
 | Hermes 4 405B           | 405B   | `nousresearch/hermes-4-405b`               |
 
@@ -336,7 +310,7 @@ python scripts/exp2.py --workers 3
 
 ```bash
 # Different Gemini model
-python scripts/exp2.py --llm gemini-2.0-flash
+python scripts/exp2.py --llm gemini-3-flash-preview
 
 # OpenRouter (e.g. Claude Sonnet via Anthropic)
 python scripts/exp2.py --llm anthropic/claude-sonnet-4-6 --openrouter-provider anthropic
@@ -432,6 +406,56 @@ python paper/fig/scripts/exp2/exp2_market_collapse.py          --logs-dir logs/e
 ```
 
 ---
+
+## Extract Sybil Principal Prompts (Exp2)
+
+After running Exp2 with prompt logging enabled, extracts Sybil principal
+conversations and compiles them across seeds into one file per (K, rep) cell,
+written to `logs/exp2_<model>/data/`. Each row is stamped with `_seed` and `_run`.
+
+- `k{K}_{rep}_sybil_prompts.json` — all `agent == "sybil_principal"` rows
+- `k{K}_{rep}_sybil_tier_refusals.json` — `call == "sybil_tier"` rows where the model refused the task
+
+```bash
+# Default: anthropic_claude-sonnet-4.6, all K (0 3 6 9), both reps, all seeds
+python scripts/extract_sybil_prompts.py
+
+# Specify model
+python scripts/extract_sybil_prompts.py --model gemini-2.5-flash
+
+# Subset of K values or rep conditions
+python scripts/extract_sybil_prompts.py --model gemini-2.5-flash --k 3 6 9
+python scripts/extract_sybil_prompts.py --model gemini-2.5-flash --rep rep1
+
+# Restrict to specific seeds
+python scripts/extract_sybil_prompts.py --model gemini-2.5-flash --seed 8 16
+```
+
+---
+
+## Analyze Lemon Market Prompt Logs (Exp2)
+
+Loads buyer and seller prompt logs (k0 baseline + k3 sybil run) for a given model and prints quantitative metrics plus paper-ready qualitative examples. Requires those runs to have been executed with `--log-buyer-prompts --log-seller-prompts`.
+
+```bash
+# Default: anthropic_claude-sonnet-4.6, all K values (0 3 6 9), first available seed
+python scripts/analyze_lemon_prompts.py
+
+# Specify model (looks in logs/exp2_<model>/)
+python scripts/analyze_lemon_prompts.py --model gemini-2.5-flash
+
+# Subset of K values
+python scripts/analyze_lemon_prompts.py --model gemini-2.5-flash --k 0 3 6
+python scripts/analyze_lemon_prompts.py --model gemini-2.5-flash --k 6 9
+
+# Pin a specific seed when multiple are available
+python scripts/analyze_lemon_prompts.py --model gemini-2.5-flash --seed 16
+
+# Override output path (default: logs/exp2_<model>/data/prompt_analysis.txt)
+python scripts/analyze_lemon_prompts.py --model gemini-2.5-flash --output logs/prompt_analysis.txt
+```
+
+Outputs: deception rate, pass rate, description style stats (word count, model-hallucination rate), best buyer sybil-detection example, best deception-success example, and a side-by-side honest vs. sybil listing.
 
 ---
 
@@ -645,7 +669,7 @@ python scripts/exp1.py --llm meta-llama/llama-3.2-3b-instruct --n-stab 3 --dlc 3
 # Gemma 3 4B (4B)
 python scripts/exp1.py --llm google/gemma-3-4b-it --n-stab 3 --dlc 3
 # Mistral 7B (7.3B)
-python scripts/exp1.py --llm mistralai/mistral-7b-instruct --n-stab 3 --dlc 3
+python scripts/exp1.py --llm mistralai/mistral-7b-instruct-v0.1 --n-stab 3 --dlc 3
 # Llama 3.1 8B (8B)
 python scripts/exp1.py --llm meta-llama/llama-3.1-8b-instruct --n-stab 3 --dlc 3
 # Qwen3 8B (8.2B)
@@ -654,14 +678,14 @@ python scripts/exp1.py --llm qwen/qwen3-8b --n-stab 3 --dlc 3
 python scripts/exp1.py --llm google/gemma-3-12b-it --n-stab 3 --dlc 3
 # Phi-4 (14B)
 python scripts/exp1.py --llm microsoft/phi-4 --n-stab 3 --dlc 3
-# DeepSeek R1 Distill Qwen 14B (14B)
-python scripts/exp1.py --llm deepseek/deepseek-r1-distill-qwen-14b --n-stab 3 --dlc 3
+# DeepSeek R1 Distill Qwen 14B — REMOVED from OpenRouter
+# python scripts/exp1.py --llm deepseek/deepseek-r1-distill-qwen-14b --n-stab 3 --dlc 3
 # Mistral Small 3.1 24B (24B)
 python scripts/exp1.py --llm mistralai/mistral-small-3.1-24b-instruct --n-stab 3 --dlc 3
 # Gemma 3 27B (27B)
 python scripts/exp1.py --llm google/gemma-3-27b-it --n-stab 3 --dlc 3
 # OLMo 2 32B Instruct (32B)
-python scripts/exp1.py --llm allenai/olmo-2-32b-instruct --n-stab 3 --dlc 3
+python scripts/exp1.py --llm allenai/olmo-2-0325-32b-instruct --n-stab 3 --dlc 3
 # OLMo 3.1 32B Think (32B)
 python scripts/exp1.py --llm allenai/olmo-3.1-32b-think --n-stab 3 --dlc 3
 # DeepSeek R1 Distill Qwen 32B (32B)
@@ -676,8 +700,8 @@ python scripts/exp1.py --llm deepseek/deepseek-r1-distill-llama-70b --n-stab 3 -
 python scripts/exp1.py --llm nvidia/llama-3.1-nemotron-70b-instruct --n-stab 3 --dlc 3
 # Qwen2.5 72B (72B)
 python scripts/exp1.py --llm qwen/qwen-2.5-72b-instruct --n-stab 3 --dlc 3
-# Llama 3.1 405B (405B)
-python scripts/exp1.py --llm meta-llama/llama-3.1-405b-instruct --n-stab 3 --dlc 3
+# Llama 3.1 405B — REMOVED from OpenRouter
+# python scripts/exp1.py --llm meta-llama/llama-3.1-405b-instruct --n-stab 3 --dlc 3
 # Hermes 3 405B (405B)
 python scripts/exp1.py --llm nousresearch/hermes-3-llama-3.1-405b --n-stab 3 --dlc 3
 # Hermes 4 405B (405B)
