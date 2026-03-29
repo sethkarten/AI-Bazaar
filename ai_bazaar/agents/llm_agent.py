@@ -26,6 +26,7 @@ class LLMAgent:
         K: int = 3,
         args=None,
         llm_instance=None,
+        provider_order=None,
     ) -> None:
         assert args is not None
 
@@ -43,7 +44,7 @@ class LLMAgent:
         elif llm_type is None or llm_type == "None":
             self.llm = None
         else:
-            self.llm = self._create_llm_model(llm_type, port, args)
+            self.llm = self._create_llm_model(llm_type, port, args, provider_order=provider_order)
 
         self.history_len = history_len
         self.timeout = timeout  # number of times to retry message before failing
@@ -55,7 +56,7 @@ class LLMAgent:
         self.trajectory = []
         self.diary = []  # List of (timestep, entry) tuples
 
-    def _create_llm_model(self, llm_type: str, port: int, args):
+    def _create_llm_model(self, llm_type: str, port: int, args, provider_order=None):
         """Create the appropriate LLM model based on the type.
 
         OpenRouter-style IDs (provider/model, e.g. "meta-llama/llama-3.1-70b-instruct",
@@ -70,10 +71,11 @@ class LLMAgent:
         # OpenRouter: any "provider/model" slug routes here, regardless of provider keyword.
         # This must come before keyword checks so meta-llama/*, google/*, openai/* all work.
         if "/" in llm_type and not llm_type.startswith("/") and not llm_type.startswith("."):
+            resolved_provider = provider_order if provider_order is not None else getattr(args, "openrouter_provider", None)
             return OpenRouterModel(
                 model_name=llm_type,
                 max_tokens=args.max_tokens,
-                provider_order=getattr(args, "openrouter_provider", None),
+                provider_order=resolved_provider,
             )
 
         # Direct provider clients (no slash in name)

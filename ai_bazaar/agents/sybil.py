@@ -105,6 +105,10 @@ class DeceptivePrincipal(LLMAgent):
         args=None,
         llm_instance=None,
     ) -> None:
+        provider_order = (
+            getattr(args, "seller_openrouter_provider", None)
+            or getattr(args, "openrouter_provider", None)
+        ) if args else None
         super().__init__(
             llm_type=llm if llm is not None else "None",
             port=port,
@@ -114,6 +118,7 @@ class DeceptivePrincipal(LLMAgent):
             timeout=getattr(args, "timeout", 30) if args else 30,
             args=args,
             llm_instance=llm_instance,
+            provider_order=provider_order,
         )
         self.best_n = getattr(args, "best_n", 3) if args else 3
         self.logger = logging.getLogger("main")

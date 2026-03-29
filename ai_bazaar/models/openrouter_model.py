@@ -112,17 +112,10 @@ class OpenRouterModel(BaseLLMModel):
                     "max_tokens": self.max_tokens
                 }
 
-                # Disable "thinking mode" for Qwen3 models (hybrid thinking/non-thinking).
-                # Only use the OpenRouter provider-level flag — extra_body.thinking gets
-                # forwarded raw to the provider and causes a 400 on non-thinking models.
-                is_qwen3 = isinstance(self.model_name, str) and self.model_name.lower().startswith("qwen/qwen3")
-
                 # Provider routing options
                 provider: dict = {}
                 if self.provider_order:
                     provider["order"] = self.provider_order
-                if is_qwen3:
-                    provider["thinking"] = {"type": "disabled"}
                 if provider:
                     payload["provider"] = provider
                 

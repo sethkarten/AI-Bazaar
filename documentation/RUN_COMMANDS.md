@@ -117,29 +117,27 @@ Runs the full Experiment 1 matrix for every dense open-weight model listed with 
 **Models (dense, include=1):**
 
 
-| Display name            | Params | OpenRouter ID                              |
-| ----------------------- | ------ | ------------------------------------------ |
-| Llama 3.2 3B            | 3B     | `meta-llama/llama-3.2-3b-instruct`         |
-| Gemma 3 4B              | 4B     | `google/gemma-3-4b-it`                     |
-| Mistral 7B              | 7.3B   | `mistralai/mistral-7b-instruct-v0.1`            |
-| Llama 3.1 8B            | 8B     | `meta-llama/llama-3.1-8b-instruct`         |
-| Qwen3 8B                | 8.2B   | `qwen/qwen3-8b`                            |
-| Gemma 3 12B             | 12B    | `google/gemma-3-12b-it`                    |
-| Phi-4                   | 14B    | `microsoft/phi-4`                          |
-| ~~DeepSeek R1 Distill 14B~~ | ~~14B~~ | ~~`deepseek/deepseek-r1-distill-qwen-14b`~~ — removed from OpenRouter |
-| Mistral Small 3.1 24B   | 24B    | `mistralai/mistral-small-3.1-24b-instruct` |
-| Gemma 3 27B             | 27B    | `google/gemma-3-27b-it`                    |
-| OLMo 2 32B              | 32B    | `allenai/olmo-2-0325-32b-instruct`         |
-| OLMo 3.1 32B Think      | 32B    | `allenai/olmo-3.1-32b-think`               |
-| DeepSeek R1 Distill 32B | 32B    | `deepseek/deepseek-r1-distill-qwen-32b`    |
-| Llama 3.3 70B           | 70B    | `meta-llama/llama-3.3-70b-instruct`        |
-| Llama 3.1 70B           | 70B    | `meta-llama/llama-3.1-70b-instruct`        |
-| DeepSeek R1 Distill 70B | 70B    | `deepseek/deepseek-r1-distill-llama-70b`   |
-| Nemotron 70B            | 70B    | `nvidia/llama-3.1-nemotron-70b-instruct`   |
-| Qwen2.5 72B             | 72B    | `qwen/qwen-2.5-72b-instruct`               |
-| ~~Llama 3.1 405B~~      | ~~405B~~ | ~~`meta-llama/llama-3.1-405b-instruct`~~ — removed from OpenRouter |
-| Hermes 3 405B           | 405B   | `nousresearch/hermes-3-llama-3.1-405b`     |
-| Hermes 4 405B           | 405B   | `nousresearch/hermes-4-405b`               |
+| Display name                | Params   | OpenRouter ID                                                         |
+| --------------------------- | -------- | --------------------------------------------------------------------- |
+| Llama 3.2 3B                | 3B       | `meta-llama/llama-3.2-3b-instruct`                                    |
+| Gemma 3 4B                  | 4B       | `google/gemma-3-4b-it`                                                |
+| Mistral 7B                  | 7.3B     | `mistralai/mistral-7b-instruct-v0.1`                                  |
+| Llama 3.1 8B                | 8B       | `meta-llama/llama-3.1-8b-instruct`                                    |
+| Qwen3 8B                    | 8.2B     | `qwen/qwen3-8b`                                                       |
+| Gemma 3 12B                 | 12B      | `google/gemma-3-12b-it`                                               |
+| Phi-4                       | 14B      | `microsoft/phi-4`                                                     |
+| ~~DeepSeek R1 Distill 14B~~ | ~~14B~~  | ~~`deepseek/deepseek-r1-distill-qwen-14b`~~ — removed from OpenRouter |
+| Mistral Small 3.1 24B       | 24B      | `mistralai/mistral-small-3.1-24b-instruct`                            |
+| Gemma 3 27B                 | 27B      | `google/gemma-3-27b-it`                                               |
+| DeepSeek R1 Distill 32B     | 32B      | `deepseek/deepseek-r1-distill-qwen-32b`                               |
+| Llama 3.3 70B               | 70B      | `meta-llama/llama-3.3-70b-instruct`                                   |
+| Llama 3.1 70B               | 70B      | `meta-llama/llama-3.1-70b-instruct`                                   |
+| DeepSeek R1 Distill 70B     | 70B      | `deepseek/deepseek-r1-distill-llama-70b`                              |
+| Nemotron 70B                | 70B      | `nvidia/llama-3.1-nemotron-70b-instruct`                              |
+| Qwen2.5 72B                 | 72B      | `qwen/qwen-2.5-72b-instruct`                                          |
+| ~~Llama 3.1 405B~~          | ~~405B~~ | ~~`meta-llama/llama-3.1-405b-instruct`~~ — removed from OpenRouter    |
+| Hermes 3 405B               | 405B     | `nousresearch/hermes-3-llama-3.1-405b`                                |
+| Hermes 4 405B               | 405B     | `nousresearch/hermes-4-405b`                                          |
 
 
 ```bash
@@ -266,6 +264,10 @@ python paper/fig/scripts/exp1/exp1_tokens.py         --logs-dir logs/exp1_gemini
 
 **Common settings:** 12 total LLM sellers (honest = 12 − K, sybil = K), 12 LLM buyers, 50 timesteps, `--discovery-limit-consumers 3`, `--no-diaries`, `--prompt-algo cot`, `--max-tokens 2000`, `--llm gemini-2.5-flash`, `--reputation-initial 0.8`, `--reputation-pseudo-count 10`, `--sybil-rho-min 0.3`. Seller personas distributed evenly across `standard/detailed/terse/optimistic` for the honest slot count.
 
+**Buyer/Seller LLM split:** Use `--buyer-llm` and `--seller-llm` to assign different models to buyer and seller agents. Both fall back to `--llm` if unset. This allows fixing the seller model and sweeping buyer capability independently (the design used by `exp2_eas_sweep.py`).
+
+**Per-role OpenRouter provider:** Use `--buyer-openrouter-provider` and `--seller-openrouter-provider` to route each role's model through a specific OpenRouter provider. Both fall back to `--openrouter-provider` if unset, which falls back to OpenRouter auto-selection. This is necessary when the buyer and seller models are served by different providers.
+
 ### Tests
 
 Unit tests — verify SellerAgent, SybilIdentity, DeceptivePrincipal, and BazaarWorld construction without LLM calls:
@@ -320,6 +322,21 @@ python scripts/exp2.py --llm gemma3:4b --service ollama --port 11434
 
 # vLLM local server
 python scripts/exp2.py --llm google/gemma-3-4b-it --service vllm --port 8009
+```
+
+#### Split buyer / seller LLM and provider
+
+Use `--buyer-llm` and `--seller-llm` to assign different models to buyers vs. sellers (honest + sybil principal). Either arg falls back to `--llm` when omitted. Use `--buyer-openrouter-provider` and `--seller-openrouter-provider` to pin each role to a specific OpenRouter provider; both fall back to `--openrouter-provider`.
+
+```bash
+# Fix sellers at Gemma 12B (Together), buyers at Claude Sonnet (Anthropic)
+python scripts/exp2.py --seller-llm google/gemma-3-12b-it --seller-openrouter-provider Together --buyer-llm anthropic/claude-sonnet-4-6 --buyer-openrouter-provider anthropic
+
+# Same provider for both — use the shared flag
+python scripts/exp2.py --seller-llm google/gemma-3-12b-it --buyer-llm meta-llama/llama-3.1-8b-instruct --openrouter-provider Together
+
+# Fix sellers, leave buyers at the --llm default
+python scripts/exp2.py --llm gemini-2.5-flash --seller-llm google/gemma-3-12b-it
 ```
 
 #### Prompt algorithm
@@ -404,6 +421,55 @@ python paper/fig/scripts/exp2/exp2_lemon_consumer_welfare.py   --logs-dir logs/e
 python paper/fig/scripts/exp2/exp2_sybil_revenue_share.py      --logs-dir logs/exp2_gemini-2.5-flash
 python paper/fig/scripts/exp2/exp2_market_collapse.py          --logs-dir logs/exp2_gemini-2.5-flash
 ```
+
+---
+
+### `scripts/exp2_eas_sweep.py` — EAS vs. Model Size sweep (Exp2)
+
+Runs the full Experiment 2 matrix for every dense open-weight model from `EAS_vs_MODEL_SIZE.md` (17 models, 3B–405B), all via OpenRouter. **Buyer model is swept**; seller model is **fixed** via `--seller-llm` (required). This design isolates buyer sophistication from seller listing quality, giving a clean measure of how buyer model capability affects lemon market outcomes against a constant adversarial threat level.
+
+Each buyer model gets its own `logs/exp2_{buyer_slug}/` subdirectory. A single `--workers` pool is shared across all models.
+
+**Total runs:** 17 buyer models × 24 runs each = 408 runs (before filtering) — K ∈ {0,3,6,9} × rep_visible ∈ {True,False} × seeds {8,16,64}.
+
+```bash
+# Dry-run: print all matching runs grouped by buyer model, no execution
+python scripts/exp2_eas_sweep.py --seller-llm google/gemma-3-12b-it --list
+
+# Sequential (default)
+python scripts/exp2_eas_sweep.py --seller-llm google/gemma-3-12b-it
+
+# Parallel (recommended: keep low to respect API rate limits)
+python scripts/exp2_eas_sweep.py --seller-llm google/gemma-3-12b-it --workers 4
+
+# Skip any run whose log directory already exists (safe resume)
+python scripts/exp2_eas_sweep.py --seller-llm google/gemma-3-12b-it --workers 4 --skip-existing
+
+# Only rep-visible cells and K=3 across all buyer models
+python scripts/exp2_eas_sweep.py --seller-llm google/gemma-3-12b-it --rep-visible 1 --k 3
+
+# Subset to specific buyer models by OR ID or display-name substring
+python scripts/exp2_eas_sweep.py --seller-llm google/gemma-3-12b-it --models llama-3.2-3b gemma-3-4b --workers 2
+
+# Only seed=8 for a fast first pass
+python scripts/exp2_eas_sweep.py --seller-llm google/gemma-3-12b-it --seeds 8 --workers 8 --skip-existing
+
+# All buyer models routed through Together
+python scripts/exp2_eas_sweep.py --seller-llm google/gemma-3-12b-it --openrouter-provider Together --workers 4
+
+# Buyer and seller on different providers
+python scripts/exp2_eas_sweep.py \
+  --seller-llm google/gemma-3-12b-it --seller-openrouter-provider Together \
+  --buyer-openrouter-provider Together --workers 4
+```
+
+Outputs:
+
+- Per-run state files: `logs/exp2_{buyer_slug}/{run_name}/`
+- Per-run stdout logs: `logs/exp2_{buyer_slug}/{run_name}_{timestamp}.log`
+- Summary log: `logs/exp2_eas_sweep_{timestamp}.log`
+
+After the sweep finishes, run `exp2_run_all.py --src exp2_{buyer_slug}` per buyer model to generate figures.
 
 ---
 
@@ -684,10 +750,6 @@ python scripts/exp1.py --llm microsoft/phi-4 --n-stab 3 --dlc 3
 python scripts/exp1.py --llm mistralai/mistral-small-3.1-24b-instruct --n-stab 3 --dlc 3
 # Gemma 3 27B (27B)
 python scripts/exp1.py --llm google/gemma-3-27b-it --n-stab 3 --dlc 3
-# OLMo 2 32B Instruct (32B)
-python scripts/exp1.py --llm allenai/olmo-2-0325-32b-instruct --n-stab 3 --dlc 3
-# OLMo 3.1 32B Think (32B)
-python scripts/exp1.py --llm allenai/olmo-3.1-32b-think --n-stab 3 --dlc 3
 # DeepSeek R1 Distill Qwen 32B (32B)
 python scripts/exp1.py --llm deepseek/deepseek-r1-distill-qwen-32b --n-stab 3 --dlc 3
 # Llama 3.3 70B (70B)

@@ -24,10 +24,6 @@ python scripts/exp1.py --workers 3 --llm mistralai/mistral-small-3.1-24b-instruc
 
 python scripts/exp1.py --workers 3 --llm google/gemma-3-27b-it --n-stab 3 --dlc 3
 
-python scripts/exp1.py --workers 3 --llm allenai/olmo-2-32b-instruct --n-stab 3 --dlc 3
-
-python scripts/exp1.py --workers 3 --llm allenai/olmo-3.1-32b-think --n-stab 3 --dlc 3
-
 python scripts/exp1.py --workers 3 --llm deepseek/deepseek-r1-distill-qwen-32b --n-stab 3 --dlc 3
 
 python scripts/exp1.py --workers 3 --llm meta-llama/llama-3.3-70b-instruct --n-stab 3 --dlc 3

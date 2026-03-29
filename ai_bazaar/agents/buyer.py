@@ -41,6 +41,10 @@ class BuyerAgent(LLMAgent):
         history_len: int = 3,
         timeout: int = 10,
     ) -> None:
+        provider_order = (
+            getattr(args, "buyer_openrouter_provider", None)
+            or getattr(args, "openrouter_provider", None)
+        ) if args else None
         super().__init__(
             llm,
             port,
@@ -50,6 +54,7 @@ class BuyerAgent(LLMAgent):
             timeout,
             args=args,
             llm_instance=llm_instance,
+            provider_order=provider_order,
         )
         self.lemon_agent_role = "buyer"
         self.logger = logging.getLogger("main")

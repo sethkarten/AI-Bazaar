@@ -183,8 +183,12 @@ class LLMSellerAgent(LLMAgent, SellerAgent):
         if args is None:
             raise ValueError("LLMSellerAgent requires args")
         SellerAgent.__init__(self, name, goods, initial_cash, ledger, market, persona, args)
-        llm_type = getattr(args, "llm", None) or "None"
+        llm_type = getattr(args, "seller_llm", None) or getattr(args, "llm", None) or "None"
         port = int(getattr(args, "port", 0) or 0)
+        provider_order = (
+            getattr(args, "seller_openrouter_provider", None)
+            or getattr(args, "openrouter_provider", None)
+        )
         LLMAgent.__init__(
             self,
             llm_type,
@@ -195,6 +199,7 @@ class LLMSellerAgent(LLMAgent, SellerAgent):
             int(getattr(args, "timeout", 10) or 10),
             args=args,
             llm_instance=llm_instance,
+            provider_order=provider_order,
         )
         self.lemon_agent_role = "seller"
         self.system_prompt = self._build_system_prompt()

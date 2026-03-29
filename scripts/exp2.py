@@ -275,7 +275,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--llm", type=str, default="gemini-2.5-flash",
-        help="LLM model (default: gemini-2.5-flash).",
+        help="LLM model used as fallback for both buyers and sellers (default: gemini-2.5-flash).",
+    )
+    parser.add_argument(
+        "--buyer-llm", type=str, default=None, dest="buyer_llm",
+        help="LLM for buyer agents. Falls back to --llm if unset.",
+    )
+    parser.add_argument(
+        "--seller-llm", type=str, default=None, dest="seller_llm",
+        help="LLM for honest sellers and sybil principal. Falls back to --llm if unset.",
     )
     parser.add_argument(
         "--service", type=str, default=None,
@@ -287,7 +295,17 @@ def main() -> None:
     )
     parser.add_argument(
         "--openrouter-provider", type=str, nargs="+", default=None, metavar="PROVIDER",
-        help="Preferred OpenRouter provider order (e.g. --openrouter-provider anthropic).",
+        help="Preferred OpenRouter provider order for all agents (e.g. --openrouter-provider anthropic).",
+    )
+    parser.add_argument(
+        "--buyer-openrouter-provider", type=str, nargs="+", default=None, metavar="PROVIDER",
+        dest="buyer_openrouter_provider",
+        help="Preferred OpenRouter provider(s) for buyer agents. Falls back to --openrouter-provider.",
+    )
+    parser.add_argument(
+        "--seller-openrouter-provider", type=str, nargs="+", default=None, metavar="PROVIDER",
+        dest="seller_openrouter_provider",
+        help="Preferred OpenRouter provider(s) for seller/sybil agents. Falls back to --openrouter-provider.",
     )
     parser.add_argument(
         "--max-timesteps", type=int, default=50,
@@ -332,18 +350,26 @@ def main() -> None:
     cli = parser.parse_args()
 
     global LOGS_DIR, SUMMARY_LOG
-    name_prefix = f"exp2_{llm_filesystem_slug(cli.llm)}"
+    name_prefix = f"exp2_{llm_filesystem_slug(cli.buyer_llm or cli.llm)}"
     LOGS_DIR = PROJECT_ROOT / "logs" / name_prefix
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     SUMMARY_LOG = LOGS_DIR / f"exp2_{TIMESTAMP}.log"
 
     llm_args = ["--llm", cli.llm]
+    if cli.buyer_llm:
+        llm_args += ["--buyer-llm", cli.buyer_llm]
+    if cli.seller_llm:
+        llm_args += ["--seller-llm", cli.seller_llm]
     if cli.service:
         llm_args += ["--service", cli.service]
     if cli.port:
         llm_args += ["--port", str(cli.port)]
     if cli.openrouter_provider:
         llm_args += ["--openrouter-provider", *cli.openrouter_provider]
+    if cli.buyer_openrouter_provider:
+        llm_args += ["--buyer-openrouter-provider", *cli.buyer_openrouter_provider]
+    if cli.seller_openrouter_provider:
+        llm_args += ["--seller-openrouter-provider", *cli.seller_openrouter_provider]
 
     prompt_args = ["--max-timesteps", str(cli.max_timesteps), "--prompt-algo", cli.prompt_algo]
 

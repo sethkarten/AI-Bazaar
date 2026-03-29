@@ -151,7 +151,7 @@ class BazaarWorld:
                 k_personas = (SYBIL_PERSONAS * sybil_cluster_size)[:sybil_cluster_size]
                 self.deceptive_principal = DeceptivePrincipal(
                     name="sybil_principal",
-                    llm=getattr(args, "llm", None),
+                    llm=getattr(args, "seller_llm", None) or getattr(args, "llm", None),
                     port=getattr(args, "port", 0),
                     k=sybil_cluster_size,
                     ledger=self.ledger,
@@ -227,7 +227,7 @@ class BazaarWorld:
             for i in range(args.num_consumers):
                 name = f"consumer_{i}"
                 buyer = BuyerAgent(
-                    llm=args.llm,
+                    llm=getattr(args, "buyer_llm", None) or args.llm,
                     port=args.port,
                     name=name,
                     ledger=self.ledger,

@@ -79,9 +79,11 @@ K_VALUES   = [0, 3, 6, 9]
 SEEDS      = [8, 16, 64]
 RHO_MIN    = 0.3
 
-# ── Colour palette (Okabe-Ito) — rep_visible encoded by colour ─────────────
-REP_COLORS  = {True: "#0072B2", False: "#D55E00"}   # blue = visible, vermillion = hidden
-REP_LABELS  = {True: "Rep. visible (rep1)", False: "Rep. hidden (rep0)"}
+# ── Colour palette (Okabe-Ito) ────────────────────────────────────────────
+REP_COLORS   = {True: "#0072B2", False: "#D55E00"}   # blue = visible, vermillion = hidden
+REP_LABELS   = {True: "Rep. visible", False: "Rep. hidden"}
+ROLE_COLORS  = {"buyer": "#56B4E9", "seller": "#E69F00"}  # sky-blue / orange
+ROLE_LABELS  = {"buyer": "Buyers", "seller": "Sellers"}
 
 # ── Bar layout constants ───────────────────────────────────────────────────
 BAR_W        = 0.30
@@ -136,16 +138,38 @@ def collect_run_dirs(logs_dir: str, name_prefix: str) -> list[str]:
 # ── Data loading ───────────────────────────────────────────────────────────
 
 def load_token_file(run_dir: str) -> dict | None:
-    """Return {"input": int, "output": int} from the run's *_token_usage.json, or None."""
+    """Return token record from the run's *_token_usage.json, or None.
+
+    Handles both formats:
+      New (LEMON_MARKET split): {"total": {...}, "buyers": {...}, "sellers": {...}}
+      Legacy (flat):            {"input_tokens": int, "output_tokens": int, ...}
+    """
     matches = glob.glob(os.path.join(run_dir, "*_token_usage.json"))
     if not matches:
         return None
     try:
         with open(matches[0]) as fh:
             j = json.load(fh)
+        if "buyers" in j and "sellers" in j:
+            total   = j.get("total",   {})
+            buyers  = j["buyers"]
+            sellers = j["sellers"]
+            return {
+                "input":         int(total.get("input_tokens",  0)),
+                "output":        int(total.get("output_tokens", 0)),
+                "buyer_input":   int(buyers.get("input_tokens",  0)),
+                "buyer_output":  int(buyers.get("output_tokens", 0)),
+                "seller_input":  int(sellers.get("input_tokens",  0)),
+                "seller_output": int(sellers.get("output_tokens", 0)),
+            }
+        # Legacy flat format
         return {
-            "input":  int(j.get("input_tokens",  0)),
-            "output": int(j.get("output_tokens", 0)),
+            "input":         int(j.get("input_tokens",  0)),
+            "output":        int(j.get("output_tokens", 0)),
+            "buyer_input":   0,
+            "buyer_output":  0,
+            "seller_input":  0,
+            "seller_output": 0,
         }
     except Exception:
         return None
@@ -190,39 +214,72 @@ def _group_center(g_idx: int) -> float:
     return g_idx * GROUP_STEP
 
 
+def _has_role_split(data: dict) -> bool:
+    """True if any record contains non-zero buyer/seller breakdown."""
+    for records in data.values():
+        for r in records:
+            if r.get("buyer_input", 0) + r.get("seller_input", 0) > 0:
+                return True
+    return False
+
+
 def draw_panel(ax, data: dict, key: str, ylabel: str, panel_label: str,
                total: int = 0, show_legend: bool = False):
-    """Draw one panel (key = 'input' or 'output')."""
+    """Draw one panel (key = 'input' or 'output').
+
+    Stacks buyer and seller portions when role-split data is available.
+    Rep_visible is encoded by hatch pattern (solid = visible, hatched = hidden).
+    """
+    role_split = _has_role_split(data)
+    buyer_key  = f"buyer_{key}"
+    seller_key = f"seller_{key}"
+    HATCH = {True: "", False: "///"}
+
     for g_idx, k in enumerate(K_VALUES):
         cx = _group_center(g_idx)
-        rep_opts = [True, False]
-        for rv in rep_opts:
+        for rv in [True, False]:
             if (k, rv) not in data:
                 continue
-            records  = data[(k, rv)]
-            vals     = [r[key] for r in records]
-            mean_val = float(np.mean(vals))
-            color    = REP_COLORS[rv]
-            x        = cx + REP_OFFSETS[rv]
+            records = data[(k, rv)]
+            x       = cx + REP_OFFSETS[rv]
+            hatch   = HATCH[rv]
 
-            ax.bar(
-                x, mean_val,
-                width=BAR_W * 0.88,
-                color=color,
-                alpha=0.82,
-                zorder=3,
-                label=REP_LABELS[rv] if g_idx == 0 else "_nolegend_",
-            )
+            if role_split:
+                buyer_vals  = [r.get(buyer_key,  0) for r in records]
+                seller_vals = [r.get(seller_key, 0) for r in records]
+                mean_buyer  = float(np.mean(buyer_vals))
+                mean_seller = float(np.mean(seller_vals))
 
-            for v in vals:
-                ax.scatter(
-                    x, v,
-                    s=14,
-                    color=color,
-                    edgecolors="white",
-                    linewidths=0.5,
-                    zorder=5,
-                )
+                ax.bar(x, mean_buyer,
+                       width=BAR_W * 0.88,
+                       color=ROLE_COLORS["buyer"], alpha=0.85,
+                       hatch=hatch, edgecolor="white",
+                       zorder=3,
+                       label=f"{ROLE_LABELS['buyer']} ({REP_LABELS[rv]})" if g_idx == 0 else "_nolegend_")
+                ax.bar(x, mean_seller,
+                       bottom=mean_buyer,
+                       width=BAR_W * 0.88,
+                       color=ROLE_COLORS["seller"], alpha=0.85,
+                       hatch=hatch, edgecolor="white",
+                       zorder=3,
+                       label=f"{ROLE_LABELS['seller']} ({REP_LABELS[rv]})" if g_idx == 0 else "_nolegend_")
+
+                total_vals = [b + s for b, s in zip(buyer_vals, seller_vals)]
+                for v in total_vals:
+                    ax.scatter(x, v, s=14, color="0.3",
+                               edgecolors="white", linewidths=0.5, zorder=5)
+            else:
+                vals     = [r[key] for r in records]
+                mean_val = float(np.mean(vals))
+                ax.bar(x, mean_val,
+                       width=BAR_W * 0.88,
+                       color=REP_COLORS[rv], alpha=0.82,
+                       hatch=hatch, edgecolor="white",
+                       zorder=3,
+                       label=REP_LABELS[rv] if g_idx == 0 else "_nolegend_")
+                for v in vals:
+                    ax.scatter(x, v, s=14, color=REP_COLORS[rv],
+                               edgecolors="white", linewidths=0.5, zorder=5)
 
     tick_xs = [_group_center(i) for i in range(len(K_VALUES))]
     ax.set_xticks(tick_xs)
@@ -250,11 +307,21 @@ def draw_panel(ax, data: dict, key: str, ylabel: str, panel_label: str,
         ax.set_title(total_str, loc="right", fontsize=7.5, color="0.45", style="italic")
 
     if show_legend:
-        handles = [
-            mpatches.Patch(color=REP_COLORS[rv], label=REP_LABELS[rv], alpha=0.82)
-            for rv in [True, False]
-        ]
-        ax.legend(handles=handles, loc="upper left", framealpha=0.9)
+        if role_split:
+            handles = []
+            for role in ["buyer", "seller"]:
+                for rv in [True, False]:
+                    handles.append(mpatches.Patch(
+                        color=ROLE_COLORS[role], alpha=0.85,
+                        hatch=HATCH[rv], edgecolor="white",
+                        label=f"{ROLE_LABELS[role]} — {REP_LABELS[rv]}",
+                    ))
+        else:
+            handles = [
+                mpatches.Patch(color=REP_COLORS[rv], label=REP_LABELS[rv], alpha=0.82)
+                for rv in [True, False]
+            ]
+        ax.legend(handles=handles, loc="upper left", framealpha=0.9, fontsize=7)
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
@@ -308,6 +375,13 @@ def main():
     total_output = sum(r["output"] for records in data.values() for r in records)
     print(f"Experiment total input tokens:  {total_input:,}", flush=True)
     print(f"Experiment total output tokens: {total_output:,}", flush=True)
+    if _has_role_split(data):
+        buyer_input   = sum(r.get("buyer_input",   0) for records in data.values() for r in records)
+        seller_input  = sum(r.get("seller_input",  0) for records in data.values() for r in records)
+        buyer_output  = sum(r.get("buyer_output",  0) for records in data.values() for r in records)
+        seller_output = sum(r.get("seller_output", 0) for records in data.values() for r in records)
+        print(f"  Buyers  — input: {buyer_input:,}  output: {buyer_output:,}", flush=True)
+        print(f"  Sellers — input: {seller_input:,}  output: {seller_output:,}", flush=True)
 
     fig, (ax_in, ax_out) = plt.subplots(
         1, 2,

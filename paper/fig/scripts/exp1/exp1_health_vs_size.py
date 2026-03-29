@@ -53,8 +53,6 @@ MODELS = [
     # ("DS-R1-D 14B",       14.0,  "deepseek/deepseek-r1-distill-qwen-14b",           "DeepSeek"),  # removed from OpenRouter
     ("Mistral S 24B",       24.0,  "mistralai/mistral-small-3.1-24b-instruct",        "Mistral"),
     ("Gemma 3 27B",         27.0,  "google/gemma-3-27b-it",                           "Google"),
-    ("OLMo 2 32B",          32.0,  "allenai/olmo-2-0325-32b-instruct",                "Allen AI"),
-    ("OLMo 3.1 32B",        32.0,  "allenai/olmo-3.1-32b-think",                      "Allen AI"),
     ("DS-R1-D 32B",         32.0,  "deepseek/deepseek-r1-distill-qwen-32b",           "DeepSeek"),
     ("Llama 3.3 70B",       70.0,  "meta-llama/llama-3.3-70b-instruct",               "Meta"),
     ("Llama 3.1 70B",       70.0,  "meta-llama/llama-3.1-70b-instruct",               "Meta"),
@@ -71,13 +69,20 @@ TARGET_K_VALUES = [0, 3, 5]
 TARGET_DLC      = 3
 SEEDS           = [8, 16, 64]
 
-# Color and style per k (Okabe-Ito)
-K_COLORS = {0: "#E69F00", 3: "#0072B2", 5: "#009E73"}
-K_SIZE   = 42
-K_ALPHAS = {0: 0.75, 3: 1.0, 5: 0.90}
-K_LABELS = {0: '$k=0$ (no stabilization)',
-            3: '$k=3$',
-            5: '$k=5$ (full stabilization)'}
+# Developer -> Okabe-Ito color
+DEV_COLORS = {
+    "Meta":         "#0072B2",
+    "Google":       "#009E73",
+    "Mistral":      "#E69F00",
+    "Alibaba":      "#56B4E9",
+    "DeepSeek":     "#D55E00",
+    "Microsoft":    "#CC79A7",
+    "Allen AI":     "#F0E442",
+    "NVIDIA":       "#000000",
+    "NousResearch": "#888888",
+}
+
+MARKER_SIZE = 50
 
 
 # Heatmap grid axes (for cache extraction)
@@ -296,28 +301,27 @@ def compute_health_scores(all_model_data):
 
     results = {}
     for name, k_data in all_model_data.items():
-        results[name] = {}
-        for k, records in k_data.items():
-            if not records:
-                results[name][k] = None
-                continue
-            per_seed = []
+        all_scores = []
+        for records in k_data.values():
             for r in records:
                 br = r["bankruptcy_rate"]
                 uc = r["unit_cost"]
                 if br >= 1.0:
-                    per_seed.append(0.0)
+                    all_scores.append(0.0)
                 else:
                     s_surv  = 1.0 - br
                     s_stab  = 1.0 - r["price_std"] / global_max_pstd if global_max_pstd > 0 else 1.0
                     s_price = 1.0 - min(abs(r["final_avg_price"] / uc - 1.0) / global_max_pdev, 1.0) \
                               if global_max_pdev > 0 else 1.0
-                    per_seed.append((s_surv + s_stab + s_price) / 3.0)
-            results[name][k] = {
-                "mean": float(np.mean(per_seed)),
-                "std":  float(np.std(per_seed, ddof=1)) if len(per_seed) > 1 else 0.0,
-                "n":    len(per_seed),
+                    all_scores.append((s_surv + s_stab + s_price) / 3.0)
+        if all_scores:
+            results[name] = {
+                "mean": float(np.mean(all_scores)),
+                "std":  float(np.std(all_scores, ddof=1)) if len(all_scores) > 1 else 0.0,
+                "n":    len(all_scores),
             }
+        else:
+            results[name] = None
     return results
 
 
@@ -405,11 +409,11 @@ def main():
     # ── Health scores (global normalization) ─────────────────────────────
     scores = compute_health_scores(all_model_data)
 
-    # ── Build model list (keep models that have data for at least one k) ─
+    # ── Build model list (keep models that have data) ─────────────────────
     plot_models = [
         (name, p, dev)
         for name, p, _, dev in MODELS
-        if any(scores[name].get(k) is not None for k in TARGET_K_VALUES)
+        if scores.get(name) is not None
     ]
 
     if not plot_models:
@@ -424,38 +428,28 @@ def main():
     # ── Figure ────────────────────────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(10.0, 4.8), constrained_layout=True)
 
-    seen_ks = set()
-    for i, (name, x_b, dev) in enumerate(zip(names, x_base, devs)):
-        k_scores = scores[name]
-
-        # Collect valid (k, score) pairs for connecting line
-        valid_ks = [(k, k_scores[k]) for k in TARGET_K_VALUES if k_scores.get(k) is not None]
-        if not valid_ks:
+    seen_devs = set()
+    for name, x_b, dev in zip(names, x_base, devs):
+        s = scores[name]
+        if s is None:
             continue
+        color = DEV_COLORS.get(dev, "#999999")
+        mean  = s["mean"]
 
-        # Neutral connecting line across k levels
-        line_ys = [s["mean"] for _, s in valid_ks]
-        ax.plot([x_b] * len(valid_ks), line_ys,
-                color="0.6", lw=0.6, alpha=0.5, zorder=2)
+        # Std error bar
+        if s["n"] > 1 and s["std"] > 0:
+            ax.plot([x_b, x_b], [mean - s["std"], mean + s["std"]],
+                    color=color, lw=0.9, alpha=0.6, zorder=3)
 
-        for k, s in valid_ks:
-            mean  = s["mean"]
-            color = K_COLORS[k]
+        scatter_label = dev if dev not in seen_devs else "_nolegend_"
+        seen_devs.add(dev)
+        ax.scatter([x_b], [mean],
+                   s=MARKER_SIZE, marker="o",
+                   color=color, edgecolors="white", linewidths=0.5,
+                   zorder=4, label=scatter_label)
 
-            # Std error bar
-            if s["n"] > 1 and s["std"] > 0:
-                ax.plot([x_b, x_b], [mean - s["std"], mean + s["std"]],
-                        color=color, lw=0.9, alpha=0.6, zorder=3)
-
-            scatter_label = K_LABELS[k] if k not in seen_ks else "_nolegend_"
-            seen_ks.add(k)
-            ax.scatter([x_b], [mean],
-                       s=K_SIZE, marker="o",
-                       color=color, edgecolors="white", linewidths=0.5,
-                       alpha=K_ALPHAS[k], zorder=4, label=scatter_label)
-
-        # Model name label just above the highest point
-        top_y = max(s["mean"] + s["std"] for _, s in valid_ks)
+        # Model name label just above the point (+ std bar)
+        top_y = mean + s["std"] if s["n"] > 1 else mean
         ax.annotate(name, xy=(x_b, top_y), xytext=(0, 5),
                     textcoords="offset points",
                     fontsize=7, ha="center", va="bottom",
@@ -476,20 +470,20 @@ def main():
     ax.grid(axis="y", linewidth=0.4, color="0.88", zorder=0)
     ax.grid(axis="x", which="major", linewidth=0.0)
 
-    # Legend: k colors
-    k_handles = [
-        mlines.Line2D([], [], color=K_COLORS[k], marker="o", linestyle="None",
-                      markersize=6, label=K_LABELS[k])
-        for k in TARGET_K_VALUES
+    # Legend: developer colors
+    dev_handles = [
+        mlines.Line2D([], [], color=DEV_COLORS.get(dev, "#999999"), marker="o",
+                      linestyle="None", markersize=6, label=dev)
+        for dev in sorted({m[2] for m in plot_models})
     ]
-    ax.legend(handles=k_handles, loc="lower right", fontsize=7.5,
-              framealpha=0.9, title="Stabilizing firms ($k$)")
+    ax.legend(handles=dev_handles, loc="lower right", fontsize=7.5,
+              framealpha=0.9, ncol=2, title="Developer")
 
     n_shown = len(plot_models)
     n_total = len(MODELS)
     ax.set_title(
         f"Market Health Score vs. Model Size — dense open-weight models"
-        f" (dlc=3, k={{0,3,5}}) [{n_shown}/{n_total} models with data]",
+        f" (dlc=3, k∈{{0,3,5}} aggregated) [{n_shown}/{n_total} models with data]",
         fontsize=9)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)

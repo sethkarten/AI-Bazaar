@@ -82,9 +82,18 @@ def run_marketplace_simulation(args, llm_instance=None):
 
     # Test LLM connectivity if using LLM agents and no instance provided
     if args.firm_type == "LLM" and llm_instance is None:
+        # For LEMON_MARKET, buyer_llm and seller_llm may differ from args.llm.
+        # Test each unique LLM that will actually be used.
+        is_lemon = getattr(args, "consumer_scenario", None) == "LEMON_MARKET"
+        buyer_llm  = getattr(args, "buyer_llm",  None) or args.llm
+        seller_llm = getattr(args, "seller_llm", None) or args.llm
+        llms_to_test = [args.llm]
+        if is_lemon:
+            llms_to_test = list(dict.fromkeys([buyer_llm, seller_llm]))  # unique, ordered
         try:
-            TestAgent(args.llm, args.port, args)
-            logger.info(f"Successfully connected to LLM: {args.llm}")
+            for _llm in llms_to_test:
+                TestAgent(_llm, args.port, args)
+                logger.info(f"Successfully connected to LLM: {_llm}")
             # #region agent log
             _agent_debug_log(
                 "H1",
@@ -167,18 +176,41 @@ def run_marketplace_simulation(args, llm_instance=None):
         if args.wandb:
             wandb.finish()
 
-    # Collect token usage from all agents
-    all_agents = list(world.firms) + list(world.consumers)
-    total = {"input_tokens": 0, "output_tokens": 0, "requests": 0}
-    for agent in all_agents:
-        if hasattr(agent, "token_usage"):
-            for k in total:
-                total[k] += agent.token_usage[k]
+    # Collect token usage — split by role for LEMON_MARKET
+    def _sum_tokens(agents) -> dict:
+        t = {"input_tokens": 0, "output_tokens": 0, "requests": 0}
+        for agent in agents:
+            if hasattr(agent, "token_usage"):
+                for k in t:
+                    t[k] += agent.token_usage[k]
+        return t
 
-    print(f"\n=== Token Usage ===")
-    print(f"  Input tokens:  {total['input_tokens']:,}")
-    print(f"  Output tokens: {total['output_tokens']:,}")
-    print(f"  Requests:      {total['requests']:,}")
+    is_lemon = getattr(args, "consumer_scenario", None) == "LEMON_MARKET"
+    if is_lemon:
+        seller_agents = list(world.honest_firms)
+        if world.deceptive_principal is not None:
+            seller_agents.append(world.deceptive_principal)
+        buyer_agents  = list(world.consumers)
+        seller_total  = _sum_tokens(seller_agents)
+        buyer_total   = _sum_tokens(buyer_agents)
+        total = {k: seller_total[k] + buyer_total[k] for k in seller_total}
+
+        print(f"\n=== Token Usage ===")
+        print(f"  Buyers  — input: {buyer_total['input_tokens']:,}  output: {buyer_total['output_tokens']:,}  requests: {buyer_total['requests']:,}")
+        print(f"  Sellers — input: {seller_total['input_tokens']:,}  output: {seller_total['output_tokens']:,}  requests: {seller_total['requests']:,}")
+        print(f"  Total   — input: {total['input_tokens']:,}  output: {total['output_tokens']:,}  requests: {total['requests']:,}")
+
+        usage_data = {"total": total, "buyers": buyer_total, "sellers": seller_total}
+    else:
+        all_agents = list(world.firms) + list(world.consumers)
+        total = _sum_tokens(all_agents)
+
+        print(f"\n=== Token Usage ===")
+        print(f"  Input tokens:  {total['input_tokens']:,}")
+        print(f"  Output tokens: {total['output_tokens']:,}")
+        print(f"  Requests:      {total['requests']:,}")
+
+        usage_data = total
 
     # Store token usage alongside state, consumer_attributes, and firm_attributes
     log_dir = getattr(args, "log_dir", "logs")
@@ -187,7 +219,7 @@ def run_marketplace_simulation(args, llm_instance=None):
     os.makedirs(run_dir, exist_ok=True)
     usage_path = os.path.join(run_dir, f"{run_name}_token_usage.json")
     with open(usage_path, "w") as f:
-        json.dump(total, f, indent=2)
+        json.dump(usage_data, f, indent=2)
     print(f"Token usage saved to {usage_path}")
 
     logger.info("Marketplace simulation completed successfully!")
@@ -421,6 +453,14 @@ def create_argument_parser():
         "--llm", default="llama3:8b", type=str,
         help="Language model (e.g. llama3:8b, gemini-2.5-flash, gemini-3-flash-preview, gpt-4o)",
     )
+    parser.add_argument(
+        "--buyer-llm", default=None, type=str, dest="buyer_llm",
+        help="LEMON_MARKET: LLM for buyer agents. Falls back to --llm if unset.",
+    )
+    parser.add_argument(
+        "--seller-llm", default=None, type=str, dest="seller_llm",
+        help="LEMON_MARKET: LLM for honest sellers and sybil principal. Falls back to --llm if unset.",
+    )
     parser.add_argument("--port", type=int, default=8009, help="Port for LLM service")
     parser.add_argument(
         "--gemini-backend", default=None, choices=["studio", "vertex"],
@@ -445,6 +485,16 @@ def create_argument_parser():
         default="vllm",
         choices=["vllm", "ollama"],
         help="LLM service backend",
+    )
+    parser.add_argument(
+        "--buyer-openrouter-provider", default=None, nargs="+", metavar="P",
+        dest="buyer_openrouter_provider",
+        help="LEMON_MARKET: preferred OpenRouter provider(s) for buyer agents. Falls back to --openrouter-provider.",
+    )
+    parser.add_argument(
+        "--seller-openrouter-provider", default=None, nargs="+", metavar="P",
+        dest="seller_openrouter_provider",
+        help="LEMON_MARKET: preferred OpenRouter provider(s) for seller/sybil agents. Falls back to --openrouter-provider.",
     )
     parser.add_argument(
         "--openrouter-provider",

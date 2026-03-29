@@ -1,5 +1,5 @@
 """
-Fig Exp2: Experiment 2 Heatmap — 2×2 metric heatmap over K × rep_visible grid.
+Fig Exp2: Experiment 2 Heatmap — 1×4 metric heatmap over K × rep_visible grid.
 
 Metrics:
   A) Sybil detection premium   (PuOr diverging, higher = buyers prefer honest)
@@ -11,7 +11,6 @@ Grid: K ∈ {0, 3, 6, 9}  ×  rep_visible ∈ {True, False}
   K=0 baseline: only rep_visible=True (rep0 cell hatched)
   Sybil detection: K=0 has no sybil → hatched
 
-Per-seed dots overlaid on each cell.
 Mean ± SE annotations in each cell.
 
 Usage:
@@ -246,21 +245,6 @@ def draw_hatch_cell(ax, col_idx, row_idx):
     ax.add_patch(rect)
 
 
-def draw_seed_dots(ax, col, row, seed_vals):
-    n = len(seed_vals)
-    if n == 0:
-        return
-    if n == 1:
-        xs = [col]
-    elif n == 2:
-        xs = [col - 0.18, col + 0.18]
-    else:
-        xs = [col - 0.25, col, col + 0.25]
-    y = row + 0.30
-    for x in xs:
-        ax.scatter([x], [y], s=10, c=["#0072B2"],
-                   edgecolors="white", linewidths=0.5, zorder=8, clip_on=True)
-
 
 # ---------------------------------------------------------------------------
 # Main
@@ -326,14 +310,14 @@ def main():
         ("(D) Total market volume",       "vol_norm",          "YlGn",  None, None),
     ]
 
-    fig, axes = plt.subplots(2, 2, figsize=(8.0, 9.0), constrained_layout=True)
+    fig, axes = plt.subplots(1, 4, figsize=(13.0, 3.8), constrained_layout=True)
     fig.suptitle("Experiment 2: Lemon Market — Summary Heatmap", fontweight="bold")
 
     col_labels = ["Rep. visible", "Rep. hidden"]
     row_labels  = [f"K={k}" for k in K_ALL]
 
-    for ax, (title, metric_key, cmap_name, vmin_override, vmax_override) in zip(
-            axes.flatten(), panels):
+    for panel_idx, (ax, (title, metric_key, cmap_name, vmin_override, vmax_override)) in enumerate(
+            zip(axes, panels)):
 
         if metric_key == "vol_norm":
             grid   = vol_norm_grid
@@ -377,7 +361,7 @@ def main():
 
         display = np.ma.masked_invalid(grid)
         im = ax.imshow(display, cmap=cmap, norm=norm, aspect="auto", interpolation="nearest")
-        cb = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02)
+        cb = fig.colorbar(im, ax=ax, shrink=0.72, pad=0.02)
         cb.ax.tick_params(labelsize=9)
         if metric_key == "vol_norm":
             fmt = mticker.ScalarFormatter()
@@ -412,28 +396,17 @@ def main():
                 except Exception:
                     txt_color = "black"
                 ax.text(j, i, txt, ha="center", va="center",
-                        fontsize=7.5, color=txt_color, zorder=10)
-
-        # Seed dots
-        for i in range(len(K_ALL)):
-            for j in range(len(REP_ALL)):
-                if not available[i, j]:
-                    continue
-                cell_data = per_seed_data.get((i, j), {})
-                seed_vals = cell_data.get(
-                    "detection_premium" if metric_key == "detection_premium" else
-                    "consumer_welfare"  if metric_key == "consumer_welfare"  else
-                    "sybil_rev_share"   if metric_key == "sybil_rev_share"   else
-                    "market_volume", []
-                )
-                draw_seed_dots(ax, j, i, seed_vals)
+                        fontsize=9, color=txt_color, zorder=10)
 
         ax.set_xticks(range(len(REP_ALL)))
-        ax.set_xticklabels(col_labels)
+        ax.set_xticklabels(col_labels, fontsize=8)
         ax.set_yticks(range(len(K_ALL)))
-        ax.set_yticklabels(row_labels)
+        if panel_idx == 0:
+            ax.set_yticklabels(row_labels)
+            ax.set_ylabel("Sybil count ($K$)")
+        else:
+            ax.set_yticklabels([])
         ax.set_xlabel("Reputation visibility")
-        ax.set_ylabel("Sybil count (K)")
         ax.set_title(title)
 
     hatch_patch = mpatches.Patch(

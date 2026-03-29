@@ -32,8 +32,6 @@ For MoE models, active parameters reflect per-forward-pass compute. Dense models
 | Mistral Small 3.1 24B         | Mistral AI      | 24B          | 24B           | —              | $0.03          | $0.11           | 131K context; free tier available      |                 |
 | Qwen3 235B A22B               | Alibaba         | 235B         | ~22B          | MoE            | $0.455         | $1.82           | Hybrid thinking; 131K context          |                 |
 | Gemma 3 27B                   | Google DeepMind | 27B          | 27B           | —              | $0.08          | $0.16           | Vision-language capable                |                 |
-| OLMo 2 32B Instruct           | Allen AI        | 32B          | 32B           | —              | $0.05          | $0.20           | Fully open (data + weights); 128K ctx  |                 |
-| OLMo 3.1 32B Think            | Allen AI        | 32B          | 32B           | —              | $0.15          | $0.50           | Reasoning/thinking model               |                 |
 | DeepSeek R1 Distill Qwen 32B  | DeepSeek        | 32B          | 32B           | —              | $0.29          | $0.29           | Reasoning distillation                 |                 |
 | Kimi K2.5                     | Moonshot AI     | ~1T          | ~32B          | MoE            | $0.45          | $2.20           | 262K context                           |                 |
 | DeepSeek V3 0324              | DeepSeek        | 685B         | ~37B          | MoE            | $0.20          | $0.77           | 163K context                           |                 |
@@ -72,8 +70,6 @@ Excludes all MoE architectures. Useful for clean scaling-law comparisons.
 | DeepSeek R1 Distill Qwen 14B  | DeepSeek        | 14B        | ~~`deepseek/deepseek-r1-distill-qwen-14b`~~ — removed from OpenRouter | — | — | Reasoning distillation | 0 |
 | Mistral Small 3.1 24B         | Mistral AI      | 24B        | `mistralai/mistral-small-3.1-24b-instruct`       | $0.03          | $0.11           | 131K context; free tier available     | 1               |
 | Gemma 3 27B                   | Google DeepMind | 27B        | `google/gemma-3-27b-it`                          | $0.08          | $0.16           | Vision-language capable               | 1               |
-| OLMo 2 32B Instruct           | Allen AI        | 32B        | `allenai/olmo-2-0325-32b-instruct`               | $0.05          | $0.20           | Fully open (data + weights); 128K ctx | 1               |
-| OLMo 3.1 32B Think            | Allen AI        | 32B        | `allenai/olmo-3.1-32b-think`                     | $0.15          | $0.50           | Reasoning/thinking model              | 1               |
 | DeepSeek R1 Distill Qwen 32B  | DeepSeek        | 32B        | `deepseek/deepseek-r1-distill-qwen-32b`          | $0.29          | $0.29           | Reasoning distillation                | 1               |
 | Llama 3.3 70B Instruct        | Meta            | 70B        | `meta-llama/llama-3.3-70b-instruct`              | $0.10          | $0.32           | 131K context; free tier available     | 1               |
 | Llama 3.1 70B Instruct        | Meta            | 70B        | `meta-llama/llama-3.1-70b-instruct`              | $0.40          | $0.40           | 131K context                          | 1               |

@@ -156,8 +156,6 @@ Runs the full Experiment 1 matrix for every dense open-weight model listed with 
 | DeepSeek R1 Distill 14B | 14B | `deepseek/deepseek-r1-distill-qwen-14b` |
 | Mistral Small 3.1 24B | 24B | `mistralai/mistral-small-3.1-24b-instruct` |
 | Gemma 3 27B | 27B | `google/gemma-3-27b-it` |
-| OLMo 2 32B | 32B | `allenai/olmo-2-32b-instruct` |
-| OLMo 3.1 32B Think | 32B | `allenai/olmo-3.1-32b-think` |
 | DeepSeek R1 Distill 32B | 32B | `deepseek/deepseek-r1-distill-qwen-32b` |
 | Llama 3.3 70B | 70B | `meta-llama/llama-3.3-70b-instruct` |
 | Llama 3.1 70B | 70B | `meta-llama/llama-3.1-70b-instruct` |
@@ -659,10 +657,6 @@ python scripts/exp1.py --llm deepseek/deepseek-r1-distill-qwen-14b --n-stab 3 --
 python scripts/exp1.py --llm mistralai/mistral-small-3.1-24b-instruct --n-stab 3 --dlc 3
 # Gemma 3 27B (27B)
 python scripts/exp1.py --llm google/gemma-3-27b-it --n-stab 3 --dlc 3
-# OLMo 2 32B Instruct (32B)
-python scripts/exp1.py --llm allenai/olmo-2-32b-instruct --n-stab 3 --dlc 3
-# OLMo 3.1 32B Think (32B)
-python scripts/exp1.py --llm allenai/olmo-3.1-32b-think --n-stab 3 --dlc 3
 # DeepSeek R1 Distill Qwen 32B (32B)
 python scripts/exp1.py --llm deepseek/deepseek-r1-distill-qwen-32b --n-stab 3 --dlc 3
 # Llama 3.3 70B (70B)
