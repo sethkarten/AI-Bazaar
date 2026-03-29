@@ -151,6 +151,10 @@ class UnslothModel(BaseLLMModel):
                 if "</think>" in decoded:
                     decoded = decoded.split("</think>", 1)[1]
 
+                # 3. If prompt was force-started with '{', prepend it to output
+                if self.no_think and not decoded.lstrip().startswith("{"):
+                    decoded = "{" + decoded
+
                 # 3. Extract complete JSON object (find matching closing brace)
                 if "{" in decoded and "}" in decoded:
                     # Find the FIRST complete JSON object (most likely to be the answer)
@@ -199,10 +203,11 @@ class UnslothModel(BaseLLMModel):
             combined_prompt = self.tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True,
             )
-            # Strip <think> block for action-only output (no reasoning)
-            if self.no_think and "<think>" in combined_prompt:
-                combined_prompt = combined_prompt.replace("<think>\n\n</think>\n\n", "")
-                combined_prompt = combined_prompt.replace("<think>\n</think>\n", "")
+            # Force JSON output: append opening brace so model must complete the JSON
+            if self.no_think:
+                # Ensure think block is closed, then start JSON
+                if not combined_prompt.rstrip().endswith("{"):
+                    combined_prompt = combined_prompt.rstrip() + "\n{"
         except Exception:
             combined_prompt = f"{s_prompt}\n{u_prompt}"
 
