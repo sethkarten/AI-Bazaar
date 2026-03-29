@@ -142,15 +142,15 @@ class REINFORCETrainer:
             self.inference_model_base = None
 
         # ── Stabilizing firm inference wrapper (GPU 0) ───────────────
-        # Stabilizing firm: action-only output (no reasoning, just JSON)
+        # Stabilizing firm: prefill </think> to skip reasoning, output JSON directly
         self.inference_model = UnslothModel(
             self.model, self.tokenizer,
             heartbeat_func=self.heartbeat,
             encoding_tokenizer=self.encoding_tokenizer,
             device=self.device,
             max_batch_size=inference_bs,
-            max_tokens=64,
-            no_think=True,  # Skip <think> block — output JSON directly
+            max_tokens=getattr(args, "max_tokens", 256),
+            no_think=True,
         )
 
         # ── Optimizer (only LoRA params) ─────────────────────────────
@@ -616,14 +616,10 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         accum_count = 0
 
         i = 0
+        oom_count = 0
         while i < len(all_texts):
             self.heartbeat()
-            # Dynamic batch size based on max sequence length in this chunk
-            chunk_max_len = seq_lens[min(i + micro_bs * 2 - 1, len(seq_lens) - 1)]
-            if chunk_max_len <= 2048:
-                cur_bs = micro_bs * 2  # Double batch for short sequences
-            else:
-                cur_bs = micro_bs
+            cur_bs = micro_bs
             texts = all_texts[i:i+cur_bs]
             prompts = all_prompts[i:i+cur_bs]
             advantages = all_advantages[i:i+cur_bs]
@@ -704,6 +700,10 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                 if ref_log_probs_all is not None:
                     del ref_log_probs_all
                 torch.cuda.empty_cache()
+            except torch.cuda.OutOfMemoryError:
+                oom_count += 1
+                torch.cuda.empty_cache()
+                continue  # OOM: skip this batch silently, don't count as fail
             except Exception as e:
                 print(f"  Batch failed: {e}", flush=True)
                 traceback.print_exc()
@@ -755,7 +755,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         avg_kl = total_kl_val / max(ok_batches, 1)
         n_updates = len(grad_norms)
         mem = torch.cuda.memory_allocated() / 1024**3 if torch.cuda.is_available() else 0
-        print(f"Training done: {ok_batches}/{nb} ok, {fail_batches} fail, {skipped} skip | "
+        print(f"Training done: {ok_batches}/{nb} ok, {fail_batches} fail, {skipped} skip, {oom_count} oom | "
               f"loss={avg_loss:.4f} kl={avg_kl:.4f} | {n_updates} updates | {dt:.1f}s | {mem:.1f}GB", flush=True)
 
         if wandb.run:
@@ -766,6 +766,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                 "train/n_groups": n_groups,
                 "train/ok_batches": ok_batches,
                 "train/fail_batches": fail_batches,
+                "train/oom_count": oom_count,
                 "train/skip": skipped,
                 "train/grad_norm_avg": np.mean(grad_norms) if grad_norms else 0,
                 "train/grad_norm_max": max(grad_norms) if grad_norms else 0,
@@ -788,7 +789,7 @@ def main():
     parser.add_argument("--num_iterations", type=int, default=100)
     parser.add_argument("--run_name", type=str, default=None)
     parser.add_argument("--train_batch_size", type=int, default=64, help="Effective batch size (via gradient accumulation)")
-    parser.add_argument("--micro_batch_size", type=int, default=16, help="Micro-batch size per forward pass")
+    parser.add_argument("--micro_batch_size", type=int, default=8, help="Micro-batch size per forward pass")
     parser.add_argument("--format_reward_weight", type=float, default=2.0)
     parser.add_argument("--inference_batch_size", type=int, default=128)
     parser.add_argument("--wandb_mode", type=str, default="offline", choices=["online","offline","disabled"])
