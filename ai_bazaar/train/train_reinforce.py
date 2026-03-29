@@ -102,11 +102,13 @@ class REINFORCETrainer:
         elif quant_bits == 8:
             bnb_config = BitsAndBytesConfig(load_in_8bit=True)
         else:
-            bnb_config = None  # bf16 full precision
+            bnb_config = None  # full precision (bf16 or fp32)
 
         load_kwargs = dict(device_map=str(self.device), attn_implementation="sdpa")
         if bnb_config is not None:
             load_kwargs["quantization_config"] = bnb_config
+        elif quant_bits == 32:
+            load_kwargs["torch_dtype"] = torch.float32
         else:
             load_kwargs["torch_dtype"] = torch.bfloat16
         self.model = AutoModelForCausalLM.from_pretrained(model_name, **load_kwargs)
@@ -870,7 +872,7 @@ def main():
     parser.add_argument("--wandb_mode", type=str, default="offline", choices=["online","offline","disabled"])
     # Model
     parser.add_argument("--lora_r", type=int, default=16, help="LoRA rank (16, 32, 64)")
-    parser.add_argument("--quant_bits", type=int, default=4, choices=[4, 8, 16], help="Quantization bits (4=nf4, 8=int8, 16=bf16)")
+    parser.add_argument("--quant_bits", type=int, default=4, choices=[4, 8, 16, 32], help="Quantization bits (4=nf4, 8=int8, 16=bf16, 32=fp32)")
     # REINFORCE++
     parser.add_argument("--advantage_clip", type=float, default=3.0)
     parser.add_argument("--grad_clip_norm", type=float, default=0.5)
