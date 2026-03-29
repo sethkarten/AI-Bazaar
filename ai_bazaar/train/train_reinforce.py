@@ -692,9 +692,11 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                         lb_base = enc.input_ids[j, pl:].to(self.device_base)
                         ref_selected = torch.gather(ref_lp_j, -1, lb_base.unsqueeze(-1)).squeeze(-1)
                         ref_selected = torch.clamp(ref_selected, min=-100.0).to(self.device)
-                        # KL(policy || ref) — ref is detached (no grad), policy gets gradient
-                        kl_loss = (policy_selected - ref_selected.detach()).mean()
-                        micro_kl += kl_loss.item()
+                        # Squared KL penalty: penalizes divergence in BOTH directions
+                        # (log π - log π_ref)^2 is always ≥ 0, prevents reward hacking via negative KL
+                        token_kl = policy_selected - ref_selected.detach()
+                        kl_loss = (token_kl ** 2).mean()
+                        micro_kl += token_kl.mean().item()  # Log signed KL for monitoring
 
                     sample_loss = pg_loss + kl_coeff * kl_loss
                     if torch.isnan(sample_loss):
