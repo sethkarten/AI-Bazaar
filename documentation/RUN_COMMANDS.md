@@ -262,31 +262,11 @@ python paper/fig/scripts/exp1/exp1_tokens.py         --logs-dir logs/exp1_gemini
 
 **Scenario:** LEMON_MARKET — LLM sellers (honest + Sybil cluster) post used-car listings; LLM buyers bid/pass based on description, price, and seller reputation. Sybil identities rotate when their rolling-window reputation drops below `rho_min`. Ablation: reputation visible vs. hidden.
 
-**Common settings:** 12 total LLM sellers (honest = 12 − K, sybil = K), 12 LLM buyers, 50 timesteps, `--discovery-limit-consumers 3`, `--no-diaries`, `--prompt-algo cot`, `--max-tokens 2000`, `--llm gemini-2.5-flash`, `--reputation-initial 0.8`, `--reputation-pseudo-count 10`, `--sybil-rho-min 0.3`. Seller personas distributed evenly across `standard/detailed/terse/optimistic` for the honest slot count.
+**Common settings:** 12 total LLM sellers (honest = 12 − K, sybil = K), 12 LLM buyers, 50 timesteps, `--discovery-limit-consumers 3`, `--no-diaries`, `--prompt-algo cot`, `--max-tokens 2000`, `--seller-llm gemini-3-flash-preview`, `--reputation-initial 0.8`, `--reputation-pseudo-count 10`, `--sybil-rho-min 0.3`. Seller personas distributed evenly across `standard/detailed/terse/optimistic` for the honest slot count.
 
 **Buyer/Seller LLM split:** Use `--buyer-llm` and `--seller-llm` to assign different models to buyer and seller agents. Both fall back to `--llm` if unset. This allows fixing the seller model and sweeping buyer capability independently (the design used by `exp2_eas_sweep.py`).
 
 **Per-role OpenRouter provider:** Use `--buyer-openrouter-provider` and `--seller-openrouter-provider` to route each role's model through a specific OpenRouter provider. Both fall back to `--openrouter-provider` if unset, which falls back to OpenRouter auto-selection. This is necessary when the buyer and seller models are served by different providers.
-
-### Tests
-
-Unit tests — verify SellerAgent, SybilIdentity, DeceptivePrincipal, and BazaarWorld construction without LLM calls:
-
-```bash
-conda run -n AI-Bazaar python -m pytest tests/test_lemon_market.py -v
-```
-
-Smoke test — full pipeline (BuyerAgent LLM calls, honest SellerAgent listings, DeceptivePrincipal sybil cluster, market clearing, rolling-window reputation, identity rotation). K=2, 10 honest sellers, 2 sybil, 12 total:
-
-```bash
-conda run -n AI-Bazaar python -m ai_bazaar.main --name exp2_smoke --consumer-scenario LEMON_MARKET --firm-type LLM --num-sellers 12 --num-buyers 12 --max-timesteps 5 --sybil-cluster-size 2 --seller-type LLM --seller-personas "standard:3,detailed:3,terse:2,optimistic:2" --reputation-initial 0.8 --reputation-pseudo-count 10 --sybil-rho-min 0.3 --discovery-limit-consumers 3 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
-```
-
-Vote-based reputation test — K=6 (50% saturation), 6 honest + 6 sybil = 12 total, at short episode length:
-
-```bash
-conda run -n AI-Bazaar python -m ai_bazaar.main --name exp2_vote_rep_test --consumer-scenario LEMON_MARKET --firm-type LLM --num-sellers 12 --num-buyers 12 --max-timesteps 10 --sybil-cluster-size 6 --seller-type LLM --seller-personas "standard:2,detailed:2,terse:1,optimistic:1" --reputation-initial 0.8 --reputation-pseudo-count 10 --sybil-rho-min 0.3 --discovery-limit-consumers 3 --llm gemini-2.5-flash --max-tokens 2000 --prompt-algo cot --no-diaries --seed 42
-```
 
 ---
 
@@ -298,6 +278,8 @@ conda run -n AI-Bazaar python -m ai_bazaar.main --name exp2_vote_rep_test --cons
 
 **Fixed settings:** `--num-sellers 12` always; honest = 12 − K; sybil saturation 25% / 50% / 75%; `rho_min=0.3`; `discovery-limit-consumers=3`; `max-timesteps=50`. Run logs go to `logs/exp2/`; state files go to `logs/<run_name>/`.
 
+SPECIFY SELLER LLM TO NOT DEFAULT TO 2.5 FLASH
+
 #### Basic usage
 
 ```bash
@@ -306,22 +288,6 @@ python scripts/exp2.py
 
 # Run in parallel — keep workers low (2–4) to respect API rate limits
 python scripts/exp2.py --workers 3
-```
-
-#### Model / service
-
-```bash
-# Different Gemini model
-python scripts/exp2.py --llm gemini-3-flash-preview
-
-# OpenRouter (e.g. Claude Sonnet via Anthropic)
-python scripts/exp2.py --llm anthropic/claude-sonnet-4-6 --openrouter-provider anthropic
-
-# Ollama (local GPU) — start Ollama first with OLLAMA_NUM_PARALLEL=4
-python scripts/exp2.py --llm gemma3:4b --service ollama --port 11434
-
-# vLLM local server
-python scripts/exp2.py --llm google/gemma-3-4b-it --service vllm --port 8009
 ```
 
 #### Split buyer / seller LLM and provider
@@ -337,14 +303,6 @@ python scripts/exp2.py --seller-llm google/gemma-3-12b-it --buyer-llm meta-llama
 
 # Fix sellers, leave buyers at the --llm default
 python scripts/exp2.py --llm gemini-2.5-flash --seller-llm google/gemma-3-12b-it
-```
-
-#### Prompt algorithm
-
-```bash
-# Default is cot; override for ablation or faster runs
-python scripts/exp2.py --prompt-algo io
-python scripts/exp2.py --prompt-algo cot
 ```
 
 #### Prompt logging
