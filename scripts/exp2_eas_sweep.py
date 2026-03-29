@@ -270,8 +270,20 @@ def main() -> None:
     ap.add_argument("--prompt-algo",   type=str, default="cot",
                     choices=["io", "cot", "sc"],
                     help="Prompt algorithm for all runs (default: cot).")
-    ap.add_argument("--seller-llm",    type=str, required=True, metavar="MODEL",
+    ap.add_argument("--seller-llm",     type=str, required=True, metavar="MODEL",
                     help="Fixed LLM for honest sellers and sybil principal (required).")
+    ap.add_argument("--buyer-service",  type=str, default=None, metavar="SVC", dest="buyer_service",
+                    help="Service backend for buyer agents (vllm|ollama). Falls back to --service.")
+    ap.add_argument("--seller-service", type=str, default=None, metavar="SVC", dest="seller_service",
+                    help="Service backend for seller agents (vllm|ollama). Falls back to --service.")
+    ap.add_argument("--service",        type=str, default=None, metavar="SVC",
+                    help="Service backend for all agents (vllm|ollama).")
+    ap.add_argument("--buyer-port",     type=int, default=None, metavar="N", dest="buyer_port",
+                    help="Port for buyer LLM service. Falls back to --port.")
+    ap.add_argument("--seller-port",    type=int, default=None, metavar="N", dest="seller_port",
+                    help="Port for seller LLM service. Falls back to --port.")
+    ap.add_argument("--port",           type=int, default=None, metavar="N",
+                    help="Port for local model server.")
     ap.add_argument("--log-buyer-prompts",  action="store_true",
                     help="Log buyer LLM prompts/responses per run.")
     ap.add_argument("--log-seller-prompts", action="store_true",
@@ -313,6 +325,18 @@ def main() -> None:
         extra += ["--buyer-openrouter-provider", *cli.buyer_openrouter_provider]
     if cli.seller_openrouter_provider:
         extra += ["--seller-openrouter-provider", *cli.seller_openrouter_provider]
+    if cli.service:
+        extra += ["--service", cli.service]
+    if cli.buyer_service:
+        extra += ["--buyer-service", cli.buyer_service]
+    if cli.seller_service:
+        extra += ["--seller-service", cli.seller_service]
+    if cli.port:
+        extra += ["--port", str(cli.port)]
+    if cli.buyer_port:
+        extra += ["--buyer-port", str(cli.buyer_port)]
+    if cli.seller_port:
+        extra += ["--seller-port", str(cli.seller_port)]
     if cli.log_buyer_prompts:
         extra += ["--log-buyer-prompts"]
     if cli.log_seller_prompts:

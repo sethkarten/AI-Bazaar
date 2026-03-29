@@ -45,9 +45,11 @@ class BuyerAgent(LLMAgent):
             getattr(args, "buyer_openrouter_provider", None)
             or getattr(args, "openrouter_provider", None)
         ) if args else None
+        resolved_port = int(getattr(args, "buyer_port", None) or port or 0) if args else port
+        resolved_service = (getattr(args, "buyer_service", None) or getattr(args, "service", None)) if args else None
         super().__init__(
             llm,
-            port,
+            resolved_port,
             name,
             prompt_algo,
             history_len,
@@ -55,6 +57,7 @@ class BuyerAgent(LLMAgent):
             args=args,
             llm_instance=llm_instance,
             provider_order=provider_order,
+            service=resolved_service,
         )
         self.lemon_agent_role = "buyer"
         self.logger = logging.getLogger("main")

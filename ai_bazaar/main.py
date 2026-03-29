@@ -463,6 +463,14 @@ def create_argument_parser():
     )
     parser.add_argument("--port", type=int, default=8009, help="Port for LLM service")
     parser.add_argument(
+        "--buyer-port", default=None, type=int, dest="buyer_port",
+        help="LEMON_MARKET: port for buyer LLM service. Falls back to --port if unset.",
+    )
+    parser.add_argument(
+        "--seller-port", default=None, type=int, dest="seller_port",
+        help="LEMON_MARKET: port for seller LLM service. Falls back to --port if unset.",
+    )
+    parser.add_argument(
         "--gemini-backend", default=None, choices=["studio", "vertex"],
         dest="gemini_backend",
         help="Gemini backend: 'studio' (API key) or 'vertex' (Vertex AI). "
@@ -485,6 +493,14 @@ def create_argument_parser():
         default="vllm",
         choices=["vllm", "ollama"],
         help="LLM service backend",
+    )
+    parser.add_argument(
+        "--buyer-service", default=None, choices=["vllm", "ollama"], dest="buyer_service",
+        help="LEMON_MARKET: service backend for buyer agents. Falls back to --service if unset.",
+    )
+    parser.add_argument(
+        "--seller-service", default=None, choices=["vllm", "ollama"], dest="seller_service",
+        help="LEMON_MARKET: service backend for seller/sybil agents. Falls back to --service if unset.",
     )
     parser.add_argument(
         "--buyer-openrouter-provider", default=None, nargs="+", metavar="P",

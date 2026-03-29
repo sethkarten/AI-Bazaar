@@ -27,6 +27,7 @@ class LLMAgent:
         args=None,
         llm_instance=None,
         provider_order=None,
+        service=None,
     ) -> None:
         assert args is not None
 
@@ -44,7 +45,7 @@ class LLMAgent:
         elif llm_type is None or llm_type == "None":
             self.llm = None
         else:
-            self.llm = self._create_llm_model(llm_type, port, args, provider_order=provider_order)
+            self.llm = self._create_llm_model(llm_type, port, args, provider_order=provider_order, service=service)
 
         self.history_len = history_len
         self.timeout = timeout  # number of times to retry message before failing
@@ -56,7 +57,7 @@ class LLMAgent:
         self.trajectory = []
         self.diary = []  # List of (timestep, entry) tuples
 
-    def _create_llm_model(self, llm_type: str, port: int, args, provider_order=None):
+    def _create_llm_model(self, llm_type: str, port: int, args, provider_order=None, service=None):
         """Create the appropriate LLM model based on the type.
 
         OpenRouter-style IDs (provider/model, e.g. "meta-llama/llama-3.1-70b-instruct",
@@ -100,7 +101,8 @@ class LLMAgent:
         ):
             if port == 0:
                 return None  # Should be provided via llm_instance
-            if args.service == "ollama":
+            resolved_service = service if service is not None else getattr(args, "service", None)
+            if resolved_service == "ollama":
                 return OllamaModel(
                     model_name=llm_type,
                     base_url=f"http://localhost:{port}",

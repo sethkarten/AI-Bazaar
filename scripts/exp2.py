@@ -287,11 +287,27 @@ def main() -> None:
     )
     parser.add_argument(
         "--service", type=str, default=None,
-        help="Model service backend (e.g. ollama).",
+        help="Model service backend for all agents (e.g. ollama).",
+    )
+    parser.add_argument(
+        "--buyer-service", type=str, default=None, dest="buyer_service",
+        help="Service backend for buyer agents. Falls back to --service if unset.",
+    )
+    parser.add_argument(
+        "--seller-service", type=str, default=None, dest="seller_service",
+        help="Service backend for seller/sybil agents. Falls back to --service if unset.",
     )
     parser.add_argument(
         "--port", type=int, default=None,
         help="Port for local model server.",
+    )
+    parser.add_argument(
+        "--buyer-port", type=int, default=None, dest="buyer_port",
+        help="Port for buyer LLM service. Falls back to --port if unset.",
+    )
+    parser.add_argument(
+        "--seller-port", type=int, default=None, dest="seller_port",
+        help="Port for seller LLM service. Falls back to --port if unset.",
     )
     parser.add_argument(
         "--openrouter-provider", type=str, nargs="+", default=None, metavar="PROVIDER",
@@ -362,8 +378,16 @@ def main() -> None:
         llm_args += ["--seller-llm", cli.seller_llm]
     if cli.service:
         llm_args += ["--service", cli.service]
+    if cli.buyer_service:
+        llm_args += ["--buyer-service", cli.buyer_service]
+    if cli.seller_service:
+        llm_args += ["--seller-service", cli.seller_service]
     if cli.port:
         llm_args += ["--port", str(cli.port)]
+    if cli.buyer_port:
+        llm_args += ["--buyer-port", str(cli.buyer_port)]
+    if cli.seller_port:
+        llm_args += ["--seller-port", str(cli.seller_port)]
     if cli.openrouter_provider:
         llm_args += ["--openrouter-provider", *cli.openrouter_provider]
     if cli.buyer_openrouter_provider:

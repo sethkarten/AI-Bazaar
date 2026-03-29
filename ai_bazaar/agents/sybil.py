@@ -109,9 +109,11 @@ class DeceptivePrincipal(LLMAgent):
             getattr(args, "seller_openrouter_provider", None)
             or getattr(args, "openrouter_provider", None)
         ) if args else None
+        resolved_port = int(getattr(args, "seller_port", None) or port or 0) if args else port
+        resolved_service = (getattr(args, "seller_service", None) or getattr(args, "service", None)) if args else None
         super().__init__(
             llm_type=llm if llm is not None else "None",
-            port=port,
+            port=resolved_port,
             name=name,
             prompt_algo=getattr(args, "prompt_algo", "io") if args else "io",
             history_len=getattr(args, "history_len", 3) if args else 3,
@@ -119,6 +121,7 @@ class DeceptivePrincipal(LLMAgent):
             args=args,
             llm_instance=llm_instance,
             provider_order=provider_order,
+            service=resolved_service,
         )
         self.best_n = getattr(args, "best_n", 3) if args else 3
         self.logger = logging.getLogger("main")
