@@ -240,7 +240,7 @@ class CESConsumerAgent(LLMAgent):
                 else self.prices_prev[good]
             )
             # compute demand for good
-            if P is None or P <= 0.0:
+            if P is None or P <= 0.0 or price <= 0.0:
                 demand[good] = 0.0
             else:
                 demand[good] = (self.income / P) * alpha * (price / P) ** (-self.sigma)

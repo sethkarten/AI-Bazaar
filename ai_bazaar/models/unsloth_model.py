@@ -18,10 +18,11 @@ class UnslothModel(BaseLLMModel):
         max_tokens: int = 1000,
         temperature: float = 0.7,
         heartbeat_func=None,
-        batch_timeout_ms: float = 100,  # 100ms - balance between batching and latency for desynchronized episodes
-        max_batch_size: int = 128,  # Increased from 32 to maximize GPU utilization
-        encoding_tokenizer=None,  # For bypassing Gemma3Processor bug
-        device=None,  # Specify device for inference (e.g., "cuda:0")
+        batch_timeout_ms: float = 100,
+        max_batch_size: int = 128,
+        encoding_tokenizer=None,
+        device=None,
+        no_think: bool = False,  # Skip <think> block — output actions directly
     ):
         super().__init__(model_name, max_tokens, temperature)
         self.model = model
@@ -31,6 +32,7 @@ class UnslothModel(BaseLLMModel):
         self.batch_timeout_ms = batch_timeout_ms
         self.max_batch_size = max_batch_size
         self.device = device if device is not None else "cuda"
+        self.no_think = no_think
 
         # Batching infrastructure
         self.request_queue = queue.Queue()
@@ -42,9 +44,9 @@ class UnslothModel(BaseLLMModel):
         self.batcher_thread.start()
 
     def _ensure_inference_mode(self):
-        """Ensure model is in inference mode (call once before batching starts)."""
+        """Ensure model is in inference mode."""
         if not self._inference_ready:
-            FastLanguageModel.for_inference(self.model)
+            self.model.eval()
             self._inference_ready = True
 
     def _batcher_loop(self):
@@ -105,10 +107,10 @@ class UnslothModel(BaseLLMModel):
             # Use the first temperature (assuming all similar for simplicity)
             outputs = self.model.generate(
                 **inputs,
-                max_new_tokens=1024,  # Allow space for full CoT reasoning + JSON output
+                max_new_tokens=self.max_tokens,
                 temperature=temperatures[0] if temperatures[0] is not None else self.temperature,
                 use_cache=True,
-                do_sample=True,  # Enable sampling for temperature
+                do_sample=True,
             )
 
             # Decode results
@@ -189,10 +191,19 @@ class UnslothModel(BaseLLMModel):
         if temperature is None:
             temperature = self.temperature
 
-        # Robustness checks
+        # Build prompt using chat template for proper role formatting
         s_prompt = system_prompt if system_prompt is not None else ""
         u_prompt = user_prompt if user_prompt is not None else ""
-        combined_prompt = f"{s_prompt}\n{u_prompt}"
+        messages = [{"role": "system", "content": s_prompt}, {"role": "user", "content": u_prompt}]
+        try:
+            combined_prompt = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+            )
+            # no_think: append </think>\n\n to skip reasoning and go straight to output
+            if self.no_think:
+                combined_prompt = combined_prompt.rstrip() + "<think>\n</think>\n\n"
+        except Exception:
+            combined_prompt = f"{s_prompt}\n{u_prompt}"
 
         # Submit request to batch queue
         result_container = [""]  # Mutable container for result

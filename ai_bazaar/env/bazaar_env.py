@@ -46,7 +46,12 @@ DEFAULT_PREFERENCES = {
 }
 
 class BazaarWorld:
-    def __init__(self, args, llm_model=None):
+    def __init__(self, args, llm_model=None, llm_model_base=None):
+        # llm_model: LoRA model for stabilizing firms (trained)
+        # llm_model_base: frozen base model for non-stabilizing firms/consumers
+        # If llm_model_base is None, all agents use llm_model (single-GPU mode)
+        self._llm_model_stabilizing = llm_model
+        self._llm_model_default = llm_model_base or llm_model
         self.args = args
         self.logger = logging.getLogger("main")
         self.ledger = Ledger()
@@ -122,7 +127,7 @@ class BazaarWorld:
                         market=self.market,
                         persona=firm_persona,
                         args=args,
-                        llm_instance=llm_model,
+                        llm_instance=self._llm_model_default,
                     )
                 else:
                     firm = SellerAgent(
@@ -156,7 +161,7 @@ class BazaarWorld:
                     initial_cash=args.firm_initial_cash,
                     r0=reputation_initial,
                     args=args,
-                    llm_instance=llm_model,
+                    llm_instance=self._llm_model_default,
                 )
                 self.firms = self.honest_firms + self.deceptive_principal.identities
             else:
@@ -190,7 +195,7 @@ class BazaarWorld:
                         "best_n": getattr(args, "best_n", 3),
                         "timeout": getattr(args, "timeout", 30),
                         "args": args,
-                        "llm_instance": llm_model,
+                        "llm_instance": self._llm_model_stabilizing if is_stabilizing else self._llm_model_default,
                         "persona": firm_persona,
                         "stabilizing": is_stabilizing,
                     }
@@ -229,7 +234,7 @@ class BazaarWorld:
                     market=self.market,
                     persona=personas[i],
                     args=args,
-                    llm_instance=llm_model,
+                    llm_instance=self._llm_model_default,
                     prompt_algo=getattr(args, "prompt_algo", "io"),
                     history_len=getattr(args, "history_len", 3),
                     timeout=getattr(args, "timeout", 10),
@@ -254,7 +259,7 @@ class BazaarWorld:
                             args=args,
                             ces_params=ces_params,
                             risk_aversion=getattr(args, "risk_aversion", None),
-                            llm_instance=llm_model,
+                            llm_instance=self._llm_model_default,
                         )
                     else:
                         consumer = CESConsumerAgent(
@@ -269,7 +274,7 @@ class BazaarWorld:
                             args=args,
                             ces_params=None,  # Use default necessity weights
                             risk_aversion=getattr(args, "risk_aversion", None),
-                            llm_instance=llm_model,
+                            llm_instance=self._llm_model_default,
                         )
                 else:
                     consumer = FixedConsumerAgent(
