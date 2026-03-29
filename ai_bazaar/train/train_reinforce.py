@@ -179,6 +179,7 @@ class REINFORCETrainer:
 
         # ── REINFORCE++ hyper-parameters ─────────────────────────────
         self.reward_stats = WelfordRunningStats()
+        self.last_stab_surv = 0.0  # Track survival for adaptive curriculum
         self.advantage_clip = getattr(args, "advantage_clip", 5.0)
         self.grad_clip_norm = getattr(args, "grad_clip_norm", 1.0)
         rw = getattr(args, "reward_weights", "0.3,0.3,0.3")
@@ -370,17 +371,31 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
     # ── Curriculum ─────────────────────────────────────────────────────
 
     def get_num_stabilizing(self, iteration, ep_idx):
-        """Curriculum: 5/5 → 4/5 → 3/5, then sample {1..5}."""
+        """Adaptive curriculum based on survival rate.
+
+        Mixes episode configurations so the model doesn't forget earlier stages:
+        - Stage 0 (surv < 60%): 100% at 5/5 stabilizing
+        - Stage 1 (surv ≥ 60%): 60% at 5/5, 40% at 4/5
+        - Stage 2 (surv ≥ 75%): 40% at 5/5, 30% at 4/5, 30% at 3/5
+        - Stage 3 (surv ≥ 85%): 20% at 5/5, 20% at 4/5, 30% at 3/5, 30% at {1,2}
+        """
         if not getattr(self.args, "curriculum", True):
             return getattr(self.args, "num_stabilizing_firms", 1)
-        if iteration < 20:
+
+        rng = random.Random(self.args.seed + iteration * 1000 + ep_idx)
+        surv = self.last_stab_surv
+
+        if surv < 0.60:
             return 5
-        elif iteration < 40:
-            return 4
-        elif iteration < 60:
-            return 3
+        elif surv < 0.75:
+            # Stage 1: mostly easy, introduce 4/5
+            return rng.choices([5, 4], weights=[60, 40])[0]
+        elif surv < 0.85:
+            # Stage 2: mix in 3/5
+            return rng.choices([5, 4, 3], weights=[40, 30, 30])[0]
         else:
-            return random.Random(self.args.seed + iteration * 1000 + ep_idx).randint(1, 5)
+            # Stage 3: full mix including hard configs
+            return rng.choices([5, 4, 3, 2, 1], weights=[20, 20, 30, 15, 15])[0]
 
     # ── Episode collection ──────────────────────────────────────────────
 
@@ -554,6 +569,7 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         avg_steps = np.mean([s["steps"] for s in stats_list])
         mkt_surv = np.mean([s["market_survival_rate"] for s in stats_list])
         stab_surv = np.mean([s["stab_survival_rate"] for s in stats_list])
+        self.last_stab_surv = stab_surv  # Feed back to adaptive curriculum
         nonstab_surv = np.mean([s["nonstab_survival_rate"] for s in stats_list])
         bankruptcy = np.mean([s["bankruptcy_rate"] for s in stats_list])
         floor_comp = np.mean([s["price_floor_compliance"] for s in stats_list])
@@ -562,11 +578,14 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         price_dev = np.mean([s["price_deviation"] for s in stats_list])
         gini = np.mean([s["gini_cash"] for s in stats_list])
         composite = np.mean([s["composite_score"] for s in stats_list])
+        n_stab_avg = np.mean([s["n_stab"] for s in stats_list])
+        curr_stage = "5/5" if stab_surv < 0.60 else "mix4" if stab_surv < 0.75 else "mix3" if stab_surv < 0.85 else "full"
         print(f"\nCollected {len(all_trajs)} trajs ({len(valid)} valid) in {dt:.1f}s | "
               f"stab_surv={stab_surv:.0%} nonstab_surv={nonstab_surv:.0%} mkt={mkt_surv:.0%} | "
               f"return={np.mean(returns):.2f} | steps={avg_steps:.0f} | floor={floor_comp:.0%}\n"
               f"  price={avg_price:.2f} std={price_std:.3f} dev={price_dev:.2f} | "
-              f"gini={gini:.3f} | composite_S={composite:.3f}", flush=True)
+              f"gini={gini:.3f} | composite_S={composite:.3f} | "
+              f"curriculum={curr_stage} n_stab_avg={n_stab_avg:.1f}", flush=True)
 
         if wandb.run:
             wandb.log({
