@@ -58,6 +58,8 @@ python -m ai_bazaar.train.train_reinforce \
     --micro_batch_size ${MICRO_BS:-8} \
     --inference_batch_size 64 \
     --kl_coeff 0.2 \
+    --lora_r ${LORA_R:-16} \
+    --quant_bits ${QUANT_BITS:-4} \
     --run_name "${RUN_NAME:-della_v5}" \
     --seed ${SEED:-42} \
     --log-dir logs/reinforce

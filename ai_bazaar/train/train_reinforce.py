@@ -83,26 +83,39 @@ class REINFORCETrainer:
         self.device_base = torch.device("cuda:1") if num_gpus >= 2 else self.device
         print(f"Training GPU: {self.device} | Inference GPU: {self.device_base} ({num_gpus} GPU(s))", flush=True)
 
-        # ── GPU 0: 4-bit QLoRA model (stabilizing firm — trained) ────
+        # ── GPU 0: QLoRA model (stabilizing firm — trained) ────
         # Use AutoModelForCausalLM to load as text-only (Unsloth loads as
         # multimodal ConditionalGeneration which breaks in training forward)
         from transformers import AutoModelForCausalLM, BitsAndBytesConfig
         from peft import get_peft_model, LoraConfig
-        print(f"Loading {model_name} as 4-bit CausalLM + LoRA on {self.device} …", flush=True)
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-        )
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name, quantization_config=bnb_config, device_map=str(self.device),
-            attn_implementation="sdpa",  # PyTorch native efficient attention
-        )
+
+        quant_bits = getattr(args, "quant_bits", 4)
+        lora_r = getattr(args, "lora_r", 16)
+        print(f"Loading {model_name} as {quant_bits}-bit CausalLM + LoRA(r={lora_r}) on {self.device} …", flush=True)
+
+        if quant_bits == 4:
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+            )
+        elif quant_bits == 8:
+            bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+        else:
+            bnb_config = None  # bf16 full precision
+
+        load_kwargs = dict(device_map=str(self.device), attn_implementation="sdpa")
+        if bnb_config is not None:
+            load_kwargs["quantization_config"] = bnb_config
+        else:
+            load_kwargs["torch_dtype"] = torch.bfloat16
+        self.model = AutoModelForCausalLM.from_pretrained(model_name, **load_kwargs)
+
         lora_cfg = LoraConfig(
-            r=16,
+            r=lora_r,
             target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
                             "gate_proj", "up_proj", "down_proj"],
-            lora_alpha=16, lora_dropout=0, bias="none",
+            lora_alpha=lora_r, lora_dropout=0, bias="none",
         )
         self.model = get_peft_model(self.model, lora_cfg)
         self.model.gradient_checkpointing_enable()
@@ -116,15 +129,19 @@ class REINFORCETrainer:
             self.tokenizer.tokenizer if hasattr(self.tokenizer, "tokenizer") else self.tokenizer
         )
 
-        # ── GPU 1: Frozen 4-bit base model (non-stabilizing firms — inference only)
+        # ── GPU 1: Frozen base model (non-stabilizing firms + KL reference — inference only)
         inference_bs = getattr(args, "inference_batch_size", 32)
         max_gen_tokens = getattr(args, "max_tokens", 256)
 
         if self.device_base != self.device:
+            # Base model always uses 4-bit (inference only, saves memory on GPU 1)
+            base_bnb = BitsAndBytesConfig(
+                load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16,
+            )
             print(f"Loading frozen 4-bit base model on {self.device_base} …", flush=True)
             self.base_model = AutoModelForCausalLM.from_pretrained(
-                model_name, quantization_config=bnb_config, device_map=str(self.device_base),
-                attn_implementation="sdpa",  # PyTorch native efficient attention
+                model_name, quantization_config=base_bnb, device_map=str(self.device_base),
+                attn_implementation="sdpa",
             )
             self.base_model.eval()
             for p in self.base_model.parameters():
@@ -793,6 +810,9 @@ def main():
     parser.add_argument("--format_reward_weight", type=float, default=2.0)
     parser.add_argument("--inference_batch_size", type=int, default=128)
     parser.add_argument("--wandb_mode", type=str, default="offline", choices=["online","offline","disabled"])
+    # Model
+    parser.add_argument("--lora_r", type=int, default=16, help="LoRA rank (16, 32, 64)")
+    parser.add_argument("--quant_bits", type=int, default=4, choices=[4, 8, 16], help="Quantization bits (4=nf4, 8=int8, 16=bf16)")
     # REINFORCE++
     parser.add_argument("--advantage_clip", type=float, default=3.0)
     parser.add_argument("--grad_clip_norm", type=float, default=0.5)
@@ -821,6 +841,7 @@ def main():
 
     print(f"\n{'='*60}")
     print(f"REINFORCE++ | {args.num_iterations} iters × {args.num_episodes} eps")
+    print(f"Model: {args.quant_bits}-bit + LoRA(r={args.lora_r})")
     print(f"Stabilizing firms: {getattr(args, 'num_stabilizing_firms', 0)} (curriculum={'ON' if args.curriculum else 'OFF'})")
     print(f"Reward: episode return (weights={args.reward_weights}, survival_bonus={args.survival_bonus})")
     print(f"Batch: {args.train_batch_size} effective, {getattr(args, 'micro_batch_size', 4)} micro, {args.num_episodes} episodes")
