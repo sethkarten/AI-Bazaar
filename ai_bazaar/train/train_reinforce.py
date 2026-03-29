@@ -413,6 +413,8 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             ep_sales, steps = 0, 0
             total_stab_profit = 0.0
             steps_above_cost = 0
+            all_prices = []  # Per-timestep mean price for stability metric
+            all_firm_prices = []  # All individual firm prices for Gini/deviation
             max_ts = ep_args.max_timesteps
 
             while not world.is_done():
@@ -424,15 +426,22 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                 steps += 1
                 ep_sales += st["sales_count"]
 
-                # Track stabilizing firm metrics
+                # Track all firm prices and stabilizing firm metrics
+                step_prices = []
                 for fn, fd in st["firms"].items():
+                    prices = fd.get("prices", {})
+                    for g, p in prices.items():
+                        if p > 0:
+                            step_prices.append(p)
+                            all_firm_prices.append(p)
                     for f in world.firms:
                         if f.name == fn and getattr(f, "stabilizing_firm", False):
                             total_stab_profit += fd.get("profit", 0.0)
-                            prices = fd.get("prices", {})
                             costs = getattr(f, "supply_unit_costs", {})
                             if all(prices.get(g, 0) >= costs.get(g, 1.0) for g in costs):
                                 steps_above_cost += 1
+                if step_prices:
+                    all_prices.append(np.mean(step_prices))
                 self.heartbeat()
 
             # Collect stabilizing firm trajectories
@@ -455,9 +464,37 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             nonstab_alive = sum(1 for f in world.firms if not getattr(f, "stabilizing_firm", False) and getattr(f, "in_business", True))
             nonstab_total = sum(1 for f in world.firms if not getattr(f, "stabilizing_firm", False))
 
-            # Collect final cash and prices for all firms
+            # Collect final cash for all firms
             stab_cash = [f.cash for f in world.firms if getattr(f, "stabilizing_firm", False) and getattr(f, "in_business", True)]
             nonstab_cash = [f.cash for f in world.firms if not getattr(f, "stabilizing_firm", False) and getattr(f, "in_business", True)]
+            all_cash = [f.cash for f in world.firms if getattr(f, "in_business", True)]
+
+            # Paper metrics: price stability, price deviation, Gini, composite score
+            price_std = np.std(all_prices) if len(all_prices) > 1 else 0.0
+            # Get unit cost from any firm for deviation calc
+            unit_costs = []
+            for f in world.firms:
+                for g, c in getattr(f, "supply_unit_costs", {}).items():
+                    unit_costs.append(c)
+            avg_cost = np.mean(unit_costs) if unit_costs else 1.0
+            avg_price = np.mean(all_firm_prices) if all_firm_prices else avg_cost
+            price_deviation = abs(avg_price / avg_cost - 1.0)
+
+            # Gini coefficient of firm cash
+            def gini(values):
+                if len(values) < 2:
+                    return 0.0
+                v = np.sort(np.array(values, dtype=float))
+                n = len(v)
+                idx = np.arange(1, n + 1)
+                return (2 * np.sum(idx * v) - (n + 1) * np.sum(v)) / (n * np.sum(v) + 1e-8)
+            gini_cash = gini(all_cash) if all_cash else 0.0
+
+            # Composite health score (paper formula)
+            s_surv = 1.0 - (1.0 - final_alive / total_firms)  # = final_alive/total_firms
+            s_price = max(0, 1.0 - price_deviation)  # closer to cost = better
+            s_stab = max(0, 1.0 - price_std / (avg_cost + 1e-8))  # lower volatility = better
+            composite_score = (s_surv + s_price + s_stab) / 3.0
 
             # ── Episode return: assign SAME reward to ALL trajectories ──
             if steps > 0:
@@ -490,6 +527,12 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                 "nonstab_avg_cash": np.mean(nonstab_cash) if nonstab_cash else 0,
                 "price_floor_compliance": steps_above_cost / max(steps, 1),
                 "bankruptcy_rate": 1.0 - final_alive / total_firms,
+                # Paper-specific metrics
+                "price_std": price_std,
+                "price_deviation": price_deviation,
+                "avg_price": avg_price,
+                "gini_cash": gini_cash,
+                "composite_score": composite_score,
             }
 
         # Run episodes in parallel
@@ -512,9 +555,16 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
         nonstab_surv = np.mean([s["nonstab_survival_rate"] for s in stats_list])
         bankruptcy = np.mean([s["bankruptcy_rate"] for s in stats_list])
         floor_comp = np.mean([s["price_floor_compliance"] for s in stats_list])
+        avg_price = np.mean([s["avg_price"] for s in stats_list])
+        price_std = np.mean([s["price_std"] for s in stats_list])
+        price_dev = np.mean([s["price_deviation"] for s in stats_list])
+        gini = np.mean([s["gini_cash"] for s in stats_list])
+        composite = np.mean([s["composite_score"] for s in stats_list])
         print(f"\nCollected {len(all_trajs)} trajs ({len(valid)} valid) in {dt:.1f}s | "
               f"stab_surv={stab_surv:.0%} nonstab_surv={nonstab_surv:.0%} mkt={mkt_surv:.0%} | "
-              f"return={np.mean(returns):.2f} | steps={avg_steps:.0f} | floor={floor_comp:.0%}", flush=True)
+              f"return={np.mean(returns):.2f} | steps={avg_steps:.0f} | floor={floor_comp:.0%}\n"
+              f"  price={avg_price:.2f} std={price_std:.3f} dev={price_dev:.2f} | "
+              f"gini={gini:.3f} | composite_S={composite:.3f}", flush=True)
 
         if wandb.run:
             wandb.log({
@@ -529,6 +579,12 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
                 "econ/price_floor_compliance": floor_comp,
                 "econ/stab_avg_cash": np.mean([s["stab_avg_cash"] for s in stats_list]),
                 "econ/nonstab_avg_cash": np.mean([s["nonstab_avg_cash"] for s in stats_list]),
+                # Paper metrics
+                "econ/avg_price": avg_price,
+                "econ/price_std": price_std,
+                "econ/price_deviation": price_dev,
+                "econ/gini_cash": gini,
+                "econ/composite_score": composite,
                 "env/steps": avg_steps,
                 "env/episode_return_avg": np.mean(returns),
                 "env/episode_return_std": np.std(returns),
