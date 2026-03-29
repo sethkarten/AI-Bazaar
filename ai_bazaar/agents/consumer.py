@@ -8,6 +8,9 @@ from ..utils.common import PERSONAS, ROLE_MESSAGES
 from ..agents.llm_agent import LLMAgent
 
 
+CONSUMER_PERSONA_TYPES = ["LOYAL", "SMALL_BIZ", "REP_SEEKER", "VARIETY"]
+
+
 class CESConsumerAgent(LLMAgent):
     def __init__(
         self,
@@ -55,6 +58,8 @@ class CESConsumerAgent(LLMAgent):
         self.ces_params = ces_params
         self.risk_aversion = risk_aversion
         self.persona = persona
+        self.consumer_persona_type: str | None = None  # set by BazaarWorld when --enable-consumer-personas
+        self._purchase_history: list[str] = []         # firm_ids, most recent last, capped at 10
         self.ledger = ledger
         self.market = market
         self.quantity_per_good = quantity_per_good
@@ -325,6 +330,12 @@ class CESConsumerAgent(LLMAgent):
             listing_id=listing_id,
         )
 
+    def record_purchase(self, firm_id: str) -> None:
+        """Record a fulfilled purchase for consumer persona history (capped at 10 entries)."""
+        self._purchase_history.append(firm_id)
+        if len(self._purchase_history) > 10:
+            self._purchase_history.pop(0)
+
     def submit_orders(self, orders: List[Order]) -> None:
         """Submit a list of orders to the market"""
         for order in orders:
@@ -338,6 +349,7 @@ class CESConsumerAgent(LLMAgent):
         firm_reputations: Dict[str, float] = None,
         wtp_algo: str = "wtp",
         crash_rep_scoring: bool = False,
+        firm_sales: Dict[str, float] = None,
     ) -> List[Order]:
         "Make fixed list of orders (returns orders without submitting)"
 
@@ -488,11 +500,28 @@ class CESConsumerAgent(LLMAgent):
                 ]
                 if good_quotes:
                     max_wtp = _max_wtp(good)
+                    _sales = firm_sales or {}
                     def _crash_score(q):
                         p = max(0.01, q.price)
-                        if crash_rep_scoring:
-                            return reps.get(q.firm_id, 1.0) / p
-                        return 1.0 / p
+                        rep = reps.get(q.firm_id, 1.0)
+                        base = (rep / p) if crash_rep_scoring else (1.0 / p)
+                        ptype = self.consumer_persona_type
+                        if ptype is None:
+                            return base
+                        if ptype == "LOYAL":
+                            recent = self._purchase_history[-5:]
+                            recency = recent.count(q.firm_id) / 5.0
+                            return base * (1.0 + 0.5 * recency)
+                        elif ptype == "SMALL_BIZ":
+                            total = sum(_sales.values()) or 1.0
+                            share = _sales.get(q.firm_id, 0.0) / total
+                            return base * (1.0 + 0.5 * (1.0 - share))
+                        elif ptype == "REP_SEEKER":
+                            return rep / p
+                        elif ptype == "VARIETY":
+                            last = self._purchase_history[-1] if self._purchase_history else None
+                            return base * (0.2 if q.firm_id == last else 1.0)
+                        return base
                     best_quote = max(good_quotes, key=_crash_score)
                     self._discovery_this_step[good] = {
                         "seen": [q.firm_id for q in good_quotes],

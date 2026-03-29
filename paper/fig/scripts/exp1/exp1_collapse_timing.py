@@ -51,7 +51,7 @@ plt.rcParams.update({
 })
 
 DLC_VALUES    = [1, 3, 5]
-N_STAB_VALUES = [0, 1, 2, 4, 5]
+N_STAB_VALUES = [0, 1, 2, 3, 4, 5]
 SEEDS         = [8, 16, 64]
 MAX_TIMESTEPS = 365
 

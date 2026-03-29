@@ -2,12 +2,30 @@
 OpenRouter model implementation for the LLM Economist framework.
 """
 
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any
 import os
 import requests
 import json
 from time import sleep
 from .base import BaseLLMModel
+
+# Max chars of OpenRouter error JSON/text per log line (avoid huge dumps).
+_OPENROUTER_ERROR_BODY_LOG_CAP = 8000
+
+
+def _openrouter_error_body_for_log(response: Optional[requests.Response]) -> str:
+    """Readable OpenRouter error payload for logging (never raises)."""
+    if response is None:
+        return ""
+    try:
+        data: Any = response.json()
+        return json.dumps(data, ensure_ascii=False)
+    except Exception:
+        try:
+            raw = (response.text or "").strip()
+        except Exception:
+            return "(unreadable response body)"
+        return raw or "(empty body)"
 
 
 class OpenRouterModel(BaseLLMModel):
@@ -36,7 +54,18 @@ class OpenRouterModel(BaseLLMModel):
         
         if not api_key:
             raise ValueError("OpenRouter API key not found. Set OPENROUTER_API_KEY environment variable or pass api_key parameter.")
-        
+
+        # Copy/paste from UIs often adds whitespace; docs sometimes say "Bearer <key>" —
+        # we always send Authorization: Bearer <key>, so strip a duplicate prefix.
+        api_key = api_key.strip()
+        low = api_key.lower()
+        if low.startswith("bearer "):
+            api_key = api_key[7:].strip()
+        if not api_key:
+            raise ValueError(
+                "OPENROUTER_API_KEY is empty after stripping whitespace / 'Bearer ' prefix."
+            )
+
         self.api_key = api_key
         self.base_url = "https://openrouter.ai/api/v1"
         self.provider_order = provider_order
@@ -82,8 +111,21 @@ class OpenRouterModel(BaseLLMModel):
                     "temperature": temperature,
                     "max_tokens": self.max_tokens
                 }
+
+                # Disable "thinking mode" for Qwen models.
+                # OpenRouter supports this both via extra_body and via provider.thinking.
+                is_qwen = isinstance(self.model_name, str) and self.model_name.lower().startswith("qwen/")
+                if is_qwen:
+                    payload["extra_body"] = {"thinking": False}
+
+                # Provider routing options
+                provider: dict = {}
                 if self.provider_order:
-                    payload["provider"] = {"order": self.provider_order}
+                    provider["order"] = self.provider_order
+                if is_qwen:
+                    provider["thinking"] = {"type": "disabled"}
+                if provider:
+                    payload["provider"] = provider
                 
                 # Add JSON format if requested (for compatible models)
                 if json_format:
@@ -123,12 +165,35 @@ class OpenRouterModel(BaseLLMModel):
                 return message, False
                 
             except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 429:  # Rate limit
+                resp = e.response
+                status = resp.status_code if resp is not None else None
+                if status == 429:  # Rate limit
                     self.logger.warning(f"Rate limit hit: {e}")
+                    body = _openrouter_error_body_for_log(resp)
+                    if body:
+                        if len(body) > _OPENROUTER_ERROR_BODY_LOG_CAP:
+                            body = body[:_OPENROUTER_ERROR_BODY_LOG_CAP] + "...(truncated)"
+                        self.logger.warning(
+                            "OpenRouter rate-limit response body: %s",
+                            body,
+                        )
                     self._handle_rate_limit(retry_count, max_retries)
                     retry_count += 1
                 else:
-                    self.logger.error(f"HTTP error calling OpenRouter API: {e}")
+                    body = _openrouter_error_body_for_log(resp)
+                    if len(body) > _OPENROUTER_ERROR_BODY_LOG_CAP:
+                        body = body[:_OPENROUTER_ERROR_BODY_LOG_CAP] + "...(truncated)"
+                    self.logger.error(
+                        "HTTP error calling OpenRouter API: %s | model=%s | response body: %s",
+                        e,
+                        self.model_name,
+                        body or "(no body)",
+                    )
+                    # Also stdout so subprocess runners (e.g. exp1_eas_sweep tee) capture the payload.
+                    print(
+                        f"OpenRouter error payload (model={self.model_name}): {body or '(no body)'}",
+                        flush=True,
+                    )
                     raise
                     
             except requests.exceptions.RequestException as e:

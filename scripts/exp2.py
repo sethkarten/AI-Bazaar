@@ -1,34 +1,49 @@
 #!/usr/bin/env python3
 """
-Run Experiment 2 (LEMON_MARKET) — baseline and Sybil-only conditions (no Guardian agent).
+Run Experiment 2 (LEMON_MARKET) — 3×3×2 sybil sweep + baseline.
 
-Run matrix:
-  - Baseline (no sybil): 3 seeds {8, 16, 64}
-  - Sybil sweep:  n_sybil ∈ {3, 6, 9, 12} × rho_min ∈ {0.3} × seeds {8, 16, 64}
-  Total: 15 runs
+Run matrix
+----------
+Baseline (no sybil):
+  K=0 × rep_visible ∈ {True, False} × seeds {8, 16, 64} → 6 runs
 
-Fixed settings: 12 total seller slots (honest = 12 - sybil_cluster_size), 12 LLM buyers,
-  100 timesteps, LEMON_MARKET, seller-type=LLM, reputation-alpha=0.9,
-  reputation-initial=0.8, discovery-limit-consumers=5, max-tokens=2000,
-  prompt-algo=cot, no-diaries, heterogeneous seller personas (standard/detailed/terse/optimistic).
+Sybil grid:
+  K ∈ {3, 6, 9} × rep_visible ∈ {True, False} × seeds {8, 16, 64} → 18 runs
 
-Usage: From project root:
-  python scripts/exp2.py                        # all runs, sequential
-  python scripts/exp2.py --workers 3            # 3 parallel runs
-  python scripts/exp2.py --n-sybil 0            # only baseline (no sybil)
-  python scripts/exp2.py --n-sybil 3 6          # only those sybil cells
-  python scripts/exp2.py --rho-min 0.3          # only rho_min=0.3 cells
-  python scripts/exp2.py --seeds 8              # only seed=8
-  python scripts/exp2.py --run exp2_baseline_seed8 exp2_sybil_6_rho0.3_seed16
-  python scripts/exp2.py --skip-existing        # skip runs whose log dir already exists
-  python scripts/exp2.py --list                 # print matching runs, don't execute
+Total: 24 runs
+
+Design notes
+------------
+- Total sellers always = 12; honest = 12 - K.
+  Sybil saturation: K=3 → 25%, K=6 → 50%, K=9 → 75% of listings.
+- rep_visible=False passes --no-buyer-rep (buyers see only description and price).
+- Seller personas fixed: evenly distributed across standard/detailed/terse/optimistic.
+- rho_min fixed at 0.3 (sybil identity retired when rolling window rep drops below 0.3).
+- Run names are {name_prefix}_{suffix}; --log-dir logs/{name_prefix} per run.
+
+Usage (from project root)
+--------------------------
+  python scripts/exp2.py                             # all 24 runs, sequential
+  python scripts/exp2.py --workers 3                 # 3 parallel runs
+  python scripts/exp2.py --k 0                       # baseline only (both rep conditions)
+  python scripts/exp2.py --k 3 6                     # only K=3 and K=6 cells
+  python scripts/exp2.py --rep-visible 1             # only rep-visible cells
+  python scripts/exp2.py --rep-visible 0             # only no-rep cells
+  python scripts/exp2.py --seeds 8                   # only seed=8
+  python scripts/exp2.py --k 9 --seeds 8 16 --rep-visible 0
+  python scripts/exp2.py --run exp2_gemini-2.5-flash_k0_rep1_seed8
+  python scripts/exp2.py --skip-existing             # skip runs whose log dir exists
+  python scripts/exp2.py --list                      # print matching runs, don't execute
+  python scripts/exp2.py --prompt-algo cot           # override prompt algorithm
+  python scripts/exp2.py --log-buyer-prompts --log-seller-prompts
   python scripts/exp2.py --llm gemma3:4b --service ollama --port 11434
-  Filters combine with AND: --n-sybil 6 --seeds 8 16
+  Filters combine with AND.
 """
 import argparse
 import subprocess
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -37,68 +52,118 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if not (PROJECT_ROOT / "ai_bazaar").exists():
     PROJECT_ROOT = Path.cwd()
-LOGS_DIR = PROJECT_ROOT / "logs" / "exp2"
-LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M")
-SUMMARY_LOG = LOGS_DIR / f"exp2_{TIMESTAMP}.log"
+# Set in main() from --llm (logs/exp2_{model_slug}/).
+LOGS_DIR: Path | None = None
+SUMMARY_LOG: Path | None = None
 
-# Fixed base args shared by all runs.
-# 12 total seller slots (honest = 12 - sybil_cluster_size); 12 LLM buyers; 100 timesteps.
-# Heterogeneous seller personas: 3 each of standard, detailed, terse, optimistic.
+NUM_TOTAL_SELLERS = 12  # total seller slots (honest + sybil) — constant across all conditions
+SEEDS = (8, 16, 64)
+K_VALUES = (3, 6, 9)   # sybil cluster sizes; honest = NUM_TOTAL_SELLERS - K
+RHO_MIN = 0.3
+
+# Fixed args shared by every run (model, prompt-algo, and logging flags added at runtime).
 _BASE_FIXED = [
     "--consumer-scenario", "LEMON_MARKET",
     "--firm-type", "LLM",
-    "--num-sellers", "12",
     "--num-buyers", "12",
-    "--max-timesteps", "40",
     "--seller-type", "LLM",
-    "--reputation-alpha", "0.9",
     "--reputation-initial", "0.8",
-    "--discovery-limit-consumers", "5",
+    "--sybil-rho-min", str(RHO_MIN),
+    "--discovery-limit-consumers", "3",
     "--max-tokens", "2000",
-    "--prompt-algo", "cot",
     "--no-diaries",
-    "--seller-personas", "standard:3,detailed:3,terse:3,optimistic:3",
+    # --max-timesteps, --prompt-algo, seller-personas, llm args added at runtime
 ]
 
 
-def build_runs(base: list[str]) -> list[tuple[str, list[str], dict]]:
-    """Construct the full run list using the supplied base argv."""
+def llm_filesystem_slug(llm: str) -> str:
+    """Make model id safe as a single path segment (Windows + POSIX)."""
+    s = llm.strip()
+    for ch in '<>:"/\\|?*':
+        s = s.replace(ch, "_")
+    s = s.replace(":", "_")
+    return s or "model"
+
+
+def seller_personas_spec(num_honest: int) -> str:
+    """Distribute num_honest sellers evenly across the four persona styles."""
+    styles = ["standard", "detailed", "terse", "optimistic"]
+    base, remainder = divmod(num_honest, len(styles))
+    counts = [base + (1 if i < remainder else 0) for i in range(len(styles))]
+    return ",".join(f"{style}:{count}" for style, count in zip(styles, counts) if count > 0)
+
+
+def build_runs(base: list[str], name_prefix: str) -> list[tuple[str, list[str], dict]]:
+    """Construct the full run list.
+
+    Run names are ``{name_prefix}_{suffix}``; ``--log-dir`` is ``logs/{name_prefix}``
+    so each simulation's run directory lands under ``logs/{name_prefix}/``.
+    """
     runs: list[tuple[str, list[str], dict]] = []
+    log_dir_arg = f"logs/{name_prefix}"
 
-    # ---- Baseline (no sybil) ----
-    for seed in (8, 16, 64):
-        label = f"exp2_baseline_seed{seed}"
-        runs.append((
-            label,
-            ["--name", label,
-             "--sybil-cluster-size", "0",
-             "--seed", str(seed)] + base,
-            {"n_sybil": 0, "rho_min": None, "seed": seed},
-        ))
+    # ---- Baseline: K=0 × rep_visible ∈ {True, False} ----
+    personas_k0 = seller_personas_spec(NUM_TOTAL_SELLERS)
+    for rep_visible in (True, False):
+        rep_tag = "rep1" if rep_visible else "rep0"
+        extra = [] if rep_visible else ["--no-buyer-rep"]
+        for seed in SEEDS:
+            label = f"{name_prefix}_k0_{rep_tag}_seed{seed}"
+            runs.append((
+                label,
+                ["--name", label, "--log-dir", log_dir_arg,
+                 "--num-sellers", str(NUM_TOTAL_SELLERS),
+                 "--sybil-cluster-size", "0",
+                 "--seller-personas", personas_k0,
+                 "--seed", str(seed)] + extra + base,
+                {"k": 0, "rep_visible": rep_visible, "seed": seed},
+            ))
 
-    # ---- Sybil sweep (no guardian): n_sybil × rho_min × seeds ----
-    for n_sybil in (3, 6, 9, 12):
-        for rho_min in (0.3,):
-            for seed in (8, 16, 64):
-                label = f"exp2_sybil_{n_sybil}_rho{rho_min}_seed{seed}"
+    # ---- Sybil grid: K × rep_visible × seed ----
+    for k in K_VALUES:
+        num_honest = NUM_TOTAL_SELLERS - k
+        personas = seller_personas_spec(num_honest)
+        saturation = k / NUM_TOTAL_SELLERS
+        for rep_visible in (True, False):
+            for seed in SEEDS:
+                rep_tag = "rep1" if rep_visible else "rep0"
+                label = f"{name_prefix}_k{k}_{rep_tag}_seed{seed}"
+                extra = [] if rep_visible else ["--no-buyer-rep"]
                 runs.append((
                     label,
-                    ["--name", label,
-                     "--sybil-cluster-size", str(n_sybil),
-                     "--sybil-rho-min", str(rho_min),
-                     "--seed", str(seed)] + base,
-                    {"n_sybil": n_sybil, "rho_min": rho_min, "seed": seed},
+                    ["--name", label, "--log-dir", log_dir_arg,
+                     "--num-sellers", str(NUM_TOTAL_SELLERS),
+                     "--sybil-cluster-size", str(k),
+                     "--seller-personas", personas,
+                     "--seed", str(seed)] + extra + base,
+                    {"k": k, "rep_visible": rep_visible, "seed": seed,
+                     "saturation": saturation},
                 ))
 
     return runs
 
 
 _print_lock = threading.Lock()
+_progress_lock = threading.Lock()
+
+
+def format_duration(seconds: float) -> str:
+    """Human-readable duration for logs."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    if seconds < 3600:
+        m = int(seconds // 60)
+        s = seconds - m * 60
+        return f"{m}m {s:.0f}s"
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    return f"{h}h {m}m"
 
 
 def log(msg: str) -> None:
+    assert SUMMARY_LOG is not None
     line = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
     with _print_lock:
         print(line, flush=True)
@@ -106,12 +171,45 @@ def log(msg: str) -> None:
         f.write(line + "\n")
 
 
-def run_one(log_label: str, args: list[str]) -> int:
-    """Run a single simulation; returns the process exit code."""
+def log_run_finished(
+    log_label: str,
+    elapsed_sec: float,
+    completed_durations: list[float],
+    total_runs: int,
+    worker_count: int,
+    batch_wall_start: float,
+) -> None:
+    """Log per-run duration, ETA for remaining jobs, and % of est. total time left."""
+    with _progress_lock:
+        completed_durations.append(elapsed_sec)
+        n_done = len(completed_durations)
+        n_rem = total_runs - n_done
+        dur_fmt = format_duration(elapsed_sec)
+        if n_rem == 0:
+            log(f"Finished: {log_label} ({dur_fmt}) — all {total_runs} run(s) complete.")
+            return
+        avg = sum(completed_durations) / n_done
+        eta_remaining = (n_rem * avg) / worker_count
+        wall_elapsed = time.monotonic() - batch_wall_start
+        total_est = wall_elapsed + eta_remaining
+        pct_left = (100.0 * eta_remaining / total_est) if total_est > 0 else 0.0
+        log(
+            f"Finished: {log_label} ({dur_fmt}) | "
+            f"est. {format_duration(eta_remaining)} left for {n_rem} run(s) "
+            f"({pct_left:.1f}% of est. total time remaining)"
+        )
+
+
+def run_one(log_label: str, args: list[str]) -> tuple[int, float]:
+    """Run a single simulation; returns (exit code, elapsed seconds)."""
     cmd = [sys.executable, "-m", "ai_bazaar.main"] + args
+    assert LOGS_DIR is not None
     log_path = LOGS_DIR / f"{log_label}_{TIMESTAMP}.log"
     log(f"Starting: {log_label}")
+    t0 = time.monotonic()
+    proc: subprocess.Popen[str] | None = None
     try:
+        output_lines: list[str] = []
         with open(log_path, "w", encoding="utf-8") as logf:
             proc = subprocess.Popen(
                 cmd,
@@ -125,40 +223,42 @@ def run_one(log_label: str, args: list[str]) -> int:
             for line in proc.stdout:
                 logf.write(line)
                 logf.flush()
-                with _print_lock:
-                    print(f"[{log_label}] {line}", end="", flush=True)
+                output_lines.append(line)
             proc.wait()
+        elapsed = time.monotonic() - t0
+        assert proc is not None
         if proc.returncode != 0:
+            with _print_lock:
+                for line in output_lines:
+                    print(f"[{log_label}] {line}", end="", flush=True)
             log(f"WARNING: {log_label} exited with code {proc.returncode}")
+        return proc.returncode, elapsed
     except Exception as e:
+        elapsed = time.monotonic() - t0
         log(f"ERROR in {log_label}: {e}")
-        return -1
-    log(f"Finished: {log_label}")
-    return proc.returncode
+        return -1, elapsed
 
 
 def filter_runs(
     runs: list[tuple[str, list[str], dict]],
-    n_sybil_filter: list[int] | None,
-    rho_min_filter: list[float] | None,
+    k_filter: list[int] | None,
+    rep_visible_filter: list[bool] | None,
     seed_filter: list[int] | None,
     run_filter: list[str] | None,
     skip_existing: bool,
+    name_prefix: str,
 ) -> list[tuple[str, list[str], dict]]:
-    """Return the subset of runs matching all supplied filters (AND logic)."""
     selected = []
     for label, argv, meta in runs:
         if run_filter is not None and label not in run_filter:
             continue
-        if n_sybil_filter is not None and meta["n_sybil"] not in n_sybil_filter:
+        if k_filter is not None and meta["k"] not in k_filter:
             continue
-        if rho_min_filter is not None:
-            # baseline runs have rho_min=None; include them only if 0 is in n_sybil_filter
-            if meta["rho_min"] not in rho_min_filter:
-                continue
+        if rep_visible_filter is not None and meta["rep_visible"] not in rep_visible_filter:
+            continue
         if seed_filter is not None and meta["seed"] not in seed_filter:
             continue
-        if skip_existing and (PROJECT_ROOT / "logs" / label).is_dir():
+        if skip_existing and (PROJECT_ROOT / "logs" / name_prefix / label).is_dir():
             continue
         selected.append((label, argv, meta))
     return selected
@@ -166,46 +266,56 @@ def filter_runs(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run Experiment 2 — LEMON_MARKET baseline and Sybil sweep (no Guardian)",
+        description="Run Experiment 2 — LEMON_MARKET 3×3×2 sybil sweep",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--workers", type=int, default=1,
-        help=(
-            "Number of parallel simulation runs (default: 1 = sequential). "
-            "Keep low (2-4) to avoid Gemini API rate limits."
-        ),
+        help="Parallel simulation workers (default: 1). Keep ≤3 to stay within API rate limits.",
     )
     parser.add_argument(
         "--llm", type=str, default="gemini-2.5-flash",
-        help="LLM model to use (default: gemini-2.5-flash).",
+        help="LLM model (default: gemini-2.5-flash).",
     )
     parser.add_argument(
         "--service", type=str, default=None,
-        help="Model service backend (default: none / Gemini API). E.g. --service ollama",
+        help="Model service backend (e.g. ollama).",
     )
     parser.add_argument(
         "--port", type=int, default=None,
-        help="Port for local model server (default: none). E.g. --port 11434 for Ollama.",
+        help="Port for local model server.",
     )
     parser.add_argument(
         "--openrouter-provider", type=str, nargs="+", default=None, metavar="PROVIDER",
-        help=(
-            "Preferred OpenRouter provider order for provider/model slugs "
-            "(e.g. --openrouter-provider anthropic). If omitted, OpenRouter auto-selects."
-        ),
+        help="Preferred OpenRouter provider order (e.g. --openrouter-provider anthropic).",
     )
     parser.add_argument(
-        "--n-sybil", type=int, nargs="+", metavar="N", dest="n_sybil",
-        help="Only run cells with these sybil cluster sizes (e.g. --n-sybil 0 3 6 9 12). 0 = baseline.",
+        "--max-timesteps", type=int, default=50,
+        help="Episode length passed to all runs (default: 50).",
     )
     parser.add_argument(
-        "--rho-min", type=float, nargs="+", metavar="F", dest="rho_min",
-        help="Only run cells with these rho_min values (e.g. --rho-min 0.3).",
+        "--prompt-algo", type=str, default="cot", choices=["io", "cot", "sc"],
+        help="Prompt algorithm passed to all runs (default: cot).",
+    )
+    parser.add_argument(
+        "--log-buyer-prompts", action="store_true",
+        help="Append buyer LLM prompts/responses to lemon_agent_prompts.jsonl for each run.",
+    )
+    parser.add_argument(
+        "--log-seller-prompts", action="store_true",
+        help="Append seller/sybil LLM prompts/responses to lemon_agent_prompts.jsonl for each run.",
+    )
+    parser.add_argument(
+        "--k", type=int, nargs="+", metavar="K",
+        help="Only run cells with these K values (0 = baseline). E.g. --k 0 3 6",
+    )
+    parser.add_argument(
+        "--rep-visible", type=int, nargs="+", metavar="0|1", dest="rep_visible",
+        help="Only run cells with this rep_visible setting (1=visible, 0=hidden). E.g. --rep-visible 1",
     )
     parser.add_argument(
         "--seeds", type=int, nargs="+", metavar="N",
-        help="Only run these seeds (e.g. --seeds 8 64).",
+        help="Only run these seeds. E.g. --seeds 8 64",
     )
     parser.add_argument(
         "--run", type=str, nargs="+", metavar="LABEL", dest="runs",
@@ -213,13 +323,19 @@ def main() -> None:
     )
     parser.add_argument(
         "--skip-existing", action="store_true",
-        help="Skip any run whose log directory already exists under logs/.",
+        help="Skip any run whose log directory already exists under logs/exp2_<model>/.",
     )
     parser.add_argument(
         "--list", action="store_true",
-        help="Print matching runs and exit without executing them.",
+        help="Print matching runs and exit without executing.",
     )
     cli = parser.parse_args()
+
+    global LOGS_DIR, SUMMARY_LOG
+    name_prefix = f"exp2_{llm_filesystem_slug(cli.llm)}"
+    LOGS_DIR = PROJECT_ROOT / "logs" / name_prefix
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    SUMMARY_LOG = LOGS_DIR / f"exp2_{TIMESTAMP}.log"
 
     llm_args = ["--llm", cli.llm]
     if cli.service:
@@ -228,24 +344,40 @@ def main() -> None:
         llm_args += ["--port", str(cli.port)]
     if cli.openrouter_provider:
         llm_args += ["--openrouter-provider", *cli.openrouter_provider]
-    base = _BASE_FIXED + llm_args
 
-    all_runs = build_runs(base)
+    prompt_args = ["--max-timesteps", str(cli.max_timesteps), "--prompt-algo", cli.prompt_algo]
+
+    log_args = []
+    if cli.log_buyer_prompts:
+        log_args += ["--log-buyer-prompts"]
+    if cli.log_seller_prompts:
+        log_args += ["--log-seller-prompts"]
+
+    base = _BASE_FIXED + llm_args + prompt_args + log_args
+
+    all_runs = build_runs(base, name_prefix)
+
+    rep_visible_filter = None
+    if cli.rep_visible is not None:
+        rep_visible_filter = [bool(v) for v in cli.rep_visible]
 
     selected = filter_runs(
         all_runs,
-        n_sybil_filter=cli.n_sybil,
-        rho_min_filter=cli.rho_min,
+        k_filter=cli.k,
+        rep_visible_filter=rep_visible_filter,
         seed_filter=cli.seeds,
         run_filter=cli.runs,
         skip_existing=cli.skip_existing,
+        name_prefix=name_prefix,
     )
 
     if cli.list:
         print(f"Matching runs ({len(selected)} / {len(all_runs)} total):")
         for label, _, meta in selected:
-            rho_str = f"rho_min={meta['rho_min']}" if meta["rho_min"] is not None else "no-sybil"
-            print(f"  {label}  [n_sybil={meta['n_sybil']} {rho_str} seed={meta['seed']}]")
+            k = meta["k"]
+            sat = f"sat={meta.get('saturation', 0):.0%}" if k > 0 else "no-sybil"
+            rep = "rep=visible" if meta["rep_visible"] else "rep=hidden"
+            print(f"  {label:55s}  [K={k:2d}  {sat:10s}  {rep}  seed={meta['seed']}]")
         return
 
     if not selected:
@@ -253,28 +385,42 @@ def main() -> None:
         return
 
     log(f"Experiment 2 started. Project root: {PROJECT_ROOT}")
-    log(f"Selected runs: {len(selected)} / {len(all_runs)}  |  workers: {cli.workers}  |  llm: {cli.llm}")
+    log(f"Selected: {len(selected)}/{len(all_runs)} runs  |  workers: {cli.workers}  |  llm: {cli.llm}  |  prompt-algo: {cli.prompt_algo}")
+    log(f"Grid: K∈{{0,*{K_VALUES}}}  rep_visible∈{{True,False}}  seeds={SEEDS}  rho_min={RHO_MIN}")
+    log(f"Total sellers fixed at {NUM_TOTAL_SELLERS}; honest = {NUM_TOTAL_SELLERS} - K")
+
+    total = len(selected)
+    worker_count = 1 if cli.workers <= 1 else min(cli.workers, total)
+    completed_durations: list[float] = []
+    batch_start = time.monotonic()
 
     if cli.workers <= 1:
-        for log_label, args, _ in selected:
-            run_one(log_label, args)
+        for label, args, _ in selected:
+            rc, elapsed = run_one(label, args)
+            log_run_finished(label, elapsed, completed_durations, total, worker_count, batch_start)
+            if rc != 0:
+                log(f"Run {label} finished with non-zero exit code {rc}")
     else:
-        workers = min(cli.workers, len(selected))
         futures = {}
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            for log_label, args, _ in selected:
-                fut = pool.submit(run_one, log_label, args)
-                futures[fut] = log_label
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
+            for label, args, _ in selected:
+                fut = pool.submit(run_one, label, args)
+                futures[fut] = label
             for fut in as_completed(futures):
                 label = futures[fut]
                 try:
-                    rc = fut.result()
+                    rc, elapsed = fut.result()
+                    log_run_finished(label, elapsed, completed_durations, total, worker_count, batch_start)
                     if rc != 0:
                         log(f"Run {label} finished with non-zero exit code {rc}")
                 except Exception as e:
                     log(f"Run {label} raised an exception: {e}")
 
-    log("Experiment 2 completed.")
+    total_wall = time.monotonic() - batch_start
+    log(
+        f"Experiment 2 completed. Total wall time: {format_duration(total_wall)}. "
+        f"Runs directory: logs/{name_prefix}/"
+    )
 
 
 if __name__ == "__main__":

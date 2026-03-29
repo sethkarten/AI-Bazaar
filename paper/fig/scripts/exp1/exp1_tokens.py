@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..
 from exp1_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data
 
 # ── Experiment matrix ──────────────────────────────────────────────────────
-N_STAB_VALUES = [0, 1, 2, 4, 5]
+N_STAB_VALUES = [0, 1, 2, 3, 4, 5]
 DLC_VALUES    = [1, 3, 5]
 SEEDS         = [8, 16, 64]
 

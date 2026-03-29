@@ -79,8 +79,9 @@ class DeceptivePrincipal(LLMAgent):
     """Single LLM coordinator for K SybilIdentity objects.
 
     Responsibilities per step:
-    1. decide_advertised_tier() — one LLM call to choose which tier to claim
-    2. create_listings() — one description call per active identity (sequential)
+    1. decide_advertised_tier() — one ``act_llm`` call (principal ``message_history``)
+    2. create_listings() — K parallel ``llm.send_msg`` listing calls (no shared history;
+       thread-safe across identities)
     3. rotate_identities() — retire identities with R < rho_min; spawn fresh ones
 
     When self.llm is None every LLM call falls back to the rule-based tier-bump
@@ -108,11 +109,12 @@ class DeceptivePrincipal(LLMAgent):
             port=port,
             name=name,
             prompt_algo=getattr(args, "prompt_algo", "io") if args else "io",
-            history_len=getattr(args, "history_len", 5) if args else 5,
+            history_len=getattr(args, "history_len", 3) if args else 3,
             timeout=getattr(args, "timeout", 30) if args else 30,
             args=args,
             llm_instance=llm_instance,
         )
+        self.best_n = getattr(args, "best_n", 3) if args else 3
         self.logger = logging.getLogger("main")
         self.ledger = ledger
         self.market = market
@@ -159,6 +161,51 @@ class DeceptivePrincipal(LLMAgent):
         self.lemon_agent_role = "seller"
 
     # ------------------------------------------------------------------
+    # Best-N slab reflection
+    # ------------------------------------------------------------------
+
+    def record_step_outcome(self, timestep: int, sybil_revenue: float) -> None:
+        """Store the sales metric for a completed timestep.
+
+        Sets metric = sybil_revenue / V_MAX and appends an outcome line to
+        the historical field so it appears in the next timestep's rolling window.
+        Called from bazaar_env.py after market clearing.
+        """
+        metric = sybil_revenue / V_MAX
+        for entry in reversed(self.message_history):
+            if entry.get("timestep") == timestep:
+                entry["metric"] = metric
+                entry["historical"] += (
+                    f"Step outcome: sybil revenue=${sybil_revenue:,.0f} "
+                    f"(score={metric:.3f})\n"
+                )
+                break
+
+    def _build_best_n_slab(self, n: int) -> str:
+        """Inject top-N historical timesteps (by sybil revenue) into the prompt.
+
+        Overrides LLMAgent._build_best_n_slab which requires stabilizing_firm=True.
+        Returns empty string until at least one timestep has a non-zero metric.
+        """
+        unique: set = set()
+        sorted_history = []
+        for item in sorted(
+            self.message_history, key=lambda x: x.get("metric", 0), reverse=True
+        ):
+            key = str(item.get("metric", 0)) + str(item.get("action", ""))
+            if key not in unique:
+                unique.add(key)
+                sorted_history.append(item)
+        top_n = sorted_history[: min(n, len(sorted_history))]
+        if not top_n or top_n[0].get("metric", 0) == 0:
+            return ""
+        output = f"Best {len(top_n)} timesteps by sybil revenue (score = revenue / ${V_MAX:,.0f}):\n"
+        for item in top_n:
+            output += f"Timestep {item['timestep']} (score {item.get('metric', 0):.3f}):\n"
+            output += item.get("historical", "")
+        return output
+
+    # ------------------------------------------------------------------
     # LLMAgent abstract override
     # ------------------------------------------------------------------
 
@@ -185,48 +232,10 @@ class DeceptivePrincipal(LLMAgent):
     ) -> Tuple[str, float]:
         """Return (advertised_quality_label, advertised_quality_value).
 
-        Fallback (no LLM): one tier above true quality (rule-based).
+        Procedural: randomly choose 'good' or 'mint' as the inflated tier.
         """
-        if self.llm is None:
-            return advertised_quality_for_sybil(true_quality, true_qv)
-
-        tier_names = [t[0] for t in QUALITY_TIERS_ORDERED]
-        expected_fmt = '{"advertised_quality": "<tier>"}'
-        prompt = (
-            f"The true car quality is '{true_quality}' (value {true_qv:.2f}). "
-            f"Available tiers (ascending): {tier_names}. "
-            "Choose any advertised quality tier that is strictly higher than the "
-            "true tier to maximise willingness-to-pay. "
-            "You may claim good or mint condition even if the car is poor or fair. "
-            f"Respond with a single JSON object. Format: {expected_fmt}"
-        )
-        self.add_message(
-            timestep,
-            Message.UPDATE_PRINCIPAL,
-            prompt=prompt,
-            expected_format=expected_fmt,
-        )
-
-        def _parse(items):
-            if not items or items[0] is None:
-                return [None]
-            return [str(items[0]).strip().lower()]
-
-        result = self.act_llm(
-            timestep,
-            keys=["advertised_quality"],
-            parse_func=_parse,
-            on_parse_failure_return=[None],
-        )
-        adv_quality = result[0] if result else None
-
-        if adv_quality not in QUALITY_DICT:
-            adv_quality = None
-
-        if adv_quality is None:
-            adv_quality, adv_qv = advertised_quality_for_sybil(true_quality, true_qv)
-        else:
-            adv_qv = QUALITY_DICT[adv_quality]
+        adv_quality = random.choice(["good", "mint"])
+        adv_qv = QUALITY_DICT[adv_quality]
 
         self.add_message(
             timestep,
@@ -244,15 +253,15 @@ class DeceptivePrincipal(LLMAgent):
         identity: SybilIdentity,
         adv_quality: str,
         adv_qv: float,
-        persona: str,
+        _persona: str,
         system_prompt: str,
         timestep: int,
     ) -> Tuple[str, float]:
         """Return (description, price) for one identity.
 
-        Calls self.llm.send_msg directly — no shared message_history access —
-        so this method is safe to call in parallel across identities.
-        Fallback (no LLM): template description + V_MAX-scaled price.
+        Uses ``llm.send_msg`` only (no ``message_history``) so workers are safe
+        in parallel. Tier choice is handled separately by ``decide_advertised_tier``
+        via ``act_llm``. Stylistic voice comes from ``system_prompt``.
         """
         fallback_desc = f"Used car. Condition: {adv_quality}."
         fallback_price = V_MAX * adv_qv
@@ -260,17 +269,27 @@ class DeceptivePrincipal(LLMAgent):
         if self.llm is None:
             return fallback_desc, fallback_price
 
+        listing_fmt = '{"description": "<text>", "price": <number>}'
+        if getattr(self.args, "prompt_algo", "io") in ("cot", "sc"):
+            listing_fmt = (
+                '{"thought": "<brief reasoning>", "description": "<text>", "price": <number>}'
+            )
         prompt = (
-            f"You are listing a used car advertised as '{adv_quality}' condition "
-            f"(value ${V_MAX * adv_qv:,.0f}). "
-            f"Seller: {identity.name}. Reputation score: {identity.reputation:.2f}. "
+            f"You are listing a used car advertised as '{adv_quality}' condition. "
+            f"Your current reputation score: {identity.reputation:.2f}. "
             "Write a short, compelling listing description. "
             "Do not mention exact numeric quality values. "
-            f"Set a price between ${V_MAX * adv_qv * 0.8:,.0f} and ${V_MAX * adv_qv:,.0f}. "
-            'Respond with a single JSON object: {"description": "<text>", "price": <number>}'
+            "Typical price ranges by quality tier: "
+            f"mint ${V_MAX * 0.85:,.0f}–${V_MAX * 1.0:,.0f}, "
+            f"good ${V_MAX * 0.55:,.0f}–${V_MAX * 0.80:,.0f}, "
+            f"fair ${V_MAX * 0.28:,.0f}–${V_MAX * 0.52:,.0f}, "
+            f"poor ${V_MAX * 0.05:,.0f}–${V_MAX * 0.18:,.0f}. "
+            "Pick a specific price within the typical range for the advertised condition. "
+            "You may price toward the high or low end depending on your selling strategy. "
+            f"Respond with a single JSON object. Format: {listing_fmt}"
         )
         try:
-            raw, _ = self.llm.send_msg(system_prompt, prompt)
+            raw, _ = self.llm.send_msg(system_prompt, prompt, json_format=True)
             maybe_append_lemon_agent_prompt(
                 self.args,
                 "seller",
@@ -301,9 +320,8 @@ class DeceptivePrincipal(LLMAgent):
     def create_listings(self, timestep: int = None) -> List[Dict[str, Any]]:
         """Generate one listing per active SybilIdentity.
 
-        Step 1: one coordinated tier-decision call (sequential — uses message_history).
-        Step 2: K description calls in parallel (each calls llm.send_msg directly,
-                no shared state, safe to thread).
+        Step 1: coordinated tier decision via ``act_llm`` (principal message_history).
+        Step 2: K parallel ``send_msg`` listing calls (no shared state).
         Returns a flat list of listing dicts; true quality/quality_value stored
         for correct downstream reputation updates.
         """
@@ -332,7 +350,7 @@ class DeceptivePrincipal(LLMAgent):
         # Step 1: coordinated tier decision (one LLM call via message_history)
         adv_quality, adv_qv = self.decide_advertised_tier(timestep, true_quality, true_qv)
 
-        # Step 2: parallel description generation (llm.send_msg, no shared state)
+        # Step 2: parallel description generation (send_msg, no message_history)
         personas_and_prompts = [
             (
                 self.stylistic_personas[idx % len(self.stylistic_personas)],
@@ -351,7 +369,9 @@ class DeceptivePrincipal(LLMAgent):
                     sys_prompt,
                     timestep,
                 ): (idx, ident)
-                for idx, (ident, (persona, sys_prompt)) in enumerate(zip(active, personas_and_prompts))
+                for idx, (ident, (persona, sys_prompt)) in enumerate(
+                    zip(active, personas_and_prompts)
+                )
             }
             results: dict[int, Tuple[str, float]] = {}
             for future in concurrent.futures.as_completed(desc_futures):
@@ -391,10 +411,10 @@ class DeceptivePrincipal(LLMAgent):
     # Identity rotation
     # ------------------------------------------------------------------
 
-    def rotate_identities(self, rho_min: float, r0: float, timestep: int = 0) -> List[str]:
+    def rotate_identities(self, rho_min: float, r0: float, timestep: int = 0) -> list:
         """Retire identities with reputation < rho_min; spawn fresh replacements.
 
-        Returns list of retired identity names.
+        Returns list of retired SybilIdentity objects (with timestep_retired set).
         """
         retired = []
         for idx, ident in enumerate(self.identities):
@@ -404,7 +424,7 @@ class DeceptivePrincipal(LLMAgent):
                 self.logger.info(
                     f"Sybil rotation: retiring {ident.name} (R={ident.reputation:.3f})"
                 )
-                retired.append(ident.name)
+                retired.append(ident)
 
                 new_ident = SybilIdentity(
                     name=f"sybil_{self.identity_counter}",

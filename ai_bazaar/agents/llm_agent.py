@@ -218,7 +218,7 @@ class LLMAgent:
 
         # Extract expected format from message_history if available
         expected_format = None
-        if timestep in self.message_history:
+        if isinstance(timestep, int) and 0 <= timestep < len(self.message_history):
             expected_format = self.message_history[timestep].get(
                 "expected_format", None
             )
@@ -1016,7 +1016,7 @@ class TestAgent(LLMAgent):
                         f"Failed to connect after {max_retries} attempts. Last error: {str(e)}"
                     ) from e
 
-                print(f"Attempt {attempt + 1} failed. Retrying in {current_delay}s...")
+                print(f"Attempt {attempt + 1} failed ({e}). Retrying in {current_delay}s...")
                 sleep(current_delay)
                 current_delay = min(
                     current_delay * 2, max_delay

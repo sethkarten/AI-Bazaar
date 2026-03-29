@@ -79,3 +79,28 @@ def load_cache_data(cache_path):
     """Return the 'data' section of a cache file."""
     with open(cache_path) as f:
         return json.load(f)["data"]
+
+
+def infer_name_prefix(logs_dir: str) -> str:
+    """Infer the exp2 name prefix from the logs directory.
+
+    Handles two layouts:
+      1. logs_dir IS the model subdirectory (e.g. logs/exp2_gemini-2.5-flash) —
+         basename starts with 'exp2_', so use it directly.
+      2. logs_dir is the top-level logs/ directory — look for the first exp2_*
+         subdirectory inside it.
+    Falls back to 'exp2' if nothing is found (legacy flat layout).
+    """
+    basename = os.path.basename(os.path.normpath(logs_dir))
+    if basename.startswith("exp2_"):
+        return basename
+    try:
+        subdirs = sorted(
+            d for d in os.listdir(logs_dir)
+            if d.startswith("exp2_") and os.path.isdir(os.path.join(logs_dir, d))
+        )
+        if subdirs:
+            return subdirs[0]
+    except OSError:
+        pass
+    return "exp2"

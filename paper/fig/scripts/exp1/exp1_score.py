@@ -57,7 +57,7 @@ plt.rcParams.update({
 })
 
 DLC_VALUES    = [1, 3, 5]
-N_STAB_VALUES = [0, 1, 2, 4, 5]
+N_STAB_VALUES = [0, 1, 2, 3, 4, 5]
 SEEDS         = [8, 16, 64]
 
 # Okabe-Ito palette, one color per n_stab level
@@ -242,7 +242,7 @@ def compute_composite(cell_data):
         survival   = 1.0 - agg["br_mean"]
         stability  = 1.0 - agg["pstd_mean"] / max_pstd
         price_lvl  = 1.0 - min(agg["pdev_mean"] / max_pdev, 1.0)
-        agg["composite"] = (survival + stability + price_lvl) / 3.0
+        agg["composite"] = 0.0 if agg["br_mean"] >= 1.0 else (survival + stability + price_lvl) / 3.0
         agg["max_pstd"]  = max_pstd
         agg["max_pdev"]  = max_pdev
 
@@ -250,6 +250,7 @@ def compute_composite(cell_data):
         runs = cell_data[key]
         uc   = agg["unit_cost"]
         per_seed = [
+            0.0 if r["bankruptcy_rate"] >= 1.0 else
             ((1.0 - r["bankruptcy_rate"])
              + (1.0 - r["price_std"] / max_pstd)
              + (1.0 - min(abs(r["final_avg_price"] / uc - 1.0) / max_pdev, 1.0))

@@ -12,6 +12,7 @@ import logging
 import os
 import sys
 import wandb
+from pathlib import Path
 import random
 import numpy as np
 import time
@@ -22,6 +23,26 @@ from .agents.consumer import CESConsumerAgent, FixedConsumerAgent
 from .agents.llm_agent import TestAgent
 from .env.bazaar_env import BazaarWorld
 from .utils.common import LEMON_MARKET_GOODS
+
+_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent / "debug-90a41f.log"
+
+
+def _agent_debug_log(hypothesis_id: str, location: str, message: str, data: Optional[Dict] = None) -> None:
+    # #region agent log
+    try:
+        rec = {
+            "sessionId": "90a41f",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "timestamp": int(time.time() * 1000),
+            "data": data or {},
+        }
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as _df:
+            _df.write(json.dumps(rec, default=str) + "\n")
+    except Exception:
+        pass
+    # #endregion
 
 
 def setup_logging(args):
@@ -45,14 +66,48 @@ def setup_logging(args):
 def run_marketplace_simulation(args, llm_instance=None):
     """Run the marketplace simulation with firms and consumers."""
     logger = logging.getLogger("main")
+    # #region agent log
+    _agent_debug_log(
+        "H1",
+        "main.py:run_marketplace_simulation:entry",
+        "simulation start",
+        {
+            "firm_type": getattr(args, "firm_type", None),
+            "llm": getattr(args, "llm", None),
+            "name": getattr(args, "name", None),
+            "has_llm_instance": llm_instance is not None,
+        },
+    )
+    # #endregion
 
     # Test LLM connectivity if using LLM agents and no instance provided
     if args.firm_type == "LLM" and llm_instance is None:
         try:
             TestAgent(args.llm, args.port, args)
             logger.info(f"Successfully connected to LLM: {args.llm}")
+            # #region agent log
+            _agent_debug_log(
+                "H1",
+                "main.py:run_marketplace_simulation:post_test_agent",
+                "LLM preflight ok",
+                {"llm": getattr(args, "llm", None), "name": getattr(args, "name", None)},
+            )
+            # #endregion
         except Exception as e:
             logger.error(f"Failed to connect to LLM: {e}")
+            # #region agent log
+            _agent_debug_log(
+                "H1",
+                "main.py:run_marketplace_simulation:preflight_fail",
+                "sys.exit(1) after TestAgent failure",
+                {
+                    "exc_type": type(e).__name__,
+                    "exc_msg": str(e),
+                    "llm": getattr(args, "llm", None),
+                    "name": getattr(args, "name", None),
+                },
+            )
+            # #endregion
             sys.exit(1)
 
     # Optional: run via BazaarWorld (single source of truth; state files in log_dir)
@@ -63,7 +118,31 @@ def run_marketplace_simulation(args, llm_instance=None):
             name=args.name if args.name else "marketplace_simulation",
             config=vars(args),
         )
-    world = BazaarWorld(args, llm_model=llm_instance)
+    try:
+        world = BazaarWorld(args, llm_model=llm_instance)
+    except Exception as e:
+        # #region agent log
+        _agent_debug_log(
+            "H2",
+            "main.py:run_marketplace_simulation:bazaar_init",
+            "BazaarWorld init raised",
+            {
+                "exc_type": type(e).__name__,
+                "exc_msg": str(e),
+                "llm": getattr(args, "llm", None),
+                "name": getattr(args, "name", None),
+            },
+        )
+        # #endregion
+        raise
+    # #region agent log
+    _agent_debug_log(
+        "H2",
+        "main.py:run_marketplace_simulation:post_bazaar_init",
+        "BazaarWorld constructed",
+        {"name": getattr(args, "name", None)},
+    )
+    # #endregion
     start_time = time.time()
     try:
         while not world.is_done():
@@ -113,6 +192,14 @@ def run_marketplace_simulation(args, llm_instance=None):
 
     logger.info("Marketplace simulation completed successfully!")
     print("Simulation completed!")
+    # #region agent log
+    _agent_debug_log(
+        "H4",
+        "main.py:run_marketplace_simulation:exit_ok",
+        "finished without process-level failure path",
+        {"name": getattr(args, "name", None), "timesteps_seen": getattr(world, "timestep", None)},
+    )
+    # #endregion
     return
 
 
@@ -122,12 +209,12 @@ def create_argument_parser():
 
     # Agent configuration
     parser.add_argument(
-        "--num-firms", type=int, default=3, help="Number of firms in the simulation"
+        "--num-firms", type=int, default=5, help="Number of firms in the simulation"
     )
     parser.add_argument(
         "--num-consumers",
         type=int,
-        default=10,
+        default=50,
         help="Number of consumers in the simulation",
     )
     parser.add_argument(
@@ -142,7 +229,7 @@ def create_argument_parser():
     parser.add_argument(
         "--max-supply-unit-cost",
         type=float,
-        default=10.0,
+        default=1.0,
         help="Max supply unit cost per good (firm-specific costs are uniform in [1.0, max])",
     )
     parser.add_argument(
@@ -154,7 +241,7 @@ def create_argument_parser():
     parser.add_argument(
         "--discovery-limit-consumers",
         type=int,
-        default=5,
+        default=3,
         help="Max firms (per good) a consumer can poll for prices before ordering (0 = no limit)",
     )
     parser.add_argument(
@@ -184,6 +271,11 @@ def create_argument_parser():
         "--crash-rep-scoring",
         action="store_true",
         help="In THE_CRASH, score quotes by reputation/price (instead of 1/price) when choosing which firm to order from among the dlc visible quotes.",
+    )
+    parser.add_argument(
+        "--enable-consumer-personas",
+        action="store_true",
+        help="(THE_CRASH) Assign deterministic behavioral personas to CES consumers that bias firm selection beyond price. Types assigned round-robin: LOYAL, SMALL_BIZ, REP_SEEKER, VARIETY.",
     )
     parser.add_argument(
         "--log-alignment-traces",
@@ -239,10 +331,11 @@ def create_argument_parser():
     )
     parser.add_argument(
         "--reputation-pseudo-count",
-        type=float,
-        default=10.0,
-        help="LEMON_MARKET: pseudo-count prior for vote-based reputation. "
-             "upvotes_0 = reputation_initial * pseudo_count. Default 10.",
+        type=int,
+        default=10,
+        help="LEMON_MARKET: rolling vote-window size N. "
+             "reputation = upvotes in last N votes / N. "
+             "Initial window seeded with round(reputation_initial * N) upvotes, shuffled. Default 10.",
     )
     parser.add_argument(
         "--sybil-cluster-size",
@@ -442,8 +535,8 @@ def create_argument_parser():
     parser.add_argument(
         "--overhead-costs",
         type=float,
-        default=50.0,
-        help="Overhead costs per week for firms; default 50.0",
+        default=14.0,
+        help="Overhead costs per week for firms; default 14.0",
     )
 
     return parser
@@ -478,7 +571,28 @@ def main():
     np.random.seed(args.seed)
     random.seed(args.seed)
 
-    run_marketplace_simulation(args)
+    try:
+        run_marketplace_simulation(args)
+    except SystemExit as se:
+        # #region agent log
+        _agent_debug_log(
+            "H5",
+            "main.py:main:SystemExit",
+            "process exiting via SystemExit",
+            {"code": getattr(se, "code", None), "name": getattr(args, "name", None)},
+        )
+        # #endregion
+        raise
+    except Exception as e:
+        # #region agent log
+        _agent_debug_log(
+            "H2",
+            "main.py:main:uncaught",
+            "uncaught exception from run_marketplace_simulation",
+            {"exc_type": type(e).__name__, "exc_msg": str(e), "name": getattr(args, "name", None)},
+        )
+        # #endregion
+        raise
 
 
 if __name__ == "__main__":
