@@ -1198,29 +1198,29 @@ Rules:
             if self.prompt_algo == "cot" or self.prompt_algo == "sc":
                 combined_format = (
                     '{'
-                    + '"thought":"<one short reasoning sentence>", '
-                    + ", ".join([f'"{k}":"X"' for k in supply_keys])
+                    + '"thought": "brief reasoning", '
+                    + ", ".join([f'"{k}": 50' for k in supply_keys])
                     + ", "
-                    + ", ".join([f'"{k}":"X%"' for k in production_keys])
+                    + ", ".join([f'"{k}": 100' for k in production_keys])
                     + ", "
-                    + ", ".join([f'"{k}":"X"' for k in price_keys])
+                    + ", ".join([f'"{k}": 2.00' for k in price_keys])
                     + "}"
                 )
             else:
                 combined_format = (
                     "{"
-                    + ", ".join([f'"{k}":"X"' for k in supply_keys])
+                    + ", ".join([f'"{k}": 50' for k in supply_keys])
                     + ", "
-                    + ", ".join([f'"{k}":"X%"' for k in production_keys])
+                    + ", ".join([f'"{k}": 100' for k in production_keys])
                     + ", "
-                    + ", ".join([f'"{k}":"X"' for k in price_keys])
+                    + ", ".join([f'"{k}": 2.00' for k in price_keys])
                     + "}"
                 )
 
             keys_str = ", ".join(all_keys)
             self.message_history[timestep]["user_prompt"] += (
-                "Decide supply quantities, production allocations, and prices for all goods in a single response. "
-                f"You must include exactly these keys: {keys_str}. "
+                "Decide supply quantities, production allocations, and prices for all goods. "
+                "Respond with ONLY a JSON object (replace the example numbers with your choices). "
             )
             if self.prompt_algo == "cot" or self.prompt_algo == "sc":
                 self.message_history[timestep]["user_prompt"] += (
