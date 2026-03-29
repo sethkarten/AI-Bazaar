@@ -18,10 +18,11 @@ class UnslothModel(BaseLLMModel):
         max_tokens: int = 1000,
         temperature: float = 0.7,
         heartbeat_func=None,
-        batch_timeout_ms: float = 100,  # 100ms - balance between batching and latency for desynchronized episodes
-        max_batch_size: int = 128,  # Increased from 32 to maximize GPU utilization
-        encoding_tokenizer=None,  # For bypassing Gemma3Processor bug
-        device=None,  # Specify device for inference (e.g., "cuda:0")
+        batch_timeout_ms: float = 100,
+        max_batch_size: int = 128,
+        encoding_tokenizer=None,
+        device=None,
+        no_think: bool = False,  # Skip <think> block — output actions directly
     ):
         super().__init__(model_name, max_tokens, temperature)
         self.model = model
@@ -31,6 +32,7 @@ class UnslothModel(BaseLLMModel):
         self.batch_timeout_ms = batch_timeout_ms
         self.max_batch_size = max_batch_size
         self.device = device if device is not None else "cuda"
+        self.no_think = no_think
 
         # Batching infrastructure
         self.request_queue = queue.Queue()
@@ -197,8 +199,11 @@ class UnslothModel(BaseLLMModel):
             combined_prompt = self.tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True,
             )
+            # Strip <think> block for action-only output (no reasoning)
+            if self.no_think and "<think>" in combined_prompt:
+                combined_prompt = combined_prompt.replace("<think>\n\n</think>\n\n", "")
+                combined_prompt = combined_prompt.replace("<think>\n</think>\n", "")
         except Exception:
-            # Fallback for tokenizers without chat template
             combined_prompt = f"{s_prompt}\n{u_prompt}"
 
         # Submit request to batch queue
