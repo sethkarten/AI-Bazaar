@@ -232,52 +232,10 @@ class DeceptivePrincipal(LLMAgent):
     ) -> Tuple[str, float]:
         """Return (advertised_quality_label, advertised_quality_value).
 
-        Fallback (no LLM): one tier above true quality (rule-based).
+        Procedural: randomly choose 'good' or 'mint' as the inflated tier.
         """
-        if self.llm is None:
-            return advertised_quality_for_sybil(true_quality, true_qv)
-
-        tier_names = [t[0] for t in QUALITY_TIERS_ORDERED]
-        expected_fmt = '{"advertised_quality": "<tier>"}'
-        if getattr(self.args, "prompt_algo", "io") in ("cot", "sc"):
-            expected_fmt = (
-                '{"thought": "<brief reasoning>", "advertised_quality": "<tier>"}'
-            )
-        prompt = (
-            f"The true car quality is '{true_quality}' (value {true_qv:.2f}). "
-            f"Available tiers (ascending): {tier_names}. "
-            "Choose any advertised quality tier that is strictly higher than the "
-            "true tier to maximise willingness-to-pay. "
-            "You may claim good or mint condition even if the car is poor or fair. "
-            f"Respond with a single JSON object. Format: {expected_fmt}"
-        )
-        self.add_message(
-            timestep,
-            Message.UPDATE_PRINCIPAL,
-            prompt=prompt,
-            expected_format=expected_fmt,
-        )
-
-        def _parse(items):
-            if not items or items[0] is None:
-                return [None]
-            return [str(items[0]).strip().lower()]
-
-        result = self.act_llm(
-            timestep,
-            keys=["advertised_quality"],
-            parse_func=_parse,
-            on_parse_failure_return=[None],
-        )
-        adv_quality = result[0] if result else None
-
-        if adv_quality not in QUALITY_DICT:
-            adv_quality = None
-
-        if adv_quality is None:
-            adv_quality, adv_qv = advertised_quality_for_sybil(true_quality, true_qv)
-        else:
-            adv_qv = QUALITY_DICT[adv_quality]
+        adv_quality = random.choice(["good", "mint"])
+        adv_qv = QUALITY_DICT[adv_quality]
 
         self.add_message(
             timestep,

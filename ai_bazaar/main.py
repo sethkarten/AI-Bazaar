@@ -209,12 +209,12 @@ def create_argument_parser():
 
     # Agent configuration
     parser.add_argument(
-        "--num-firms", type=int, default=3, help="Number of firms in the simulation"
+        "--num-firms", type=int, default=5, help="Number of firms in the simulation"
     )
     parser.add_argument(
         "--num-consumers",
         type=int,
-        default=10,
+        default=50,
         help="Number of consumers in the simulation",
     )
     parser.add_argument(
@@ -229,7 +229,7 @@ def create_argument_parser():
     parser.add_argument(
         "--max-supply-unit-cost",
         type=float,
-        default=10.0,
+        default=1.0,
         help="Max supply unit cost per good (firm-specific costs are uniform in [1.0, max])",
     )
     parser.add_argument(
@@ -241,7 +241,7 @@ def create_argument_parser():
     parser.add_argument(
         "--discovery-limit-consumers",
         type=int,
-        default=5,
+        default=3,
         help="Max firms (per good) a consumer can poll for prices before ordering (0 = no limit)",
     )
     parser.add_argument(
@@ -271,6 +271,11 @@ def create_argument_parser():
         "--crash-rep-scoring",
         action="store_true",
         help="In THE_CRASH, score quotes by reputation/price (instead of 1/price) when choosing which firm to order from among the dlc visible quotes.",
+    )
+    parser.add_argument(
+        "--enable-consumer-personas",
+        action="store_true",
+        help="(THE_CRASH) Assign deterministic behavioral personas to CES consumers that bias firm selection beyond price. Types assigned round-robin: LOYAL, SMALL_BIZ, REP_SEEKER, VARIETY.",
     )
     parser.add_argument(
         "--log-alignment-traces",
@@ -530,8 +535,8 @@ def create_argument_parser():
     parser.add_argument(
         "--overhead-costs",
         type=float,
-        default=50.0,
-        help="Overhead costs per week for firms; default 50.0",
+        default=14.0,
+        help="Overhead costs per week for firms; default 14.0",
     )
 
     return parser

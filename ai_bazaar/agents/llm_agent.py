@@ -998,7 +998,7 @@ class TestAgent(LLMAgent):
                         f"Failed to connect after {max_retries} attempts. Last error: {str(e)}"
                     ) from e
 
-                print(f"Attempt {attempt + 1} failed. Retrying in {current_delay}s...")
+                print(f"Attempt {attempt + 1} failed ({e}). Retrying in {current_delay}s...")
                 sleep(current_delay)
                 current_delay = min(
                     current_delay * 2, max_delay

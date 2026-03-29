@@ -686,3 +686,27 @@ python scripts/exp1.py --llm nousresearch/hermes-4-405b --n-stab 3 --dlc 3
 
 ```
 
+---
+
+## Appendix Experiments
+
+Run commands for experiments intended for the paper appendix. These use the same `scripts/exp1.py` infrastructure as the main experiments.
+
+---
+
+### Consumer Personas
+
+Runs the standard Experiment 1 matrix (n-stab=3, dlc=3) with `--enable-consumer-personas`, which assigns deterministic behavioral types to consumers in round-robin order: **LOYAL** (boosts recently purchased firms), **SMALL_BIZ** (boosts low-market-share firms), **REP_SEEKER** (weights reputation heavily), **VARIETY** (avoids last-purchased firm). Compare EAS results against the baseline (no personas) runs to measure demand-side heterogeneity effects.
+
+Run with `gemini-2.5-flash` (or swap `--llm` for any model):
+
+```bash
+python scripts/exp1.py --llm gemini-2.5-flash --n-stab 3 --dlc 3 --enable-n-stab-3 --enable-consumer-personas
+```
+
+With parallelism and skip-existing:
+
+```bash
+python scripts/exp1.py --llm gemini-2.5-flash --n-stab 3 --dlc 3 --enable-n-stab-3 --enable-consumer-personas --workers 3 --skip-existing
+```
+

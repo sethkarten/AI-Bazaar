@@ -10,7 +10,7 @@ from ..market_core.market_core import Ledger, Market
 from ..agents.firm import FirmAgent, FixedFirmAgent
 from ..agents.seller import SellerAgent, LLMSellerAgent
 from ..agents.sybil import SybilIdentity, DeceptivePrincipal
-from ..agents.consumer import CESConsumerAgent, FixedConsumerAgent
+from ..agents.consumer import CESConsumerAgent, FixedConsumerAgent, CONSUMER_PERSONA_TYPES
 from ..agents.buyer import BuyerAgent
 from ..utils.common import (
     QUALITY_DICT,
@@ -285,6 +285,12 @@ class BazaarWorld:
             # Non-LEMON: scale income to 1 day (nominal income interpreted as annual)
             for c in self.consumers:
                 c.income_scale = 1.0 / 365.0
+
+            # Assign consumer persona types round-robin when --enable-consumer-personas is set
+            if getattr(args, "enable_consumer_personas", False):
+                for i, c in enumerate(self.consumers):
+                    if hasattr(c, "consumer_persona_type"):
+                        c.consumer_persona_type = CONSUMER_PERSONA_TYPES[i % len(CONSUMER_PERSONA_TYPES)]
 
         self._write_consumer_attributes()
         self._write_firm_attributes()
@@ -749,6 +755,10 @@ class BazaarWorld:
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=max(1, len(participating))
             ) as executor:
+                firm_sales = {
+                    f.name: sum(f.total_quantity_sold_by_good.values())
+                    for f in self.firms
+                }
                 future_to_cons = {}
                 for consumer in participating:
                     if self.args.consumer_type == "CES":
@@ -761,6 +771,7 @@ class BazaarWorld:
                                 firm_reputations=reputations,
                                 wtp_algo=wtp_algo,
                                 crash_rep_scoring=getattr(self.args, "crash_rep_scoring", False),
+                                firm_sales=firm_sales,
                             )
                         ] = consumer
                     else:
@@ -792,6 +803,14 @@ class BazaarWorld:
             filled_by_firm[order.firm_id] += 1
         self.filled_orders_count_by_firm = dict(filled_by_firm)
         self.logger.info(f"Filled {len(filled_orders)} orders")
+
+        # Update consumer purchase history for persona scoring
+        if getattr(self.args, "enable_consumer_personas", False):
+            consumers_by_name = {c.name: c for c in self.consumers}
+            for order in filled_orders:
+                consumer = consumers_by_name.get(order.consumer_id)
+                if consumer is not None and hasattr(consumer, "record_purchase"):
+                    consumer.record_purchase(order.firm_id)
 
         # LEMON_MARKET: carry over unsold listings to next step
         if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
