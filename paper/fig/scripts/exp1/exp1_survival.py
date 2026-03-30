@@ -4,7 +4,7 @@ Fig: Experiment 1 Survival — side-by-side heatmaps of:
   (B) mean number of firms in business at end of run
 
 Grid: dlc ∈ {1, 3, 5}  ×  n_stab ∈ {0, 1, 2, 4, 5}
-  n_stab=0: baseline (no stabilizing firm), exists only for dlc=3 seed=8 → "exp1_baseline"
+  n_stab=0: baseline — exp1_*_stab_0_dlc3_seed* (legacy exp1_*_baseline for seed 8)
   All others: "exp1_stab_{n_stab}_dlc{dlc}_seed{seed}", averaged over seeds 8, 16, 64.
 
 Panel A: annotated as "n_collapsed/n_seeds"; red=high collapse probability.
@@ -31,6 +31,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
 from exp1_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data
+from exp1_paths import DLC_VALUES, N_STAB_VALUES, SEEDS, resolve_run_dir
 
 plt.rcParams.update({
     "font.family":        "serif",
@@ -53,9 +54,6 @@ plt.rcParams.update({
     "text.usetex":        False,
 })
 
-DLC_VALUES    = [1, 3, 5]
-N_STAB_VALUES = [0, 1, 2, 3, 4, 5]
-SEEDS         = [8, 16, 64]
 MAX_TIMESTEPS = 365
 N_FIRMS_TOTAL = 5
 
@@ -100,28 +98,6 @@ def _deserialize(data):
         np.array(data["available"], dtype=bool),
         np.array(data["single_seed"], dtype=bool),
     )
-
-
-def resolve_run_dir(logs_dir, dlc, n_stab, seed, model=""):
-    """Return run directory path for given config; None if doesn't exist."""
-    if model:
-        if n_stab == 0:
-            if dlc == 3 and seed == 8:
-                path = os.path.join(logs_dir, f"exp1_{model}_baseline")
-                return path if os.path.isdir(path) else None
-            return None
-        path = os.path.join(logs_dir, f"exp1_{model}_stab_{n_stab}_dlc{dlc}_seed{seed}")
-        return path if os.path.isdir(path) else None
-    if n_stab == 0:
-        if dlc == 3 and seed == 8:
-            path = os.path.join(logs_dir, "exp1_baseline")
-            return path if os.path.isdir(path) else None
-        return None
-    if n_stab == 5:
-        path = os.path.join(logs_dir, f"exp1_stab_5_dlc{dlc}_seed{seed}")
-        return path if os.path.isdir(path) else None
-    path = os.path.join(logs_dir, f"exp1_stab_{n_stab}_dlc{dlc}_seed{seed}")
-    return path if os.path.isdir(path) else None
 
 
 def load_states(run_dir):

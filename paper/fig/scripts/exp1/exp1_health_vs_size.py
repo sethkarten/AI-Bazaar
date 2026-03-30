@@ -6,7 +6,7 @@ Scatter plot with three series per model (k=0, k=3, k=5) at dlc=3:
   y-axis: composite market health score
   color:  developer (Okabe-Ito)
   marker: k value (triangle=k=0, circle=k=3, square=k=5)
-  error bars: min/max across seeds (k=3 and k=5 have 3 seeds; k=0 has seed=8 only)
+  error bars: min/max across seeds (k ∈ {0, 3, 5} each use seeds 8, 16, 64 when present)
 
 Health score normalization is global across all models AND all k levels.
 
@@ -39,6 +39,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
 from ai_bazaar.utils.dataframe_builder import DataFrameBuilder
 from exp1_cache import get_cache_path, load_cache_data
+from exp1_paths import SEEDS, resolve_run_dir
 
 # ── Model registry (dense, include=1, from EAS_vs_MODEL_SIZE.md) ──────────
 # (display_name, params_B, openrouter_model_id, developer)
@@ -67,7 +68,6 @@ MODELS = [
 # k levels to plot
 TARGET_K_VALUES = [0, 3, 5]
 TARGET_DLC      = 3
-SEEDS           = [8, 16, 64]
 
 # Developer -> Okabe-Ito color
 DEV_COLORS = {
@@ -129,12 +129,7 @@ def model_key(or_id):
 
 def resolve_run_dir_for_k(logs_dir, key, k, seed):
     """Return run directory for one (model, k, seed) combination."""
-    if k == 0:
-        # Baseline: seed=8 only, no seed suffix
-        path = os.path.join(logs_dir, f"exp1_{key}_baseline")
-        return path if os.path.isdir(path) else None
-    path = os.path.join(logs_dir, f"exp1_{key}_stab_{k}_dlc{TARGET_DLC}_seed{seed}")
-    return path if os.path.isdir(path) else None
+    return resolve_run_dir(logs_dir, TARGET_DLC, k, seed, model=key)
 
 
 # ── Metric computation ─────────────────────────────────────────────────────
@@ -259,7 +254,7 @@ def load_model_data(or_id, logs_base, good):
             continue
 
         # Fallback: raw state files
-        seeds_to_try = [8] if k == 0 else SEEDS
+        seeds_to_try = SEEDS
         records = []
         for seed in seeds_to_try:
             run_dir = resolve_run_dir_for_k(logs_dir, key, k, seed)

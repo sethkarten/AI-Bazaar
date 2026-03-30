@@ -2,7 +2,7 @@
 Fig 3: Experiment 1 — Crash Dynamics (3×3 timeseries)
 
 Columns (left → right): increasing stabilization at dlc=3
-  A: n_stab=0  (baseline crash, seed=8 only)
+  A: n_stab=0  (baseline crash, seeds 8, 16, 64)
   B: n_stab=2  (partial recovery, seeds 8,16,64)
   C: n_stab=4  (stable market, seeds 8,16,64)
 
@@ -32,6 +32,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
 from ai_bazaar.utils.dataframe_builder import DataFrameBuilder
 from exp1_cache import get_data_dir, get_cache_path, is_cache_fresh, save_cache, load_cache_data
+from exp1_paths import resolve_run_dir
 
 plt.rcParams.update({
     "font.family":                    "serif",
@@ -60,7 +61,7 @@ COLOR_ORDERS   = "#E69F00"   # Okabe Orange
 COLOR_COST_REF = "#D55E00"   # Okabe Vermillion
 
 COLUMNS = [
-    {"n_stab": 0, "dlc": 3, "seeds": [8],        "label": "No Stabilizer\n(Baseline)"},
+    {"n_stab": 0, "dlc": 3, "seeds": [8, 16, 64], "label": "No Stabilizer\n(Baseline)"},
     {"n_stab": 3, "dlc": 3, "seeds": [8, 16, 64], "label": "3 Stabilizing\nFirms"},
     {"n_stab": 5, "dlc": 3, "seeds": [8, 16, 64], "label": "5 Stabilizing\nFirms"},
 ]
@@ -76,7 +77,7 @@ def collect_run_dirs(logs_dir, model=""):
     dirs = []
     for col in COLUMNS:
         for seed in col["seeds"]:
-            d = resolve_run_dir(logs_dir, col["n_stab"], col["dlc"], seed, model=model)
+            d = resolve_run_dir(logs_dir, col["dlc"], col["n_stab"], seed, model=model)
             if d:
                 dirs.append(d)
     return dirs
@@ -114,24 +115,6 @@ def _deserialize(data):
 # ---------------------------------------------------------------------------
 # I/O helpers
 # ---------------------------------------------------------------------------
-
-def resolve_run_dir(logs_dir, n_stab, dlc, seed, model=""):
-    if model:
-        if n_stab == 0:
-            if dlc == 3 and seed == 8:
-                path = os.path.join(logs_dir, f"exp1_{model}_baseline")
-                return path if os.path.isdir(path) else None
-            return None
-        path = os.path.join(logs_dir, f"exp1_{model}_stab_{n_stab}_dlc{dlc}_seed{seed}")
-        return path if os.path.isdir(path) else None
-    if n_stab == 0:
-        if dlc == 3 and seed == 8:
-            path = os.path.join(logs_dir, "exp1_baseline")
-            return path if os.path.isdir(path) else None
-        return None
-    path = os.path.join(logs_dir, f"exp1_stab_{n_stab}_dlc{dlc}_seed{seed}")
-    return path if os.path.isdir(path) else None
-
 
 def load_states(run_dir):
     files = glob.glob(os.path.join(run_dir, "state_t*.json"))
@@ -357,7 +340,7 @@ def main():
         jobs = []
         for col_idx, col in enumerate(COLUMNS):
             for seed in col["seeds"]:
-                run_dir = resolve_run_dir(args.logs_dir, col["n_stab"], col["dlc"], seed, model=args.model)
+                run_dir = resolve_run_dir(args.logs_dir, col["dlc"], col["n_stab"], seed, model=args.model)
                 if run_dir:
                     jobs.append((col_idx, seed, run_dir))
                 else:
@@ -385,7 +368,7 @@ def main():
         for col in COLUMNS:
             uc = 1.0
             for seed in col["seeds"]:
-                run_dir = resolve_run_dir(args.logs_dir, col["n_stab"], col["dlc"], seed, model=args.model)
+                run_dir = resolve_run_dir(args.logs_dir, col["dlc"], col["n_stab"], seed, model=args.model)
                 if run_dir:
                     uc = get_unit_cost(run_dir)
                     break
@@ -427,7 +410,7 @@ def main():
     y_mins        = [None, 0, 0]
 
     for col_idx, col in enumerate(COLUMNS):
-        is_baseline = (col["n_stab"] == 0)
+        is_baseline = (col["n_stab"] == 0 and len(col["seeds"]) == 1)
 
         for row_idx in range(n_rows):
             ax = axes[row_idx][col_idx]

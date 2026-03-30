@@ -30,6 +30,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
 from ai_bazaar.utils.dataframe_builder import DataFrameBuilder
+from exp1_paths import N_STAB_VALUES, DLC_VALUES, SEEDS, resolve_run_dir
 
 plt.rcParams.update({
     "font.family":        "serif",
@@ -56,10 +57,6 @@ plt.rcParams.update({
     "text.usetex":        False,
 })
 
-DLC_VALUES    = [1, 3, 5]
-N_STAB_VALUES = [0, 1, 2, 3, 4, 5]
-SEEDS         = [8, 16, 64]
-
 # Okabe-Ito palette, one color per n_stab level
 STAB_COLORS = {
     0: "#000000",  # Black   — baseline (no stab)
@@ -73,28 +70,6 @@ DLC_LABELS  = {1: "dlc=1", 3: "dlc=3", 5: "dlc=5"}
 
 
 # ── Data loading (mirrors exp1_heatmap.py) ────────────────────────────────────
-
-def resolve_run_dir(logs_dir, dlc, n_stab, seed, model=""):
-    if model:
-        if n_stab == 0:
-            if dlc == 3 and seed == 8:
-                path = os.path.join(logs_dir, f"exp1_{model}_baseline")
-                return path if os.path.isdir(path) else None
-            return None
-        path = os.path.join(logs_dir, f"exp1_{model}_stab_{n_stab}_dlc{dlc}_seed{seed}")
-        return path if os.path.isdir(path) else None
-    if n_stab == 0:
-        # Baseline (no stabilizing firm): only exists for dlc=3, seed=8
-        if dlc == 3 and seed == 8:
-            path = os.path.join(logs_dir, "exp1_baseline")
-            return path if os.path.isdir(path) else None
-        return None
-    if n_stab == 5:
-        path = os.path.join(logs_dir, f"exp1_stab_5_dlc{dlc}_seed{seed}")
-        return path if os.path.isdir(path) else None
-    path = os.path.join(logs_dir, f"exp1_stab_{n_stab}_dlc{dlc}_seed{seed}")
-    return path if os.path.isdir(path) else None
-
 
 def load_states(run_dir):
     files = glob.glob(os.path.join(run_dir, "state_t*.json"))

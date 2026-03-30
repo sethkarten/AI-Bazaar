@@ -2,7 +2,8 @@
 """
 Run Experiment 1 commands from documentation/RUN_COMMANDS.md (EXPERIMENT 1 section).
 
-Runs: baseline; stabilizing firm sweep (dlc=1) with 1, 2, 3, 4, 5 firms × seeds 8,16,64;
+Runs: baseline (dlc=3, n_stab=0) × seeds 8,16,64 as exp1_*_stab_0_dlc3_seed*;
+      stabilizing firm sweep (dlc=1) with 1, 2, 3, 4, 5 firms × seeds 8,16,64;
       stabilizing firm sweep (dlc=3) with 1, 2, 3, 4, 5 firms × seeds 8,16,64;
       stabilizing firm sweep (dlc=5) with 1, 2, 3, 4, 5 firms × seeds 8,16,64.
 All with Gemini 2.5 Flash, 365 timesteps by default (override with --max-timesteps).
@@ -16,7 +17,7 @@ Usage: From project root:
   python scripts/exp1.py --dlc 1 3              # only dlc=1 and dlc=3 cells
   python scripts/exp1.py --n-stab 4 5           # only n_stab=4 and n_stab=5
   python scripts/exp1.py --seeds 8              # only seed=8
-  python scripts/exp1.py --run exp1_gemini-2.5-flash_baseline exp1_gemini-2.5-flash_stab_2_dlc3_seed8
+  python scripts/exp1.py --run exp1_gemini-2.5-flash_stab_0_dlc3_seed8 exp1_gemini-2.5-flash_stab_2_dlc3_seed8
   python scripts/exp1.py --skip-existing        # skip runs whose log dir already exists
   python scripts/exp1.py --list                 # print matching runs, don't execute
   python scripts/exp1.py --llm gemma3:4b --service ollama --port 11434
@@ -74,14 +75,17 @@ def build_runs(base: list[str], name_prefix: str) -> list[tuple[str, list[str], 
     runs: list[tuple[str, list[str], dict]] = []
     log_dir_arg = f"logs/{name_prefix}"
 
-    # ---- Baseline (no stabilizing firm, dlc=3) ----
-    bl = f"{name_prefix}_baseline"
-    runs.append((
-        bl,
-        ["--name", bl, "--log-dir", log_dir_arg,
-         "--discovery-limit-consumers", "3", "--seed", "8"] + base,
-        {"dlc": 3, "n_stab": 0, "seed": 8},
-    ))
+    # ---- Baseline (no stabilizing firm, dlc=3) — same seeds as sweep ----
+    for seed in (8, 16, 64):
+        label = f"{name_prefix}_stab_0_dlc3_seed{seed}"
+        runs.append((
+            label,
+            ["--name", label, "--log-dir", log_dir_arg,
+             "--discovery-limit-consumers", "3",
+             "--num-stabilizing-firms", "0",
+             "--seed", str(seed)] + base,
+            {"dlc": 3, "n_stab": 0, "seed": seed},
+        ))
 
     # ---- Stabilizing firm sweep: dlc=1, 3, 5 × n_stab=1,2,3,4,5 × seeds 8,16,64 ----
     n_stab_values = (1, 2, 3, 4, 5)
@@ -261,7 +265,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--run", type=str, nargs="+", metavar="LABEL", dest="runs",
-        help="Only run these exact run labels (e.g. --run exp1_gemini-2.5-flash_baseline).",
+        help="Only run these exact run labels (e.g. --run exp1_gemini-2.5-flash_stab_0_dlc3_seed8).",
     )
     parser.add_argument(
         "--skip-existing", action="store_true",

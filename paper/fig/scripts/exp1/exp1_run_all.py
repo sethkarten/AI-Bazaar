@@ -1,8 +1,9 @@
 """
-Master script: runs all three Experiment 1 figure scripts.
+Master script: runs all Experiment 1 figure scripts.
 
-The figure scripts (heatmap, timeseries) use exp1_baseline for the no-stab baseline;
-sweep runs use exp1_stab_{n_stab}_dlc{dlc}_seed{seed} (including n_stab=5).
+Baseline (n_stab=0, dlc=3) resolves to exp1_{model}_stab_0_dlc3_seed{8|16|64}
+per shared exp1_paths.resolve_run_dir; legacy single-dir exp1_{model}_baseline
+(seed 8) is still accepted. Sweep runs use exp1_stab_{n_stab}_dlc{dlc}_seed{seed}.
 
 Usage:
     python exp1_run_all.py --src <logs-subdir> [--dst <fig-subdir>] [--good food]
@@ -17,6 +18,9 @@ import os
 import subprocess
 import sys
 import threading
+
+from exp1_paths import baseline_run_dirs as _exp1_baseline_run_dirs
+from exp1_paths import SEEDS as _EXP1_SEEDS
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -60,6 +64,20 @@ def main():
         fig_dir = os.path.abspath(args.fig_dir)
 
     os.makedirs(fig_dir, exist_ok=True)
+
+    # Resolve baseline directories (dlc=3, n_stab=0) for each seed — matches figure scripts
+    bl_paths = _exp1_baseline_run_dirs(logs_dir, args.model)
+    bl_ok = sum(1 for p in bl_paths if p)
+    bl_missing = [s for s, p in zip(_EXP1_SEEDS, bl_paths) if not p]
+    if bl_missing:
+        ex = f"exp1_{args.model}_" if args.model else "exp1_"
+        print(
+            f"[exp1_run_all] Warning: missing baseline dir(s) for seeds {bl_missing} under {logs_dir!r} "
+            f"(expect {ex}stab_0_dlc3_seed<seed>, or legacy {ex}baseline for seed 8).",
+            flush=True,
+        )
+    else:
+        print(f"[exp1_run_all] Baseline: all {len(_EXP1_SEEDS)} seed dirs found under {logs_dir!r}.", flush=True)
 
     def pdf_name(stem):
         if args.model:
@@ -108,6 +126,29 @@ def main():
         t.join()
 
     results = {name: (proc.returncode == 0, outputs[name]) for name, proc in procs.items()}
+
+    # ── Frontier health comparison (cross-model, reads cached data) ───────
+    frontier_script = os.path.join(SCRIPTS_DIR, "exp1_frontier_health.py")
+    fig_exp1_dir    = os.path.abspath(args.fig_dir)
+    frontier_output = os.path.join(fig_exp1_dir, "exp1_frontier_health.pdf")
+    frontier_cmd = [
+        sys.executable, frontier_script,
+        "--good", args.good,
+        "--output", frontier_output,
+        "--fig-exp1-dir", fig_exp1_dir,
+        "--logs-dir", args.logs_dir,
+    ]
+    print(f"Launching: exp1_frontier_health.py", flush=True)
+    frontier_proc = subprocess.Popen(
+        frontier_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    frontier_thread = threading.Thread(
+        target=stream, args=("exp1_frontier_health", frontier_proc))
+    frontier_thread.start()
+    frontier_thread.join()
+
+    frontier_ok = frontier_proc.returncode == 0
+    results["exp1_frontier_health.py"] = (frontier_ok, frontier_output)
 
     print(f"\n{'='*60}")
     print("Summary:")

@@ -48,6 +48,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
 from ai_bazaar.utils.dataframe_builder import DataFrameBuilder
 from exp1_cache import get_cache_path, is_cache_fresh, save_cache, load_cache_data
+from exp1_paths import SEEDS, resolve_run_dir
 
 # ── Experiment matrices ────────────────────────────────────────────────────
 # Full heatmap sweep (used to validate heatmap cache freshness)
@@ -56,7 +57,6 @@ HEATMAP_N_STAB_ALL = [0, 1, 2, 3, 4, 5]
 # Subset shown in the comparison figure
 N_STAB_VALUES = [0, 1, 3, 5]
 DLC_VALUES    = [1, 3, 5]
-SEEDS         = [8, 16, 64]
 
 # Row indices in the full heatmap grid that correspond to N_STAB_VALUES
 COMP_ROW_IDX = [HEATMAP_N_STAB_ALL.index(k) for k in N_STAB_VALUES]
@@ -92,27 +92,6 @@ plt.rcParams.update({
 
 
 # ── Directory resolution ───────────────────────────────────────────────────
-
-def resolve_run_dir(logs_dir, dlc, n_stab, seed, model=""):
-    if model:
-        if n_stab == 0:
-            if dlc == 3 and seed == 8:
-                path = os.path.join(logs_dir, f"exp1_{model}_baseline")
-                return path if os.path.isdir(path) else None
-            return None
-        path = os.path.join(logs_dir, f"exp1_{model}_stab_{n_stab}_dlc{dlc}_seed{seed}")
-        return path if os.path.isdir(path) else None
-    if n_stab == 0:
-        if dlc == 3 and seed == 8:
-            path = os.path.join(logs_dir, "exp1_baseline")
-            return path if os.path.isdir(path) else None
-        return None
-    if n_stab == 5:
-        path = os.path.join(logs_dir, f"exp1_stab_5_dlc{dlc}_seed{seed}")
-        return path if os.path.isdir(path) else None
-    path = os.path.join(logs_dir, f"exp1_stab_{n_stab}_dlc{dlc}_seed{seed}")
-    return path if os.path.isdir(path) else None
-
 
 def collect_run_dirs(logs_dir, model="", n_stab_list=None):
     if n_stab_list is None:
