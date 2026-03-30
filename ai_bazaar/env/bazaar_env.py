@@ -224,8 +224,11 @@ class BazaarWorld:
 
         if is_lemon_market:
             # LEMON_MARKET: use BuyerAgent instead of CESConsumerAgent
+            # Guardian buyer (consumer_0) uses trained model if available; others use base
+            n_guardian = getattr(args, "num_guardian_buyers", 0)
             for i in range(args.num_consumers):
                 name = f"consumer_{i}"
+                is_guardian = i < n_guardian and self._llm_model_stabilizing is not None
                 buyer = BuyerAgent(
                     llm=getattr(args, "buyer_llm", None) or args.llm,
                     port=args.port,
@@ -234,11 +237,13 @@ class BazaarWorld:
                     market=self.market,
                     persona=personas[i],
                     args=args,
-                    llm_instance=self._llm_model_default,
+                    llm_instance=self._llm_model_stabilizing if is_guardian else self._llm_model_default,
                     prompt_algo=getattr(args, "prompt_algo", "io"),
                     history_len=getattr(args, "history_len", 3),
                     timeout=getattr(args, "timeout", 10),
                 )
+                if is_guardian:
+                    buyer.guardian = True
                 self.consumers.append(buyer)
         else:
             for i in range(args.num_consumers):

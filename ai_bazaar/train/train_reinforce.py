@@ -220,6 +220,10 @@ class REINFORCETrainer:
 
     # ── helpers ──────────────────────────────────────────────────────────
 
+    def _is_valid_response(self, response: str) -> bool:
+        """Check if response is a valid action for training. Override in subclasses."""
+        return response.startswith("{") and "supply_quantity" in response
+
     def heartbeat(self):
         self.last_activity_time = time.time()
         with open(self.heartbeat_file, "w") as f:
@@ -659,8 +663,8 @@ CRITICAL: Always respond with a single, valid JSON object. Do not use markdown c
             full = p + r + self.tokenizer.eos_token
             # Pre-filter: only train on clean JSON responses, skip echoed prompts
             r_stripped = r.strip()
-            if not r_stripped.startswith("{") or "supply_quantity" not in r_stripped:
-                skipped += 1; continue  # Skip: not a valid JSON action response
+            if not self._is_valid_response(r_stripped):
+                skipped += 1; continue  # Skip: not a valid action response
             r_len = len(self.encoding_tokenizer(r, truncation=False).input_ids)
             p_len = len(self.encoding_tokenizer(p, truncation=False).input_ids)
             if p_len + r_len + 1 > 2048:
