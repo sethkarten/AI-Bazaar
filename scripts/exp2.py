@@ -40,6 +40,7 @@ Usage (from project root)
   Filters combine with AND.
 """
 import argparse
+import re
 import subprocess
 import sys
 import threading
@@ -148,6 +149,95 @@ def build_runs(base: list[str], name_prefix: str) -> list[tuple[str, list[str], 
 _print_lock = threading.Lock()
 _progress_lock = threading.Lock()
 
+# ── Live status board (active only when run directly, not when imported) ──────
+_C_RESET  = "\033[0m"
+_C_BOLD   = "\033[1m"
+_C_DIM    = "\033[2m"
+_C_YELLOW = "\033[33m"
+_C_GREEN  = "\033[32m"
+_C_RED    = "\033[31m"
+
+_run_status:   dict[str, str]            = {}  # label → "pending"/"running"/"done"/"failed"
+_run_progress: dict[str, tuple[int,int]] = {}  # label → (current_step, total_steps)
+_status_lock  = threading.Lock()
+_board_lines  = 0      # lines currently on screen belonging to the board
+_board_active = False  # enabled only when script is run directly
+_workers      = 1      # set in main()
+_use_color    = True   # False with --no-color or non-TTY
+_called_as_main = False  # set True in __main__ block
+
+
+def _c(code: str, text: str) -> str:
+    return f"{code}{text}{_C_RESET}" if _use_color else text
+
+
+def _erase_board() -> None:
+    """Erase the status board. Caller must hold _print_lock."""
+    global _board_lines
+    if _board_lines > 0 and _use_color and sys.stdout.isatty():
+        sys.stdout.write(f"\033[{_board_lines}A\033[J")
+        sys.stdout.flush()
+        _board_lines = 0
+
+
+def _draw_board() -> None:
+    """Draw the status board below current output. Caller must hold _print_lock."""
+    global _board_lines
+    if not _board_active or not _use_color or not sys.stdout.isatty():
+        return
+
+    with _status_lock:
+        snap = dict(_run_status)
+
+    running = [l for l, s in snap.items() if s == "running"]
+    n_done  = sum(1 for s in snap.values() if s in ("done", "failed"))
+    n_fail  = sum(1 for s in snap.values() if s == "failed")
+    n_total = len(snap)
+
+    sep = _c(_C_DIM, "─" * 62)
+    lines = [sep]
+
+    status_str = (
+        f"{_c(_C_BOLD, 'ACTIVE')}  "
+        f"{_c(_C_YELLOW, str(len(running)))}/{_workers} running  |  "
+        f"{_c(_C_GREEN, str(n_done))}/{n_total} done"
+    )
+    if n_fail:
+        status_str += f"  |  {_c(_C_RED, str(n_fail) + ' failed')}"
+    lines.append(status_str)
+
+    if running:
+        for label in running:
+            prog = _run_progress.get(label)
+            prog_str = f" {_c(_C_DIM, f'[{prog[0]}/{prog[1]}]')}" if prog else ""
+            lines.append(f"  {_c(_C_YELLOW, '▶')} {label}{prog_str}")
+    else:
+        lines.append(f"  {_c(_C_DIM, '(idle — waiting for next run)')}")
+
+    lines.append(sep)
+
+    output = "\n".join(lines) + "\n"
+    sys.stdout.write(output)
+    sys.stdout.flush()
+    _board_lines = len(lines)
+
+
+def _set_status(label: str, status: str) -> None:
+    """Update run status and redraw the board."""
+    with _status_lock:
+        _run_status[label] = status
+    with _print_lock:
+        _erase_board()
+        _draw_board()
+
+
+def _set_progress(label: str, current: int, total: int) -> None:
+    """Update timestep progress for a running label and redraw the board."""
+    _run_progress[label] = (current, total)
+    with _print_lock:
+        _erase_board()
+        _draw_board()
+
 
 def format_duration(seconds: float) -> str:
     """Human-readable duration for logs."""
@@ -166,7 +256,9 @@ def log(msg: str) -> None:
     assert SUMMARY_LOG is not None
     line = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
     with _print_lock:
+        _erase_board()
         print(line, flush=True)
+        _draw_board()
     with open(SUMMARY_LOG, "a", encoding="utf-8") as f:
         f.write(line + "\n")
 
@@ -205,6 +297,7 @@ def run_one(log_label: str, args: list[str]) -> tuple[int, float]:
     cmd = [sys.executable, "-m", "ai_bazaar.main"] + args
     assert LOGS_DIR is not None
     log_path = LOGS_DIR / f"{log_label}_{TIMESTAMP}.log"
+    _set_status(log_label, "running")
     log(f"Starting: {log_label}")
     t0 = time.monotonic()
     proc: subprocess.Popen[str] | None = None
@@ -220,21 +313,31 @@ def run_one(log_label: str, args: list[str]) -> tuple[int, float]:
                 bufsize=1,
             )
             assert proc.stdout is not None
+            _PROGRESS_RE = re.compile(r'Completed (\d+)/(\d+) timesteps')
             for line in proc.stdout:
                 logf.write(line)
                 logf.flush()
                 output_lines.append(line)
+                m = _PROGRESS_RE.search(line)
+                if m:
+                    _set_progress(log_label, int(m.group(1)), int(m.group(2)))
             proc.wait()
         elapsed = time.monotonic() - t0
         assert proc is not None
         if proc.returncode != 0:
+            _set_status(log_label, "failed")
             with _print_lock:
+                _erase_board()
                 for line in output_lines:
                     print(f"[{log_label}] {line}", end="", flush=True)
+                _draw_board()
             log(f"WARNING: {log_label} exited with code {proc.returncode}")
+        else:
+            _set_status(log_label, "done")
         return proc.returncode, elapsed
     except Exception as e:
         elapsed = time.monotonic() - t0
+        _set_status(log_label, "failed")
         log(f"ERROR in {log_label}: {e}")
         return -1, elapsed
 
@@ -363,9 +466,16 @@ def main() -> None:
         "--list", action="store_true",
         help="Print matching runs and exit without executing.",
     )
+    parser.add_argument(
+        "--no-color", action="store_true",
+        help="Disable ANSI color in terminal output.",
+    )
     cli = parser.parse_args()
 
-    global LOGS_DIR, SUMMARY_LOG
+    global LOGS_DIR, SUMMARY_LOG, _board_active, _workers, _use_color
+    if cli.no_color or not sys.stdout.isatty():
+        _use_color = False
+
     name_prefix = f"exp2_{llm_filesystem_slug(cli.buyer_llm or cli.llm)}"
     LOGS_DIR = PROJECT_ROOT / "logs" / name_prefix
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -444,6 +554,15 @@ def main() -> None:
     completed_durations: list[float] = []
     batch_start = time.monotonic()
 
+    # Activate live board only when run directly from CLI
+    if _called_as_main:
+        with _status_lock:
+            for label, _, _ in selected:
+                _run_status[label] = "pending"
+        _workers = worker_count
+        _board_active = True
+        _draw_board()
+
     if cli.workers <= 1:
         for label, args, _ in selected:
             rc, elapsed = run_one(label, args)
@@ -466,6 +585,9 @@ def main() -> None:
                 except Exception as e:
                     log(f"Run {label} raised an exception: {e}")
 
+    with _print_lock:
+        _erase_board()
+
     total_wall = time.monotonic() - batch_start
     log(
         f"Experiment 2 completed. Total wall time: {format_duration(total_wall)}. "
@@ -474,4 +596,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    _called_as_main = True
     main()

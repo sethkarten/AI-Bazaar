@@ -224,7 +224,8 @@ def _has_role_split(data: dict) -> bool:
 
 
 def draw_panel(ax, data: dict, key: str, ylabel: str, panel_label: str,
-               total: int = 0, show_legend: bool = False):
+               total: int = 0, buyer_total: int = 0, seller_total: int = 0,
+               show_legend: bool = False):
     """Draw one panel (key = 'input' or 'output').
 
     Stacks buyer and seller portions when role-split data is available.
@@ -302,8 +303,14 @@ def draw_panel(ax, data: dict, key: str, ylabel: str, panel_label: str,
     ax.grid(axis="y", linewidth=0.5, color="0.85", zorder=0)
     ax.set_axisbelow(True)
 
-    if total > 0:
+    if buyer_total > 0 or seller_total > 0:
+        total_str = (f"buyers {buyer_total / 1e6:.1f}M  sellers {seller_total / 1e6:.1f}M"
+                     f"  total {(buyer_total + seller_total) / 1e6:.1f}M")
+    elif total > 0:
         total_str = f"total: {total / 1e6:.1f} M"
+    else:
+        total_str = None
+    if total_str:
         ax.set_title(total_str, loc="right", fontsize=7.5, color="0.45", style="italic")
 
     if show_legend:
@@ -390,10 +397,20 @@ def main():
     )
     fig.suptitle("Token Usage per Run", fontsize=10, fontweight="bold")
 
+    if _has_role_split(data):
+        bi = sum(r.get("buyer_input",   0) for records in data.values() for r in records)
+        bo = sum(r.get("buyer_output",  0) for records in data.values() for r in records)
+        si = sum(r.get("seller_input",  0) for records in data.values() for r in records)
+        so = sum(r.get("seller_output", 0) for records in data.values() for r in records)
+    else:
+        bi = bo = si = so = 0
+
     draw_panel(ax_in,  data, key="input",  ylabel="Input tokens",
-               panel_label="(A) Input tokens",  total=total_input,  show_legend=True)
+               panel_label="(A) Input tokens",  total=total_input,
+               buyer_total=bi, seller_total=si, show_legend=True)
     draw_panel(ax_out, data, key="output", ylabel="Output tokens",
-               panel_label="(B) Output tokens", total=total_output, show_legend=False)
+               panel_label="(B) Output tokens", total=total_output,
+               buyer_total=bo, seller_total=so, show_legend=False)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)

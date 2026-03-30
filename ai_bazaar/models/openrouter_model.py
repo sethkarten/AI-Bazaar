@@ -112,15 +112,24 @@ class OpenRouterModel(BaseLLMModel):
                     "max_tokens": self.max_tokens
                 }
 
+                # Qwen3 models default to thinking mode, which is incompatible with
+                # json_object response format. Disable thinking via OpenRouter's documented
+                # `reasoning` parameter and skip response_format for Qwen3 (let
+                # _extract_json handle parsing instead).
+                is_qwen3 = isinstance(self.model_name, str) and self.model_name.lower().startswith("qwen/qwen3")
+                if is_qwen3:
+                    payload["reasoning"] = {"effort": "none"}
+
                 # Provider routing options
                 provider: dict = {}
                 if self.provider_order:
                     provider["order"] = self.provider_order
                 if provider:
                     payload["provider"] = provider
-                
-                # Add JSON format if requested (for compatible models)
-                if json_format:
+
+                # Add JSON format if requested (skip for Qwen3 — incompatible with
+                # thinking-disabled mode at the provider level even when reasoning=none)
+                if json_format and not is_qwen3:
                     payload["response_format"] = {"type": "json_object"}
                 
                 # Make the API call

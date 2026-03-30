@@ -33,6 +33,7 @@ Usage:
 """
 
 import argparse
+import re
 import subprocess
 import sys
 import threading
@@ -93,6 +94,95 @@ _print_lock    = threading.Lock()
 _progress_lock = threading.Lock()
 SUMMARY_LOG: Path | None = None
 
+# ── Live status board ─────────────────────────────────────────────────────────
+# ANSI codes
+_C_RESET  = "\033[0m"
+_C_BOLD   = "\033[1m"
+_C_DIM    = "\033[2m"
+_C_YELLOW = "\033[33m"
+_C_GREEN  = "\033[32m"
+_C_RED    = "\033[31m"
+
+_run_status:   dict[str, str]            = {}  # label → "pending"/"running"/"done"/"failed"
+_run_progress: dict[str, tuple[int,int]] = {}  # label → (current_step, total_steps)
+_status_lock  = threading.Lock()
+_board_lines  = 0       # lines currently on screen belonging to the board
+_board_active = False   # set True once run execution begins
+_workers      = 1       # total worker count, set in main()
+_use_color    = True    # False with --no-color or non-TTY
+
+
+def _c(code: str, text: str) -> str:
+    return f"{code}{text}{_C_RESET}" if _use_color else text
+
+
+def _erase_board() -> None:
+    """Erase the status board. Caller must hold _print_lock."""
+    global _board_lines
+    if _board_lines > 0 and _use_color and sys.stdout.isatty():
+        sys.stdout.write(f"\033[{_board_lines}A\033[J")
+        sys.stdout.flush()
+        _board_lines = 0
+
+
+def _draw_board() -> None:
+    """Draw the status board below current output. Caller must hold _print_lock."""
+    global _board_lines
+    if not _board_active or not _use_color or not sys.stdout.isatty():
+        return
+
+    with _status_lock:
+        snap = dict(_run_status)
+
+    running = [l for l, s in snap.items() if s == "running"]
+    n_done  = sum(1 for s in snap.values() if s in ("done", "failed"))
+    n_fail  = sum(1 for s in snap.values() if s == "failed")
+    n_total = len(snap)
+
+    sep = _c(_C_DIM, "─" * 62)
+    lines = [sep]
+
+    status_str = (
+        f"{_c(_C_BOLD, 'ACTIVE')}  "
+        f"{_c(_C_YELLOW, str(len(running)))}/{_workers} running  |  "
+        f"{_c(_C_GREEN, str(n_done))}/{n_total} done"
+    )
+    if n_fail:
+        status_str += f"  |  {_c(_C_RED, str(n_fail) + ' failed')}"
+    lines.append(status_str)
+
+    if running:
+        for label in running:
+            prog = _run_progress.get(label)
+            prog_str = f" {_c(_C_DIM, f'[{prog[0]}/{prog[1]}]')}" if prog else ""
+            lines.append(f"  {_c(_C_YELLOW, '▶')} {label}{prog_str}")
+    else:
+        lines.append(f"  {_c(_C_DIM, '(idle — waiting for next run)')}")
+
+    lines.append(sep)
+
+    output = "\n".join(lines) + "\n"
+    sys.stdout.write(output)
+    sys.stdout.flush()
+    _board_lines = len(lines)
+
+
+def _set_status(label: str, status: str) -> None:
+    """Update run status and redraw the board."""
+    with _status_lock:
+        _run_status[label] = status
+    with _print_lock:
+        _erase_board()
+        _draw_board()
+
+
+def _set_progress(label: str, current: int, total: int) -> None:
+    """Update timestep progress for a running label and redraw the board."""
+    _run_progress[label] = (current, total)
+    with _print_lock:
+        _erase_board()
+        _draw_board()
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -126,7 +216,9 @@ def format_duration(seconds: float) -> str:
 def log(msg: str) -> None:
     line = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
     with _print_lock:
+        _erase_board()
         print(line, flush=True)
+        _draw_board()
     if SUMMARY_LOG is not None:
         with open(SUMMARY_LOG, "a", encoding="utf-8") as f:
             f.write(line + "\n")
@@ -159,6 +251,7 @@ def log_run_finished(
 def run_one(label: str, argv: list[str], model_logs_dir: Path) -> tuple[int, float]:
     cmd      = [sys.executable, "-m", "ai_bazaar.main"] + argv
     log_path = model_logs_dir / f"{label}_{TIMESTAMP}.log"
+    _set_status(label, "running")
     log(f"Starting: {label}")
     t0 = time.monotonic()
     try:
@@ -169,16 +262,24 @@ def run_one(label: str, argv: list[str], model_logs_dir: Path) -> tuple[int, flo
                 text=True, bufsize=1,
             )
             assert proc.stdout is not None
+            _PROGRESS_RE = re.compile(r'Completed (\d+)/(\d+) timesteps')
             for line in proc.stdout:
                 logf.write(line)
                 logf.flush()
+                m = _PROGRESS_RE.search(line)
+                if m:
+                    _set_progress(label, int(m.group(1)), int(m.group(2)))
             proc.wait()
         elapsed = time.monotonic() - t0
         if proc.returncode != 0:
+            _set_status(label, "failed")
             log(f"WARNING: {label} exited with code {proc.returncode}")
+        else:
+            _set_status(label, "done")
         return proc.returncode, elapsed
     except Exception as e:
         elapsed = time.monotonic() - t0
+        _set_status(label, "failed")
         log(f"ERROR in {label}: {e}")
         return -1, elapsed
 
@@ -237,7 +338,7 @@ def build_runs_for_model(or_id: str, base: list[str]) -> list[tuple[str, list[st
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    global SUMMARY_LOG
+    global SUMMARY_LOG, _board_active, _workers, _use_color
 
     ap = argparse.ArgumentParser(
         description="Exp2 LEMON_MARKET sweep over all dense open-weight models (OpenRouter).",
@@ -288,9 +389,15 @@ def main() -> None:
                     help="Log buyer LLM prompts/responses per run.")
     ap.add_argument("--log-seller-prompts", action="store_true",
                     help="Log seller/sybil LLM prompts/responses per run.")
+    ap.add_argument("--no-color",       action="store_true",
+                    help="Disable ANSI color in terminal output.")
     ap.add_argument("--list",          action="store_true",
                     help="Print matching runs and exit.")
     cli = ap.parse_args()
+
+    # Disable color if requested or stdout is not a TTY
+    if cli.no_color or not sys.stdout.isatty():
+        _use_color = False
 
     # ── Set up summary log ───────────────────────────────────────────────
     sweep_logs_dir = PROJECT_ROOT / "logs"
@@ -407,9 +514,18 @@ def main() -> None:
             d.mkdir(parents=True, exist_ok=True)
             model_log_dirs[np_] = d
 
+    # ── Initialize status board ───────────────────────────────────────────
+    with _status_lock:
+        for label, _, _ in selected:
+            _run_status[label] = "pending"
+
+    _workers = max(1, min(cli.workers, len(selected)))
+    _board_active = True
+    _draw_board()  # initial draw (no lock needed; single-threaded at this point)
+
     # ── Execute ───────────────────────────────────────────────────────────
     total      = len(selected)
-    workers    = max(1, min(cli.workers, total))
+    workers    = _workers
     completed: list[float] = []
     wall_start = time.monotonic()
 
@@ -432,6 +548,10 @@ def main() -> None:
                         log(f"Run {label} exited with code {rc}")
                 except Exception as e:
                     log(f"Run {label} raised an exception: {e}")
+
+    # Final board clear before exit message
+    with _print_lock:
+        _erase_board()
 
     log(
         f"EAS sweep (exp2) complete. Wall time: {format_duration(time.monotonic() - wall_start)}. "

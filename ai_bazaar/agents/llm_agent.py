@@ -692,12 +692,13 @@ Reformat the malformed JSON to match the expected format. Output must contain ev
             # Extract keys with mapping support
             data = self.extract_keys_from_dict(data, keys)
 
-            # Check if all required keys are present
-            missing_keys = [key for key in keys if key not in data]
-            if missing_keys:
-                raise KeyError(
-                    f"Missing keys: {missing_keys}. Available keys: {list(data.keys())}"
-                )
+            # Fill any missing keys with None and let parse_func validate.
+            # This avoids unnecessary reprompts when a key is legitimately
+            # absent (e.g. listing_id omitted on a "pass" decision). Parse
+            # functions that require a non-None value will raise ValueError
+            # themselves, which still triggers a reprompt.
+            for key in keys:
+                data.setdefault(key, None)
 
             parsed_keys = []
             for key in keys:
