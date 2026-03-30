@@ -96,16 +96,17 @@ class LemonTrainer(REINFORCETrainer):
             sybil_passed = getattr(guardian, "sybil_passed_total", 0) if guardian else 0
             detection_rate = sybil_passed / max(sybil_seen, 1)
 
-            # 2. Consumer surplus (cumulative utility)
+            # 2. Consumer surplus (cumulative utility), normalized by V_MAX
+            from ai_bazaar.utils.common import V_MAX
             consumer_surplus = getattr(guardian, "utility", 0.0) if guardian else 0.0
-            # Normalize by timesteps (surplus per step)
-            surplus_per_step = consumer_surplus / max(steps, 1)
+            # Normalize: surplus per step, scaled to [~-1, ~1] range
+            surplus_per_step = consumer_surplus / (max(steps, 1) * V_MAX)
 
-            # 3. Market health (overall buyer welfare — all buyers)
+            # 3. Market health (overall buyer welfare — all buyers), normalized
             all_surplus = sum(
                 getattr(c, "utility", 0.0) for c in world.consumers
             )
-            market_health = all_surplus / (max(len(world.consumers), 1) * max(steps, 1))
+            market_health = all_surplus / (max(len(world.consumers), 1) * max(steps, 1) * V_MAX)
 
             # 4. Honest purchase rate (did we buy from honest sellers when available?)
             honest_seen = getattr(guardian, "honest_seen_total", 0) if guardian else 0
@@ -225,8 +226,10 @@ class LemonTrainer(REINFORCETrainer):
     # ── Override content filter for buyer actions ─────────────────────
 
     def _is_valid_response(self, response: str) -> bool:
-        """Check if response is a valid buyer action (bid/pass JSON)."""
-        return response.startswith("{") and "decision" in response
+        """Check if response is a valid buyer action (bid/pass or vote JSON)."""
+        if not response.startswith("{"):
+            return False
+        return "decision" in response or "vote" in response
 
 
 # ---------------------------------------------------------------------------
