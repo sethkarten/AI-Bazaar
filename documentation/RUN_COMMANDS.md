@@ -431,6 +431,183 @@ After the sweep finishes, run `exp2_run_all.py --src exp2_{buyer_slug}` per buye
 
 ---
 
+## EXPERIMENT 3
+
+**Setup:** Extends Experiments 1 and 2 with mid-episode adversarial shocks to measure resilience.
+
+| Sub-experiment | Scenario | Shock | Timing |
+|----------------|----------|-------|--------|
+| **exp3a** Supply Shock | THE_CRASH | Unit cost: ~$1 → $10 | t = 25 |
+| **exp3b** Flood of Fakes | LEMON_MARKET | Sybil cluster: K_initial → 80% saturation | t = 15 |
+
+**Recovery metrics:**
+- **exp3a** — Markup Ratio Recovery: first t > 25 where `|μ_t − μ̄_pre| ≤ 0.1 · μ̄_pre`, μ_t = mean_price / unit_cost − 1, baseline averaged over [20, 25)
+- **exp3b** — Detection Premium Recovery: first t > 15 where `|δ_t − δ̄_pre| ≤ 0.1 · δ̄_pre`, δ_t = honest_purchase_rate − sybil_purchase_rate (per-step), baseline averaged over [10, 15)
+- Markets that never recover are assigned τ = T (max_timesteps)
+
+**Models:** `--test-llm` is the model under test — used as the firm LLM (crash) and buyer LLM (lemon). `--seller-llm` is the fixed reference seller for the lemon sub-experiment. Both default to `gemini-3-flash-preview`.
+
+### `scripts/exp3.py` — Experiment 3 runner
+
+**Full matrix:** 36 runs — 18 crash (n_stab ∈ {1,3,5} × dlc ∈ {3,5} × seeds {8,16,64}) + 18 lemon (k_initial ∈ {3,6,9} × rep_visible ∈ {T,F} × seeds {8,16,64}, flood to 80% saturation).
+
+Logs go to a single model folder: `logs/exp3_{test-llm}/` (contains both crash and lemon runs).
+
+#### Basic usage
+
+```bash
+# All 36 runs, sequential (default: gemini-3-flash-preview for both test-llm and seller-llm)
+python scripts/exp3.py
+
+# Parallel (keep low to respect API rate limits)
+python scripts/exp3.py --workers 3
+
+# Only crash sub-experiment (18 runs)
+python scripts/exp3.py --experiment crash
+
+# Only lemon sub-experiment (18 runs)
+python scripts/exp3.py --experiment lemon
+```
+
+#### Model / service
+
+`--test-llm` swaps the model under test (firm for crash, buyer for lemon). `--seller-llm` controls only the lemon seller/sybil model.
+
+```bash
+# Test a fine-tuned model as the firm/buyer
+python scripts/exp3.py --test-llm my-finetuned-model
+
+# Test via OpenRouter
+python scripts/exp3.py --test-llm anthropic/claude-sonnet-4-6 --openrouter-provider anthropic
+
+# Override the reference seller (lemon only)
+python scripts/exp3.py --test-llm my-finetuned-model --seller-llm google/gemma-3-12b-it
+
+# Local model via Ollama
+python scripts/exp3.py --test-llm gemma3:4b --service ollama --port 11434
+```
+
+### `scripts/exp3_open_weights_sweep.py` — Open-weights model sweep
+
+Runs `scripts/exp3.py` once per hardcoded OpenRouter model in the sweep list, using a fixed `--seller-llm` for lemon runs. By default it passes `--prompt-algo io` and `--max-tokens 1000` (same fast defaults as `exp3.py`); override with `--prompt-algo` / `--max-tokens` if needed.
+
+```bash
+# Run full Exp3 sweep across all open-weights models
+python scripts/exp3_open_weights_sweep.py --seller-llm google/gemma-3-12b-it
+
+# Resume safely (skip existing run folders)
+python scripts/exp3_open_weights_sweep.py --seller-llm google/gemma-3-12b-it --skip-existing
+
+# Only lemon sub-experiment
+python scripts/exp3_open_weights_sweep.py --seller-llm google/gemma-3-12b-it --experiment lemon
+
+# Filter models by substring match on display name or slug
+python scripts/exp3_open_weights_sweep.py --seller-llm google/gemma-3-12b-it --models llama-3.2-3b gemma-3-4b
+
+# Preview commands without executing
+python scripts/exp3_open_weights_sweep.py --seller-llm google/gemma-3-12b-it --list
+```
+
+#### Filtering runs
+
+```bash
+# Preview without executing
+python scripts/exp3.py --list
+
+# Crash: specific n_stab and dlc
+python scripts/exp3.py --experiment crash --n-stab 1 3 --dlc 3
+
+# Lemon: only k_initial=3
+python scripts/exp3.py --experiment lemon --k 3
+
+# Lemon: rep-visible cells only
+python scripts/exp3.py --experiment lemon --rep-visible 1
+
+# Single seed across both sub-experiments
+python scripts/exp3.py --seeds 8
+
+# Skip runs whose log directory already exists (safe resume)
+python scripts/exp3.py --skip-existing
+
+# Specific run by exact label
+python scripts/exp3.py --run exp3a_stab1_dlc3_seed8
+```
+
+#### Running individual shocks manually
+
+You can also invoke the shock parameters directly via `ai_bazaar.main` without the script wrapper:
+
+```bash
+# Supply shock: unit cost set to $10 at t=25 (Crash)
+python -m ai_bazaar.main \
+  --consumer-scenario THE_CRASH \
+  --firm-type LLM --num-firms 5 --num-consumers 50 \
+  --use-cost-pref-gen --max-supply-unit-cost 1 \
+  --overhead-costs 14 --max-timesteps 100 \
+  --shock-timestep 25 --post-shock-unit-cost 10.0 \
+  --llm gemini-3-flash-preview --seed 8 --name exp3a_test
+
+# Flood of fakes: sybil cluster scales to 80% saturation at t=15 (Lemon, k_initial=3 → flood_k=36)
+python -m ai_bazaar.main \
+  --consumer-scenario LEMON_MARKET \
+  --firm-type LLM --seller-type LLM \
+  --num-sellers 12 --num-buyers 12 \
+  --sybil-cluster-size 3 --reputation-initial 0.8 --sybil-rho-min 0.3 \
+  --max-timesteps 50 \
+  --shock-timestep 15 --post-shock-sybil-cluster-size 36 \
+  --buyer-llm gemini-3-flash-preview --seller-llm gemini-3-flash-preview \
+  --seed 8 --name exp3b_test
+```
+
+Shock parameters:
+
+| Arg | Description |
+|-----|-------------|
+| `--shock-timestep N` | Timestep at which to apply shock (required with either arg below) |
+| `--post-shock-unit-cost C` | New unit cost for all firms (Crash only; requires `--consumer-scenario THE_CRASH`) |
+| `--post-shock-sybil-cluster-size K` | New sybil cluster size after flood (Lemon only; requires `--consumer-scenario LEMON_MARKET`) |
+
+State files include a `"shock"` key every timestep: `applied`, `type`, `shock_timestep`, `post_shock_unit_cost`, `post_shock_sybil_k`.
+
+#### Experiment 3 figures
+
+After runs have produced state files, generate figures from the **project root**. Figure scripts live in `paper/fig/scripts/exp3/` and write PDFs to `paper/fig/exp3/<src>/` by default.
+
+Use `--src` to point at the model-specific subdirectory inside `logs/` where both crash (exp3a) and lemon (exp3b) runs are stored. `--src` also sets the model prefix automatically (e.g. `exp3_gemini-3-flash-preview` → `--model gemini-3-flash-preview`). Output PDFs go to `paper/fig/exp3/<src-name>/`.
+
+```bash
+# Regenerate all Exp3 figures — reads from logs/exp3_gemini-3-flash-preview/, writes to paper/fig/exp3/exp3_gemini-3-flash-preview/
+python paper/fig/scripts/exp3/exp3_run_all.py --src exp3_gemini-3-flash-preview
+
+# --dst overrides the output subdirectory (defaults to --src name)
+python paper/fig/scripts/exp3/exp3_run_all.py --src exp3_gemini-3-flash-preview --dst my_run
+
+# Optional arguments
+#   --src DIR        subdirectory within logs/ to read from
+#   --dst DIR        subdirectory within paper/fig/exp3/ to write to (default: --src name)
+#   --logs-dir DIR   base logs directory (default: logs/)
+#   --fig-dir DIR    base output directory for PDFs (default: paper/fig/exp3/)
+#   --good NAME      good name for price/volume metrics (default: food)
+#   --workers N      parallel load workers per script (default: 8)
+
+# Single figure (direct --logs-dir)
+python paper/fig/scripts/exp3/exp3_crash_heatmap.py    --logs-dir logs/exp3_gemini-3-flash-preview
+python paper/fig/scripts/exp3/exp3_crash_timeseries.py --logs-dir logs/exp3_gemini-3-flash-preview
+python paper/fig/scripts/exp3/exp3_crash_recovery.py   --logs-dir logs/exp3_gemini-3-flash-preview
+python paper/fig/scripts/exp3/exp3_lemon_recovery.py   --logs-dir logs/exp3_gemini-3-flash-preview
+```
+
+Figure scripts and their outputs:
+
+| Script | Output | Description |
+|--------|--------|-------------|
+| `exp3_crash_heatmap.py` | `exp3_crash_heatmap.pdf` | 1×4 metric heatmap (bankruptcy, price, volume, volatility) over n_stab × dlc grid |
+| `exp3_crash_timeseries.py` | `exp3_crash_timeseries.pdf` | 3×3 timeseries (price, firms, orders) by n_stab ∈ {1,3,5}, shock line at t=25 |
+| `exp3_crash_recovery.py` | `exp3_crash_recovery.pdf` | Markup ratio μ_t timeseries + recovery time bar chart |
+| `exp3_lemon_recovery.py` | `exp3_lemon_recovery.pdf` | Detection premium δ_t timeseries + recovery time bar chart |
+
+---
+
 ## Extract Sybil Principal Prompts (Exp2)
 
 After running Exp2 with prompt logging enabled, extracts Sybil principal

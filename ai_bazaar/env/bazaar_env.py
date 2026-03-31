@@ -460,6 +460,69 @@ class BazaarWorld:
             return []
         return random.sample(self.consumers, k)
 
+    # ------------------------------------------------------------------
+    # Exp3: Shock injection helpers
+    # ------------------------------------------------------------------
+
+    def _apply_cost_shock(self, new_unit_cost: float) -> None:
+        """Apply a supply-cost shock to all firms (Crash variant).
+
+        Sets supply_unit_costs[good] = new_unit_cost for every good of every
+        firm.  FixedFirmAgents (which also expose ``unit_costs``) are updated
+        too so that their cost-accounting stays consistent.
+        """
+        logger = logging.getLogger("main")
+        for firm in self.firms:
+            if hasattr(firm, "supply_unit_costs"):
+                for good in list(firm.supply_unit_costs):
+                    firm.supply_unit_costs[good] = new_unit_cost
+            if hasattr(firm, "unit_costs"):
+                for good in list(firm.unit_costs):
+                    firm.unit_costs[good] = new_unit_cost
+        self._shock_applied = True
+        self._shock_type = "cost"
+        self._shock_timestep = self.timestep
+        self._post_shock_unit_cost = new_unit_cost
+        logger.info(f"SHOCK APPLIED: unit cost → {new_unit_cost} at t={self.timestep}")
+
+    def _apply_sybil_flood(self, new_k: int) -> None:
+        """Inject additional sybil identities to reach cluster size new_k (Lemon variant).
+
+        Adds (new_k - current_k) new SybilIdentity objects to the
+        DeceptivePrincipal and rebuilds self.firms.
+        """
+        logger = logging.getLogger("main")
+        if not self.deceptive_principal:
+            raise ValueError("_apply_sybil_flood called but no DeceptivePrincipal exists.")
+        principal = self.deceptive_principal
+        current_k = len(principal.identities)
+        to_add = new_k - current_k
+        if to_add <= 0:
+            return
+        r0 = float(getattr(self.args, "reputation_initial", 0.8) or 0.8)
+        pseudo_count = float(getattr(self.args, "reputation_pseudo_count", 10.0))
+        for _ in range(to_add):
+            new_ident = SybilIdentity(
+                name=f"sybil_{principal.identity_counter}",
+                goods=principal.goods,
+                ledger=self.ledger,
+                market=self.market,
+                reputation=r0,
+                initial_cash=principal.initial_cash,
+                args=self.args,
+            )
+            new_ident.initialize_reputation(r0, pseudo_count)
+            new_ident.timestep_created = self.timestep
+            principal.identities.append(new_ident)
+            principal.identity_counter += 1
+        principal.k = new_k
+        self.firms = self.honest_firms + principal.identities
+        self._shock_applied = True
+        self._shock_type = "sybil_flood"
+        self._shock_timestep = self.timestep
+        self._post_shock_sybil_k = new_k
+        logger.info(f"SHOCK APPLIED: sybil K {current_k} → {new_k} at t={self.timestep}")
+
     def step(self):
         """Execute one timestep of the bazaar with parallel agent actions"""
         import concurrent.futures
@@ -1189,6 +1252,14 @@ class BazaarWorld:
                 "retired_this_step": getattr(self, "sybil_rotations_this_step", 0),
                 "total_identities_created": self.deceptive_principal.identity_counter,
             }
+
+        state["shock"] = {
+            "applied": getattr(self, "_shock_applied", False),
+            "type": getattr(self, "_shock_type", None),
+            "shock_timestep": getattr(self, "_shock_timestep", None),
+            "post_shock_unit_cost": getattr(self, "_post_shock_unit_cost", None),
+            "post_shock_sybil_k": getattr(self, "_post_shock_sybil_k", None),
+        }
 
         if getattr(self.args, "consumer_scenario", None) == "LEMON_MARKET":
             # New listings posted this step (with timestep for dashboard "all listings" table)
