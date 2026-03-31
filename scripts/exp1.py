@@ -2,7 +2,7 @@
 """
 Run Experiment 1 commands from documentation/RUN_COMMANDS.md (EXPERIMENT 1 section).
 
-Runs: baseline (dlc=3, n_stab=0) × seeds 8,16,64 as exp1_*_stab_0_dlc3_seed*;
+Runs: baseline (dlc=1,3,5, n_stab=0) × seeds 8,16,64 as exp1_*_stab_0_dlc{1,3,5}_seed*;
       stabilizing firm sweep (dlc=1) with 1, 2, 3, 4, 5 firms × seeds 8,16,64;
       stabilizing firm sweep (dlc=3) with 1, 2, 3, 4, 5 firms × seeds 8,16,64;
       stabilizing firm sweep (dlc=5) with 1, 2, 3, 4, 5 firms × seeds 8,16,64.
@@ -75,17 +75,18 @@ def build_runs(base: list[str], name_prefix: str) -> list[tuple[str, list[str], 
     runs: list[tuple[str, list[str], dict]] = []
     log_dir_arg = f"logs/{name_prefix}"
 
-    # ---- Baseline (no stabilizing firm, dlc=3) — same seeds as sweep ----
-    for seed in (8, 16, 64):
-        label = f"{name_prefix}_stab_0_dlc3_seed{seed}"
-        runs.append((
-            label,
-            ["--name", label, "--log-dir", log_dir_arg,
-             "--discovery-limit-consumers", "3",
-             "--num-stabilizing-firms", "0",
-             "--seed", str(seed)] + base,
-            {"dlc": 3, "n_stab": 0, "seed": seed},
-        ))
+    # ---- Baseline (no stabilizing firm): dlc=1,3,5 × same seeds as sweep ----
+    for dlc in (1, 3, 5):
+        for seed in (8, 16, 64):
+            label = f"{name_prefix}_stab_0_dlc{dlc}_seed{seed}"
+            runs.append((
+                label,
+                ["--name", label, "--log-dir", log_dir_arg,
+                 "--discovery-limit-consumers", str(dlc),
+                 "--num-stabilizing-firms", "0",
+                 "--seed", str(seed)] + base,
+                {"dlc": dlc, "n_stab": 0, "seed": seed},
+            ))
 
     # ---- Stabilizing firm sweep: dlc=1, 3, 5 × n_stab=1,2,3,4,5 × seeds 8,16,64 ----
     n_stab_values = (1, 2, 3, 4, 5)

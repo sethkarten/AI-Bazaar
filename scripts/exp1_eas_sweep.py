@@ -4,7 +4,7 @@ Run Experiment 1 across all dense open-weight models (include=1) from
 documentation/EAS_vs_MODEL_SIZE.md, via OpenRouter.
 
 Each model gets its own logs/ subdirectory (logs/exp1_{model_slug}/) and a
-dlc=3-only sweep: baseline (k=0) × seeds {8,16,64} + k={3,5} × seeds={8,16,64}.
+sweep over dlc={1,3,5}: baseline (k=0) × seeds {8,16,64} + k={3,5} × seeds={8,16,64}.
 
 A single ThreadPoolExecutor dispatches all runs across all models, so --workers
 controls the total number of parallel simulations (not per-model parallelism).
@@ -192,15 +192,16 @@ def build_runs_for_model(or_id: str, base: list[str]) -> list[tuple[str, list[st
     log_dir_arg  = f"logs/{name_prefix}"
     runs = []
 
-    for seed in (8, 16, 64):
-        label = f"{name_prefix}_stab_0_dlc3_seed{seed}"
-        runs.append((label, [
-            "--name", label, "--log-dir", log_dir_arg,
-            "--discovery-limit-consumers", "3",
-            "--num-stabilizing-firms", "0",
-            "--seed", str(seed),
-        ] + base, {"or_id": or_id, "name_prefix": name_prefix,
-                   "dlc": 3, "n_stab": 0, "seed": seed}))
+    for dlc in (1, 3, 5):
+        for seed in (8, 16, 64):
+            label = f"{name_prefix}_stab_0_dlc{dlc}_seed{seed}"
+            runs.append((label, [
+                "--name", label, "--log-dir", log_dir_arg,
+                "--discovery-limit-consumers", str(dlc),
+                "--num-stabilizing-firms", "0",
+                "--seed", str(seed),
+            ] + base, {"or_id": or_id, "name_prefix": name_prefix,
+                       "dlc": dlc, "n_stab": 0, "seed": seed}))
 
     # Sweep
     for dlc in (3,):

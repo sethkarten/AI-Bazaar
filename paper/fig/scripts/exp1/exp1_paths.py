@@ -3,8 +3,8 @@ Shared Experiment 1 log directory layout.
 
 Stabilizing sweep: exp1_{model}_stab_{k}_dlc{dlc}_seed{seed} under logs/exp1_{model}/.
 
-Baseline (no stabilizer, dlc=3): prefer exp1_{model}_stab_0_dlc3_seed{seed}
-(three seeds: 8, 16, 64). Legacy single run: exp1_{model}_baseline (seed 8 only).
+No-stabilizer runs (n_stab=0): exp1_{model}_stab_0_dlc{dlc}_seed{seed} over dlc in {1,3,5}
+and seeds in {8,16,64}. Legacy single baseline: exp1_{model}_baseline (seed 8, dlc=3).
 """
 
 from __future__ import annotations
@@ -20,12 +20,12 @@ def resolve_run_dir(logs_dir: str, dlc: int, n_stab: int, seed: int, model: str 
     """Return run directory for Exp1 config, or None if missing."""
     if model:
         if n_stab == 0:
-            if dlc != 3 or seed not in SEEDS:
+            if dlc not in DLC_VALUES or seed not in SEEDS:
                 return None
-            stab0 = os.path.join(logs_dir, f"exp1_{model}_stab_0_dlc3_seed{seed}")
+            stab0 = os.path.join(logs_dir, f"exp1_{model}_stab_0_dlc{dlc}_seed{seed}")
             if os.path.isdir(stab0):
                 return stab0
-            if seed == 8:
+            if dlc == 3 and seed == 8:
                 legacy = os.path.join(logs_dir, f"exp1_{model}_baseline")
                 return legacy if os.path.isdir(legacy) else None
             return None
@@ -33,12 +33,12 @@ def resolve_run_dir(logs_dir: str, dlc: int, n_stab: int, seed: int, model: str 
         return path if os.path.isdir(path) else None
 
     if n_stab == 0:
-        if dlc != 3 or seed not in SEEDS:
+        if dlc not in DLC_VALUES or seed not in SEEDS:
             return None
         stab0 = os.path.join(logs_dir, f"exp1_stab_0_dlc{dlc}_seed{seed}")
         if os.path.isdir(stab0):
             return stab0
-        if seed == 8:
+        if dlc == 3 and seed == 8:
             legacy = os.path.join(logs_dir, "exp1_baseline")
             return legacy if os.path.isdir(legacy) else None
         return None
@@ -62,5 +62,5 @@ def collect_run_dirs(logs_dir: str, model: str = "") -> list[str]:
 
 
 def baseline_run_dirs(logs_dir: str, model: str = "") -> list[str | None]:
-    """Resolve baseline (dlc=3, n_stab=0) dirs for each seed in SEEDS; None if missing."""
+    """Resolve legacy baseline row anchor (dlc=3, n_stab=0) dirs for each seed in SEEDS."""
     return [resolve_run_dir(logs_dir, 3, 0, seed, model=model) for seed in SEEDS]

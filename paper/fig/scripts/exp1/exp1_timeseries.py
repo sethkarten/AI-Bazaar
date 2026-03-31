@@ -434,15 +434,6 @@ def main():
                 plot_metric_column(ax, seeds_data, metric, color, is_baseline,
                                    drawstyle=ds, y_min=ym)
 
-            # Collapse markers: vertical dashed red line at first firm-drop timestep
-            if row_idx == 1 and not is_baseline:
-                for (ts_f, firms_f) in [sd for sd in seeds_data if sd[0] is not None]:
-                    first_drop = next(
-                        (t for t, f in zip(ts_f, firms_f) if f < 5), None)
-                    if first_drop is not None:
-                        ax.axvline(first_drop, color='#D55E00', lw=0.8,
-                                   ls='--', alpha=0.6, zorder=3)
-
             # Price row extras
             if row_idx == 0:
                 uc = unit_costs[col_idx]

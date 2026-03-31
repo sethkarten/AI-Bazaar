@@ -8,7 +8,8 @@ Metrics:
   D) Price volatility (YlOrRd, higher = worse)
 
 Grid: dlc ∈ {1, 3, 5}  ×  n_stab ∈ {0, 1, 2, 4, 5}
-  n_stab=0: baseline — exp1_{model}_stab_0_dlc3_seed{8,16,64} (legacy: exp1_{model}_baseline for seed 8).
+  n_stab=0: no-stabilizer runs — exp1_{model}_stab_0_dlc{1,3,5}_seed{8,16,64}
+            (legacy fallback: exp1_{model}_baseline for dlc=3, seed 8).
   All other cells: "exp1_stab_{n_stab}_dlc{dlc}_seed{seed}", averaged over seeds 8, 16, 64.
 Missing cells rendered as hatched NaN.
 Per-seed dots overlaid on each cell (green=survived, red=collapsed).

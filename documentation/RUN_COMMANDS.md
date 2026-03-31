@@ -24,7 +24,7 @@ streamlit run ai_bazaar/viz/dashboard.py
 
 `scripts/exp1.py` runs the full Experiment 1 matrix and supports flexible subsetting so you can re-run individual cells, switch models, or skip completed runs. Always run from the **project root**.
 
-**Full matrix:** 37 runs total — 1 baseline (no stabilizing firm, dlc=3, seed=8) plus stabilizing-firm sweeps over dlc ∈ {1, 3, 5} × n_stab ∈ {1, 2, 4, 5} × seeds {8, 16, 64}.
+**Full matrix:** 54 runs total — baseline (no stabilizing firm) over dlc ∈ {1, 3, 5} × seeds {8, 16, 64} plus stabilizing-firm sweeps over dlc ∈ {1, 3, 5} × n_stab ∈ {1, 2, 3, 4, 5} × seeds {8, 16, 64}.
 
 **Fixed settings:** `--wtp-algo none`, competitive persona for all non-stabilizing firms, price-only consumer scoring (no `--crash-rep-scoring`), `--overhead-costs 14`. Run names are the log labels (e.g. `exp1_baseline`, `exp1_stab_2_dlc3_seed8`). Per-run logs go to `logs/exp1/`; state files and artifacts go to `logs/<run_name>/`.
 
@@ -81,7 +81,7 @@ python scripts/exp1.py --skip-existing
 
 python scripts/exp1.py --workers 3 --llm anthropic/claude-sonnet-4.6 --openrouter-provider anthropic --skip-existing --n-stab 1 3 5 --dlc 3 --list
 
-Matching runs (6 / 46 total):
+Matching runs (6 / 54 total):
   exp1_anthropic_claude-sonnet-4.6_stab_1_dlc3_seed16  [dlc=3 n_stab=1 seed=16]
   exp1_anthropic_claude-sonnet-4.6_stab_1_dlc3_seed64  [dlc=3 n_stab=1 seed=64]
   exp1_anthropic_claude-sonnet-4.6_stab_3_dlc3_seed16  [dlc=3 n_stab=3 seed=16]
@@ -97,7 +97,7 @@ Matching runs (6 / 46 total):
 python scripts/exp1.py --workers 3 --llm anthropic/claude-sonnet-4.6 --openrouter-provider anthropic --skip-existing --n-stab 1 3 5 --dlc 3 --list
 
 # OUTPUT (seed 8 runs missing since they were already ran
-Matching runs (6 / 46 total):
+Matching runs (6 / 54 total):
   exp1_anthropic_claude-sonnet-4.6_stab_1_dlc3_seed16  [dlc=3 n_stab=1 seed=16]
   exp1_anthropic_claude-sonnet-4.6_stab_1_dlc3_seed64  [dlc=3 n_stab=1 seed=64]
   exp1_anthropic_claude-sonnet-4.6_stab_3_dlc3_seed16  [dlc=3 n_stab=3 seed=16]
@@ -112,7 +112,7 @@ Matching runs (6 / 46 total):
 
 Runs the full Experiment 1 matrix for every dense open-weight model listed with `include=1` in `EAS_vs_MODEL_SIZE.md` (21 models, 3B–405B), all via OpenRouter. Each model gets its own `logs/exp1_{model_slug}/` subdirectory. A single `--workers` pool is shared across all models, so you can parallelise across models and cells simultaneously.
 
-**Total runs:** 21 models × 7 runs each = 147 runs (before any filtering) — baseline (k=0, seed=8) + dlc=3 × k={3,5} × seeds={8,16,64}.
+**Total runs:** 21 models × 15 runs each = 315 runs (before any filtering) — baseline (k=0) over dlc={1,3,5} × seeds={8,16,64} + dlc=3 × k={3,5} × seeds={8,16,64}.
 
 **Models (dense, include=1):**
 
