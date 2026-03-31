@@ -2,6 +2,7 @@
 """
 Copy non-.log artifacts from logs/ into logs-data/, preserving subdirectory layout.
 
+Only copies from top-level run directories that do not already exist in logs-data/.
 Skips files whose extension is .log (case-insensitive). Creates logs-data/ as needed.
 
 Usage:
@@ -43,22 +44,35 @@ def main() -> None:
         sys.exit(1)
 
     copied = 0
-    for path in sorted(src_root.rglob("*")):
-        if not path.is_file():
+    considered_dirs = 0
+    copied_dirs = 0
+
+    for entry in sorted(src_root.iterdir()):
+        if not entry.is_dir():
             continue
-        if path.suffix.lower() == ".log":
+        considered_dirs += 1
+
+        dest_top = dst_root / entry.name
+        if dest_top.exists():
             continue
-        rel = path.relative_to(src_root)
-        dest = dst_root / rel
-        if args.dry_run:
-            print(f"{path} -> {dest}")
-        else:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, dest)
-        copied += 1
+
+        copied_dirs += 1
+        for src_path in sorted(entry.rglob("*")):
+            if not src_path.is_file():
+                continue
+            if src_path.suffix.lower() == ".log":
+                continue
+            rel = src_path.relative_to(src_root)
+            dest_path = dst_root / rel
+            if args.dry_run:
+                print(f"{src_path} -> {dest_path}")
+            else:
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_path, dest_path)
+            copied += 1
 
     action = "Would copy" if args.dry_run else "Copied"
-    print(f"{action} {copied} file(s).")
+    print(f"{action} {copied} file(s) from {copied_dirs}/{considered_dirs} top-level directories.")
 
 
 if __name__ == "__main__":
