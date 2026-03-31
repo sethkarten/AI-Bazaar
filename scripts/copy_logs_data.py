@@ -8,6 +8,7 @@ Skips files whose extension is .log (case-insensitive). Creates logs-data/ as ne
 Usage:
     python scripts/copy_logs_data.py              # copy
     python scripts/copy_logs_data.py --dry-run    # list what would be copied
+    python scripts/copy_logs_data.py --force-dir exp1_openai_gpt-5.4
 """
 
 from __future__ import annotations
@@ -34,6 +35,16 @@ def main() -> None:
         default=LOGS_DATA_DIR,
         help="Destination tree (default: logs-data/)",
     )
+    parser.add_argument(
+        "--force-dir",
+        action="append",
+        default=[],
+        metavar="DIR_NAME",
+        help=(
+            "Top-level directory name under logs/ to copy even if it already exists "
+            "in logs-data/. Repeat flag to force multiple directories."
+        ),
+    )
     args = parser.parse_args()
 
     src_root = args.logs_dir.resolve()
@@ -42,6 +53,8 @@ def main() -> None:
     if not src_root.is_dir():
         print(f"Source directory not found: {src_root}", file=sys.stderr)
         sys.exit(1)
+
+    forced_dirs = set(args.force_dir)
 
     copied = 0
     considered_dirs = 0
@@ -53,7 +66,7 @@ def main() -> None:
         considered_dirs += 1
 
         dest_top = dst_root / entry.name
-        if dest_top.exists():
+        if dest_top.exists() and entry.name not in forced_dirs:
             continue
 
         copied_dirs += 1

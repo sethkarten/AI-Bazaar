@@ -89,6 +89,8 @@ class BuyerAgent(LLMAgent):
 
     # System prompt
     def _create_system_prompt(self) -> str:
+        if getattr(self.args, "lemon_base_buyer", False):
+            return "Your goal is to purchase good-value cars."
         return (
             f"You are {self.name}, a buyer in a used-car peer-to-peer market. "
             f"Your persona: {self.persona}. "
@@ -208,18 +210,20 @@ class BuyerAgent(LLMAgent):
                 )
             listing_dicts.append(entry)
 
-        personal_history = self.transaction_history[-BUYER_TRANSACTION_HISTORY_LEN:]
-        personal_mean_quality = (
-            sum(r["quality_received"] for r in personal_history) / len(personal_history)
-            if personal_history else None
-        )
-        return {
+        obs: dict = {
             "timestep": timestep,
-            "persona": self.persona,
-            "your_mean_quality_received": personal_mean_quality,
-            "your_transaction_history": personal_history,
             "listings_visible": listing_dicts,
         }
+        if not getattr(self.args, "lemon_base_buyer", False):
+            personal_history = self.transaction_history[-BUYER_TRANSACTION_HISTORY_LEN:]
+            personal_mean_quality = (
+                sum(r["quality_received"] for r in personal_history) / len(personal_history)
+                if personal_history else None
+            )
+            obs["persona"] = self.persona
+            obs["your_mean_quality_received"] = personal_mean_quality
+            obs["your_transaction_history"] = personal_history
+        return obs
 
     # Post-purchase review (second LLM call after market clearing)
     def review_transaction(

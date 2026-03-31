@@ -443,6 +443,10 @@ def main() -> None:
         help="Append seller/sybil LLM prompts/responses to lemon_agent_prompts.jsonl for each run.",
     )
     parser.add_argument(
+        "--lemon-base-buyer", action="store_true", default=False,
+        help="Enable minimal base-buyer variant (stripped prompt, no transaction history).",
+    )
+    parser.add_argument(
         "--k", type=int, nargs="+", metavar="K",
         help="Only run cells with these K values (0 = baseline). E.g. --k 0 3 6",
     )
@@ -513,7 +517,11 @@ def main() -> None:
     if cli.log_seller_prompts:
         log_args += ["--log-seller-prompts"]
 
-    base = _BASE_FIXED + llm_args + prompt_args + log_args
+    ablation_args = []
+    if cli.lemon_base_buyer:
+        ablation_args += ["--lemon-base-buyer"]
+
+    base = _BASE_FIXED + llm_args + prompt_args + log_args + ablation_args
 
     all_runs = build_runs(base, name_prefix)
 

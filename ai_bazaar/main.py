@@ -403,6 +403,12 @@ def create_argument_parser():
         help="LEMON_MARKET ablation: withhold seller reputation EMA from buyer observation context.",
     )
     parser.add_argument(
+        "--lemon-base-buyer",
+        action="store_true",
+        default=False,
+        help="LEMON_MARKET ablation: minimal buyer prompt with no transaction history.",
+    )
+    parser.add_argument(
         "--seller-type",
         default="FIXED",
         choices=["LLM", "FIXED"],
@@ -651,6 +657,9 @@ def main():
             args.reputation_initial = 0.8  # paper R_0 = 0.8 for lemon experiments
         if getattr(args, "sybil_cluster_size", 0) > 0 and args.num_firms < args.sybil_cluster_size:
             args.num_firms = args.sybil_cluster_size
+
+    if getattr(args, "lemon_base_buyer", False) and args.name:
+        args.name = args.name + "_base"
 
     # THE_CRASH: default Poisson demand lambda to 60% of num_consumers unless explicitly set
     if getattr(args, "consumer_scenario", None) == "THE_CRASH" and getattr(args, "poisson_demand_lambda", None) is None:
