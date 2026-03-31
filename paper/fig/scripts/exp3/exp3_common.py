@@ -9,8 +9,17 @@ find_shock_timestep(run_dir)
 compute_markup_ratio_series(run_dir)
     Return (timesteps, mu_t) where mu_t = mean_price_t / mean_unit_cost_t - 1.
 
+compute_bankruptcy_series(run_dir)
+    Return (timesteps, dead_count_t) — number of bankrupt firms per step.
+
+compute_consumer_surplus_series(run_dir)
+    Return (timesteps, cs_t) — per-step average buyer consumer surplus.
+
 compute_perstep_detection_premium_series(run_dir)
     Return (timesteps, delta_t) = sybil_pass_rate - honest_pass_rate per step.
+
+rolling_mean(values, k)
+    Trailing rolling mean with window size k.
 
 compute_recovery_time(ts, metric, shock_t, ...)
     Timesteps until metric returns to within threshold of pre-shock baseline.
@@ -60,11 +69,12 @@ def compute_markup_ratio_series(run_dir: str) -> tuple[np.ndarray, np.ndarray]:
     """Return (timesteps, mu_t) where mu_t = mean_price_t / mean_unit_cost_t - 1.
 
     For each state file:
-    - ``mean_price_t`` = mean of ``current_prices[good]`` across firms that are
+    - ``mean_price_t`` = mean of ``firm["prices"][good]`` across firms that are
       in business and have a non-zero price.
-    - ``mean_unit_cost_t`` = mean of ``supply_unit_costs[good]`` across firms.
-      Falls back to ``shock.post_shock_unit_cost`` for steps after the shock if
-      individual firm costs are not recorded.
+    - ``mean_unit_cost_t`` = mean of
+      ``firm["expenses_info"]["supply_by_good"][0]["unit_cost"]`` across firms.
+      Falls back to ``shock.post_shock_unit_cost`` after the shock is applied,
+      or 1.0 otherwise, when ``supply_by_good`` is absent / empty for a firm.
 
     Returns arrays of equal length sorted by timestep.
     """
@@ -88,20 +98,28 @@ def compute_markup_ratio_series(run_dir: str) -> tuple[np.ndarray, np.ndarray]:
             # Skip bankrupt / out-of-business firms
             if not firm.get("in_business", True):
                 continue
-            # Prices: current_prices dict, take first/only good value
-            cp = firm.get("current_prices", {})
-            if cp:
-                p_vals = [v for v in cp.values() if v and float(v) > 0]
+
+            # Prices: firm["prices"] is a dict like {"food": 1.79}
+            price_dict = firm.get("prices", {})
+            if price_dict:
+                p_vals = [float(v) for v in price_dict.values() if v is not None and float(v) > 0]
                 if p_vals:
-                    prices.append(float(p_vals[0]))
-            # Costs: supply_unit_costs dict; fallback to post_shock_cost
-            suc = firm.get("supply_unit_costs", {})
-            if suc:
-                c_vals = [float(v) for v in suc.values() if v is not None]
-                if c_vals:
-                    costs.append(c_vals[0])
-            elif post_shock_cost is not None:
-                costs.append(post_shock_cost)
+                    prices.append(p_vals[0])
+
+            # Costs: expenses_info.supply_by_good[0].unit_cost
+            cost_found = False
+            expenses_info = firm.get("expenses_info", {})
+            supply_by_good = expenses_info.get("supply_by_good", []) if expenses_info else []
+            if supply_by_good:
+                uc = supply_by_good[0].get("unit_cost")
+                if uc is not None:
+                    costs.append(float(uc))
+                    cost_found = True
+
+            if not cost_found:
+                # Fallback: use post-shock cost if shock applied, else 1.0
+                fallback = post_shock_cost if post_shock_cost is not None else 1.0
+                costs.append(fallback)
 
         if prices and costs:
             mean_p = float(np.mean(prices))
@@ -116,32 +134,100 @@ def compute_markup_ratio_series(run_dir: str) -> tuple[np.ndarray, np.ndarray]:
     return np.array(timesteps, dtype=float), np.array(mu_series, dtype=float)
 
 
+def compute_bankruptcy_series(run_dir: str) -> tuple[np.ndarray, np.ndarray]:
+    """Return (timesteps, dead_count_t) — number of bankrupt firms per step.
+
+    For each state file, counts firms where ``in_business`` is False.
+    Timesteps are aligned with those from :func:`compute_markup_ratio_series`
+    (both iterate the same ``state_t*.json`` files).
+    """
+    timesteps: list[int] = []
+    dead_counts: list[int] = []
+
+    for t, state in _iter_state_files(run_dir):
+        firms = state.get("firms", [])
+        dead = sum(1 for f in firms if not f.get("in_business", True))
+        timesteps.append(t)
+        dead_counts.append(dead)
+
+    return np.array(timesteps, dtype=float), np.array(dead_counts, dtype=float)
+
+
+def compute_consumer_surplus_series(run_dir: str) -> tuple[np.ndarray, np.ndarray]:
+    """Return (timesteps, cs_t) — per-step average buyer consumer surplus.
+
+    Reads ``lemon_market_avg_consumer_surplus`` from each state file.
+    Timesteps where the field is absent are skipped.
+    """
+    timesteps: list[int] = []
+    cs_series: list[float] = []
+
+    for t, state in _iter_state_files(run_dir):
+        cs = state.get("lemon_market_avg_consumer_surplus")
+        if cs is not None:
+            timesteps.append(t)
+            cs_series.append(float(cs))
+
+    return np.array(timesteps, dtype=float), np.array(cs_series, dtype=float)
+
+
+def rolling_mean(values: np.ndarray, k: int) -> np.ndarray:
+    """Trailing rolling mean with window *k*.
+
+    For indices < k the mean is taken over all available preceding values
+    (i.e. the window shrinks at the start of the series).
+    """
+    out = np.empty_like(values, dtype=float)
+    cumsum = np.cumsum(values)
+    for i in range(len(values)):
+        lo = max(0, i - k + 1)
+        span = i - lo + 1
+        out[i] = (cumsum[i] - (cumsum[lo - 1] if lo > 0 else 0.0)) / span
+    return out
+
+
 def compute_perstep_detection_premium_series(run_dir: str) -> tuple[np.ndarray, np.ndarray]:
     """Return (timesteps, delta_t) from per-step pass rates in state files.
 
     delta_t = sybil_pass_rate_this_step - honest_pass_rate_this_step.
 
-    These fields are written by the lemon market step under the keys
-    ``sybil_pass_rate_this_step`` and ``honest_pass_rate_this_step`` at the
-    top level of the state dict (or inside a ``lemon_market_stats`` block if
-    present).  If neither field is found for a timestep, that timestep is
-    skipped.
+    Looks for the fields in three places (in order):
+      1. Top-level state keys.
+      2. Inside a ``lemon_market_stats`` block.
+      3. Averaged across ``consumers[]`` entries (each consumer carries its
+         own ``sybil_pass_rate_this_step`` / ``honest_pass_rate_this_step``).
+
+    If no data is found for a timestep, that timestep is skipped.
     """
     timesteps = []
     delta_series = []
 
     for t, state in _iter_state_files(run_dir):
-        # Try top-level keys first
         sybil_rate = state.get("sybil_pass_rate_this_step")
         honest_rate = state.get("honest_pass_rate_this_step")
 
-        # Fallback: inside a nested lemon_market_stats block
         if sybil_rate is None or honest_rate is None:
             lm_stats = state.get("lemon_market_stats", {})
             if sybil_rate is None:
                 sybil_rate = lm_stats.get("sybil_pass_rate_this_step")
             if honest_rate is None:
                 honest_rate = lm_stats.get("honest_pass_rate_this_step")
+
+        # Fallback: aggregate per-consumer pass rates
+        if sybil_rate is None or honest_rate is None:
+            consumers = state.get("consumers", [])
+            sybil_vals, honest_vals = [], []
+            for c in consumers:
+                sv = c.get("sybil_pass_rate_this_step")
+                hv = c.get("honest_pass_rate_this_step")
+                if sv is not None:
+                    sybil_vals.append(float(sv))
+                if hv is not None:
+                    honest_vals.append(float(hv))
+            if sybil_vals and sybil_rate is None:
+                sybil_rate = float(np.mean(sybil_vals))
+            if honest_vals and honest_rate is None:
+                honest_rate = float(np.mean(honest_vals))
 
         if sybil_rate is not None and honest_rate is not None:
             timesteps.append(t)

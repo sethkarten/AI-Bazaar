@@ -5,24 +5,25 @@ Run Experiment 3 (Supply Shock & Sybil Flood) — recovery benchmark.
 Sub-experiments
 ---------------
 exp3a  THE_CRASH + supply cost shock at t=25
-  Grid: n_stab ∈ {0,1,3,5} × dlc ∈ {1,3,5} × seeds {8,16,64} → 36 runs
+  Grid: n_stab=5 × dlc=3 × seeds {8,16,64} → 3 runs
 
 exp3b  LEMON_MARKET + sybil flood at t=15
-  Grid: k_initial ∈ {3,6,9} × rep_visible ∈ {True,False} × seeds {8,16,64} → 18 runs
+  Grid: k_initial=6 × rep_visible=True × seeds {8,16,64} → 3 runs
+  Flood target: 4 × (12 − 6) = 24 sybils → 80% saturation post-shock.
 
-Total: 54 runs
+Total: 6 runs per model
 
 Usage (from project root)
 --------------------------
-  python scripts/exp3.py                         # all 54 runs, sequential
-  python scripts/exp3.py --workers 3             # 3 parallel workers
-  python scripts/exp3.py --experiment crash      # only exp3a (36 runs)
-  python scripts/exp3.py --experiment lemon      # only exp3b (18 runs)
-  python scripts/exp3.py --n-stab 0 3            # crash: only n_stab=0 or 3
-  python scripts/exp3.py --dlc 1 5              # crash: only dlc=1 or 5
-  python scripts/exp3.py --k 3 9               # lemon: only k_initial=3 or 9
-  python scripts/exp3.py --rep-visible 1        # lemon: rep-visible only
-  python scripts/exp3.py --seeds 8             # seed=8 only
+  python scripts/exp3.py                              # all 6 runs, sequential (gemini-3-flash-preview)
+  python scripts/exp3.py --workers 3                  # 3 parallel workers
+  python scripts/exp3.py --test-llm my-finetuned-model  # swap the model under test
+  python scripts/exp3.py --seller-llm other-model     # override fixed seller (lemon only)
+  python scripts/exp3.py --experiment crash            # only exp3a (3 runs)
+  python scripts/exp3.py --experiment lemon            # only exp3b (3 runs)
+  python scripts/exp3.py --n-stab 3 5                 # crash: only n_stab=3 or 5
+  python scripts/exp3.py --rep-visible 1               # lemon: rep-visible only
+  python scripts/exp3.py --seeds 8                     # seed=8 only
   python scripts/exp3.py --skip-existing
   python scripts/exp3.py --list
   python scripts/exp3.py --no-color
@@ -49,8 +50,8 @@ SUMMARY_LOG: Path | None = None
 
 # ── Exp3a constants ────────────────────────────────────────────────────────────
 CRASH_SEEDS = (8, 16, 64)
-CRASH_N_STAB_VALUES = (0, 1, 3, 5)
-CRASH_DLC_VALUES = (1, 3, 5)
+CRASH_N_STAB_VALUES = (5,)
+CRASH_DLC_VALUES = (3,)
 
 _BASE_CRASH = [
     "--use-cost-pref-gen", "--max-supply-unit-cost", "1",
@@ -60,14 +61,14 @@ _BASE_CRASH = [
     "--overhead-costs", "14",
     "--consumer-scenario", "THE_CRASH",
     "--wtp-algo", "none",
-    "--prompt-algo", "cot", "--no-diaries",
+    "--prompt-algo", "io", "--no-diaries",
     "--shock-timestep", "25",
-    "--post-shock-unit-cost", "10.0",
+    "--post-shock-unit-cost", "2.0",
 ]
 
 # ── Exp3b constants ────────────────────────────────────────────────────────────
 LEMON_SEEDS = (8, 16, 64)
-LEMON_K_VALUES = (3, 6, 9)
+LEMON_K_VALUES = (6,)
 NUM_TOTAL_SELLERS = 12
 RHO_MIN = 0.3
 
@@ -79,11 +80,12 @@ _BASE_LEMON = [
     "--reputation-initial", "0.8",
     "--sybil-rho-min", str(RHO_MIN),
     "--discovery-limit-consumers", "3",
-    "--max-tokens", "2000",
+    "--max-tokens", "1000",
     "--no-diaries",
-    "--prompt-algo", "cot",
+    "--prompt-algo", "io",
     "--shock-timestep", "15",
-    "--post-shock-sybil-cluster-size", "45",
+    # --post-shock-sybil-cluster-size is set per-cell in build_lemon_runs
+    # to achieve exactly 80% saturation: flood_k = 4 × (12 − k_initial)
 ]
 
 
@@ -106,17 +108,18 @@ def seller_personas_spec(num_honest: int) -> str:
 
 def build_crash_runs(
     base: list[str],
-    name_prefix: str,
+    label_prefix: str,
+    log_dir_name: str,
     max_timesteps: int = 100,
 ) -> list[tuple[str, list[str], dict]]:
     """Build exp3a run list: n_stab × dlc × seed."""
     runs: list[tuple[str, list[str], dict]] = []
-    log_dir_arg = f"logs/{name_prefix}"
+    log_dir_arg = f"logs/{log_dir_name}"
 
     for n_stab in CRASH_N_STAB_VALUES:
         for dlc in CRASH_DLC_VALUES:
             for seed in CRASH_SEEDS:
-                label = f"{name_prefix}_stab{n_stab}_dlc{dlc}_seed{seed}"
+                label = f"{label_prefix}_stab{n_stab}_dlc{dlc}_seed{seed}"
                 stab_args = ["--num-stabilizing-firms", str(n_stab)] if n_stab > 0 else []
                 argv = (
                     ["--name", label, "--log-dir", log_dir_arg,
@@ -137,21 +140,24 @@ def build_crash_runs(
 
 def build_lemon_runs(
     base: list[str],
-    name_prefix: str,
+    label_prefix: str,
+    log_dir_name: str,
     max_timesteps: int = 45,
 ) -> list[tuple[str, list[str], dict]]:
     """Build exp3b run list: k_initial × rep_visible × seed."""
     runs: list[tuple[str, list[str], dict]] = []
-    log_dir_arg = f"logs/{name_prefix}"
+    log_dir_arg = f"logs/{log_dir_name}"
 
     for k_initial in LEMON_K_VALUES:
         num_honest = NUM_TOTAL_SELLERS - k_initial
         personas = seller_personas_spec(num_honest)
-        saturation = k_initial / NUM_TOTAL_SELLERS
-        for rep_visible in (True, False):
+        # Flood to 80% saturation: flood_k / (num_honest + flood_k) = 0.8
+        # → flood_k = 4 × num_honest
+        flood_k = 4 * num_honest
+        for rep_visible in (True,):
             for seed in LEMON_SEEDS:
                 rep_tag = "rep1" if rep_visible else "rep0"
-                label = f"{name_prefix}_k{k_initial}_{rep_tag}_seed{seed}"
+                label = f"{label_prefix}_k{k_initial}_{rep_tag}_seed{seed}"
                 extra = [] if rep_visible else ["--no-buyer-rep"]
                 argv = (
                     ["--name", label, "--log-dir", log_dir_arg,
@@ -159,6 +165,7 @@ def build_lemon_runs(
                      "--num-sellers", str(NUM_TOTAL_SELLERS),
                      "--sybil-cluster-size", str(k_initial),
                      "--seller-personas", personas,
+                     "--post-shock-sybil-cluster-size", str(flood_k),
                      "--seed", str(seed)]
                     + extra
                     + base
@@ -166,8 +173,8 @@ def build_lemon_runs(
                 runs.append((
                     label,
                     argv,
-                    {"k_initial": k_initial, "rep_visible": rep_visible, "seed": seed,
-                     "saturation": saturation},
+                    {"k_initial": k_initial, "flood_k": flood_k,
+                     "rep_visible": rep_visible, "seed": seed},
                 ))
 
     return runs
@@ -370,7 +377,7 @@ def filter_crash_runs(
     seed_filter: list[int] | None,
     run_filter: list[str] | None,
     skip_existing: bool,
-    name_prefix: str,
+    log_dir_name: str,
 ) -> list[tuple[str, list[str], dict]]:
     selected = []
     for label, argv, meta in runs:
@@ -382,7 +389,7 @@ def filter_crash_runs(
             continue
         if seed_filter is not None and meta["seed"] not in seed_filter:
             continue
-        if skip_existing and (PROJECT_ROOT / "logs" / name_prefix / label).is_dir():
+        if skip_existing and (PROJECT_ROOT / "logs" / log_dir_name / label).is_dir():
             continue
         selected.append((label, argv, meta))
     return selected
@@ -395,7 +402,7 @@ def filter_lemon_runs(
     seed_filter: list[int] | None,
     run_filter: list[str] | None,
     skip_existing: bool,
-    name_prefix: str,
+    log_dir_name: str,
 ) -> list[tuple[str, list[str], dict]]:
     selected = []
     for label, argv, meta in runs:
@@ -407,7 +414,7 @@ def filter_lemon_runs(
             continue
         if seed_filter is not None and meta["seed"] not in seed_filter:
             continue
-        if skip_existing and (PROJECT_ROOT / "logs" / name_prefix / label).is_dir():
+        if skip_existing and (PROJECT_ROOT / "logs" / log_dir_name / label).is_dir():
             continue
         selected.append((label, argv, meta))
     return selected
@@ -427,16 +434,14 @@ def main() -> None:
         help="Parallel simulation workers (default: 1).",
     )
     parser.add_argument(
-        "--llm", type=str, default="gemini-2.5-flash",
-        help="LLM model (default: gemini-2.5-flash).",
+        "--test-llm", type=str, default="gemini-3-flash-preview", dest="test_llm",
+        help="Model under test: used as the firm LLM (crash) and buyer LLM (lemon). "
+             "Default: gemini-3-flash-preview.",
     )
     parser.add_argument(
-        "--buyer-llm", type=str, default=None, dest="buyer_llm",
-        help="LLM for buyer agents (lemon). Falls back to --llm if unset.",
-    )
-    parser.add_argument(
-        "--seller-llm", type=str, default=None, dest="seller_llm",
-        help="LLM for seller/sybil agents (lemon). Falls back to --llm if unset.",
+        "--seller-llm", type=str, default="gemini-3-flash-preview", dest="seller_llm",
+        help="Fixed seller/sybil LLM for lemon sub-experiment. "
+             "Default: gemini-3-flash-preview.",
     )
     parser.add_argument(
         "--service", type=str, default=None,
@@ -478,15 +483,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--max-timesteps", type=int, default=None,
-        help="Override episode length for all runs (crash default=100, lemon default=45).",
+        help="Override episode length for all runs (crash default=100, lemon default=50).",
     )
     parser.add_argument(
-        "--prompt-algo", type=str, default="cot", choices=["io", "cot", "sc"],
-        help="Prompt algorithm passed to all runs (default: cot).",
+        "--prompt-algo", type=str, default="io", choices=["io", "cot", "sc"],
+        help="Prompt algorithm passed to all runs (default: io).",
     )
     parser.add_argument(
-        "--max-tokens", type=int, default=2000,
-        help="Max tokens per LLM call (default: 2000).",
+        "--max-tokens", type=int, default=1000,
+        help="Max tokens per LLM call (default: 1000).",
     )
     # Crash-specific filters
     parser.add_argument(
@@ -546,51 +551,56 @@ def main() -> None:
     if cli.no_color or not sys.stdout.isatty():
         _use_color = False
 
-    model_slug = llm_filesystem_slug(cli.buyer_llm or cli.llm)
+    # test-llm drives the model slug (used for both crash firm and lemon buyer)
+    model_slug = llm_filesystem_slug(cli.test_llm)
 
-    # ── Build shared LLM args ─────────────────────────────────────────────────
-    llm_args_shared = ["--llm", cli.llm, "--max-tokens", str(cli.max_tokens)]
+    # ── Build LLM arg blocks ──────────────────────────────────────────────────
+    # Crash: test-llm is the firm LLM
+    llm_args_crash = ["--llm", cli.test_llm, "--max-tokens", str(cli.max_tokens)]
     if cli.service:
-        llm_args_shared += ["--service", cli.service]
+        llm_args_crash += ["--service", cli.service]
     if cli.port:
-        llm_args_shared += ["--port", str(cli.port)]
+        llm_args_crash += ["--port", str(cli.port)]
     if cli.openrouter_provider:
-        llm_args_shared += ["--openrouter-provider", *cli.openrouter_provider]
+        llm_args_crash += ["--openrouter-provider", *cli.openrouter_provider]
 
-    llm_args_buyer = []
-    if cli.buyer_llm:
-        llm_args_buyer += ["--buyer-llm", cli.buyer_llm]
+    # Lemon: test-llm → buyer; seller-llm → seller/sybil
+    llm_args_lemon = [
+        "--buyer-llm", cli.test_llm,
+        "--seller-llm", cli.seller_llm,
+        "--max-tokens", str(cli.max_tokens),
+    ]
+    if cli.service:
+        llm_args_lemon += ["--service", cli.service]
+    if cli.port:
+        llm_args_lemon += ["--port", str(cli.port)]
+    if cli.openrouter_provider:
+        llm_args_lemon += ["--openrouter-provider", *cli.openrouter_provider]
     if cli.buyer_service:
-        llm_args_buyer += ["--buyer-service", cli.buyer_service]
+        llm_args_lemon += ["--buyer-service", cli.buyer_service]
     if cli.buyer_port:
-        llm_args_buyer += ["--buyer-port", str(cli.buyer_port)]
+        llm_args_lemon += ["--buyer-port", str(cli.buyer_port)]
     if cli.buyer_openrouter_provider:
-        llm_args_buyer += ["--buyer-openrouter-provider", *cli.buyer_openrouter_provider]
-
-    llm_args_seller = []
-    if cli.seller_llm:
-        llm_args_seller += ["--seller-llm", cli.seller_llm]
+        llm_args_lemon += ["--buyer-openrouter-provider", *cli.buyer_openrouter_provider]
     if cli.seller_service:
-        llm_args_seller += ["--seller-service", cli.seller_service]
+        llm_args_lemon += ["--seller-service", cli.seller_service]
     if cli.seller_port:
-        llm_args_seller += ["--seller-port", str(cli.seller_port)]
+        llm_args_lemon += ["--seller-port", str(cli.seller_port)]
     if cli.seller_openrouter_provider:
-        llm_args_seller += ["--seller-openrouter-provider", *cli.seller_openrouter_provider]
+        llm_args_lemon += ["--seller-openrouter-provider", *cli.seller_openrouter_provider]
 
     prompt_args = ["--prompt-algo", cli.prompt_algo]
 
+    # All runs for a given test-llm share one folder: logs/exp3_{model_slug}/
+    shared_dir = f"exp3_{model_slug}"
+
     # ── Build crash runs ──────────────────────────────────────────────────────
     crash_runs: list[tuple[str, list[str], dict]] = []
-    crash_prefix = f"exp3a_{model_slug}"
     if cli.experiment in ("crash", "both"):
         crash_ts = cli.max_timesteps if cli.max_timesteps is not None else 100
         crash_log_args = ["--log-crash-firm-prompts"] if cli.log_prompts else []
-        crash_base = _BASE_CRASH + llm_args_shared + prompt_args + crash_log_args
-        crash_runs = build_crash_runs(crash_base, crash_prefix, max_timesteps=crash_ts)
-
-        rep_visible_filter = None
-        if cli.rep_visible is not None:
-            rep_visible_filter = [bool(v) for v in cli.rep_visible]
+        crash_base = _BASE_CRASH + llm_args_crash + prompt_args + crash_log_args
+        crash_runs = build_crash_runs(crash_base, "exp3a", shared_dir, max_timesteps=crash_ts)
 
         crash_runs = filter_crash_runs(
             crash_runs,
@@ -599,26 +609,25 @@ def main() -> None:
             seed_filter=cli.seeds,
             run_filter=cli.runs,
             skip_existing=cli.skip_existing,
-            name_prefix=crash_prefix,
+            log_dir_name=shared_dir,
         )
 
     # ── Build lemon runs ──────────────────────────────────────────────────────
     lemon_runs: list[tuple[str, list[str], dict]] = []
-    lemon_prefix = f"exp3b_{model_slug}"
     if cli.experiment in ("lemon", "both"):
-        lemon_ts = cli.max_timesteps if cli.max_timesteps is not None else 45
+        lemon_ts = cli.max_timesteps if cli.max_timesteps is not None else 50
         lemon_log_args = []
         if cli.log_buyer_prompts:
             lemon_log_args += ["--log-buyer-prompts"]
         if cli.log_seller_prompts:
             lemon_log_args += ["--log-seller-prompts"]
-        lemon_base = _BASE_LEMON + llm_args_shared + llm_args_buyer + llm_args_seller + prompt_args + lemon_log_args
+        lemon_base = _BASE_LEMON + llm_args_lemon + prompt_args + lemon_log_args
 
         rep_visible_filter = None
         if cli.rep_visible is not None:
             rep_visible_filter = [bool(v) for v in cli.rep_visible]
 
-        all_lemon = build_lemon_runs(lemon_base, lemon_prefix, max_timesteps=lemon_ts)
+        all_lemon = build_lemon_runs(lemon_base, "exp3b", shared_dir, max_timesteps=lemon_ts)
         lemon_runs = filter_lemon_runs(
             all_lemon,
             k_filter=cli.k,
@@ -626,23 +635,25 @@ def main() -> None:
             seed_filter=cli.seeds,
             run_filter=cli.runs,
             skip_existing=cli.skip_existing,
-            name_prefix=lemon_prefix,
+            log_dir_name=shared_dir,
         )
 
     selected = crash_runs + lemon_runs
 
     # ── --list mode ───────────────────────────────────────────────────────────
     if cli.list:
-        total_crash = len(build_crash_runs([], crash_prefix)) if cli.experiment in ("crash","both") else 0
-        total_lemon = len(build_lemon_runs([], lemon_prefix)) if cli.experiment in ("lemon","both") else 0
-        print(f"Matching runs ({len(selected)} / {total_crash + total_lemon} total):")
+        total_crash = len(build_crash_runs([], "exp3a", shared_dir)) if cli.experiment in ("crash","both") else 0
+        total_lemon = len(build_lemon_runs([], "exp3b", shared_dir)) if cli.experiment in ("lemon","both") else 0
+        print(f"Matching runs ({len(selected)} / {total_crash + total_lemon} total)  →  logs/{shared_dir}/")
         for label, _, meta in selected:
             if "n_stab" in meta:
-                print(f"  {label:65s}  [crash  n_stab={meta['n_stab']}  dlc={meta['dlc']}  seed={meta['seed']}]")
+                print(f"  {label:55s}  [crash  n_stab={meta['n_stab']}  dlc={meta['dlc']}  seed={meta['seed']}]")
             else:
-                sat = f"sat={meta.get('saturation', 0):.0%}"
+                flood_k = meta["flood_k"]
+                num_honest = NUM_TOTAL_SELLERS - meta["k_initial"]
+                post_sat = flood_k / (num_honest + flood_k)
                 rep = "rep=visible" if meta["rep_visible"] else "rep=hidden"
-                print(f"  {label:65s}  [lemon  K={meta['k_initial']}  {sat}  {rep}  seed={meta['seed']}]")
+                print(f"  {label:55s}  [lemon  K={meta['k_initial']}→{flood_k}  sat={post_sat:.0%}  {rep}  seed={meta['seed']}]")
         return
 
     if not selected:
@@ -650,13 +661,8 @@ def main() -> None:
         return
 
     # ── Setup logging dirs ────────────────────────────────────────────────────
-    # Use crash_prefix dir as default LOGS_DIR (lemon has its own subdir)
-    primary_prefix = crash_prefix if crash_runs else lemon_prefix
-    LOGS_DIR = PROJECT_ROOT / "logs" / primary_prefix
+    LOGS_DIR = PROJECT_ROOT / "logs" / shared_dir
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    # Also ensure lemon logs dir exists
-    if lemon_runs:
-        (PROJECT_ROOT / "logs" / lemon_prefix).mkdir(parents=True, exist_ok=True)
     SUMMARY_LOG = LOGS_DIR / f"exp3_{TIMESTAMP}.log"
 
     total = len(selected)
@@ -665,11 +671,11 @@ def main() -> None:
     batch_start = time.monotonic()
 
     log(f"Experiment 3 started. Project root: {PROJECT_ROOT}")
-    log(f"Selected: {len(selected)} runs  |  workers: {worker_count}  |  llm: {cli.llm}  |  prompt-algo: {cli.prompt_algo}")
+    log(f"Selected: {len(selected)} runs  |  workers: {worker_count}  |  test-llm: {cli.test_llm}  |  seller-llm: {cli.seller_llm}  |  prompt-algo: {cli.prompt_algo}")
     if crash_runs:
         log(f"Crash (exp3a): {len(crash_runs)} runs  n_stab∈{CRASH_N_STAB_VALUES}  dlc∈{CRASH_DLC_VALUES}  seeds={CRASH_SEEDS}")
     if lemon_runs:
-        log(f"Lemon (exp3b): {len(lemon_runs)} runs  K∈{LEMON_K_VALUES}  rep_visible∈{{True,False}}  seeds={LEMON_SEEDS}")
+        log(f"Lemon (exp3b): {len(lemon_runs)} runs  K∈{LEMON_K_VALUES}  flood→80% sat  rep_visible=True  seeds={LEMON_SEEDS}")
 
     if _called_as_main:
         with _status_lock:
@@ -707,7 +713,7 @@ def main() -> None:
     total_wall = time.monotonic() - batch_start
     log(
         f"Experiment 3 completed. Total wall time: {format_duration(total_wall)}. "
-        f"Crash logs: logs/{crash_prefix}/  Lemon logs: logs/{lemon_prefix}/"
+        f"All logs: logs/{shared_dir}/"
     )
 
 

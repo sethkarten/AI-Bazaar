@@ -157,6 +157,15 @@ def run_marketplace_simulation(args, llm_instance=None):
         while not world.is_done():
             logger.info(f"TIMESTEP {world.timestep}")
             print(f"TIMESTEP {world.timestep}")
+            # --- Exp3: Shock injection ---
+            if (getattr(args, 'shock_timestep', None) is not None
+                    and world.timestep == args.shock_timestep
+                    and not getattr(world, '_shock_applied', False)):
+                if getattr(args, 'post_shock_unit_cost', None) is not None:
+                    world._apply_cost_shock(args.post_shock_unit_cost)
+                if getattr(args, 'post_shock_sybil_cluster_size', None) is not None:
+                    world._apply_sybil_flood(args.post_shock_sybil_cluster_size)
+            # --- End shock injection ---
             stats = world.step()
             if args.wandb:
                 wandb.log(stats, step=world.timestep - 1)
@@ -605,6 +614,23 @@ def create_argument_parser():
         help="Overhead costs per week for firms; default 14.0",
     )
 
+    # Experiment 3: Shock Parameters
+    shock_group = parser.add_argument_group("Experiment 3: Shock Parameters")
+    shock_group.add_argument(
+        "--shock-timestep", type=int, default=None,
+        help="Timestep at which to inject the shock (None = no shock)."
+    )
+    shock_group.add_argument(
+        "--post-shock-unit-cost", type=float, default=None,
+        help="New unit cost after supply shock (Crash variant). "
+             "Applied to all firms at --shock-timestep."
+    )
+    shock_group.add_argument(
+        "--post-shock-sybil-cluster-size", type=int, default=None,
+        help="New sybil cluster size after flood shock (Lemon variant). "
+             "Identities added to DeceptivePrincipal at --shock-timestep."
+    )
+
     return parser
 
 
@@ -629,6 +655,26 @@ def main():
     # THE_CRASH: default Poisson demand lambda to 60% of num_consumers unless explicitly set
     if getattr(args, "consumer_scenario", None) == "THE_CRASH" and getattr(args, "poisson_demand_lambda", None) is None:
         args.poisson_demand_lambda = 0.6 * args.num_consumers
+
+    # Exp3: Shock validation
+    if getattr(args, "post_shock_unit_cost", None) is not None:
+        if getattr(args, "shock_timestep", None) is None:
+            print("ERROR: --post-shock-unit-cost requires --shock-timestep.")
+            sys.exit(1)
+        if getattr(args, "consumer_scenario", None) != "THE_CRASH":
+            print("ERROR: --post-shock-unit-cost requires --consumer-scenario THE_CRASH.")
+            sys.exit(1)
+    if getattr(args, "post_shock_sybil_cluster_size", None) is not None:
+        if getattr(args, "shock_timestep", None) is None:
+            print("ERROR: --post-shock-sybil-cluster-size requires --shock-timestep.")
+            sys.exit(1)
+        if getattr(args, "consumer_scenario", None) != "LEMON_MARKET":
+            print("ERROR: --post-shock-sybil-cluster-size requires --consumer-scenario LEMON_MARKET.")
+            sys.exit(1)
+    if (getattr(args, "post_shock_unit_cost", None) is not None
+            and getattr(args, "post_shock_sybil_cluster_size", None) is not None):
+        print("ERROR: --post-shock-unit-cost and --post-shock-sybil-cluster-size cannot both be active.")
+        sys.exit(1)
 
     setup_logging(args)
     logger = logging.getLogger("main")
