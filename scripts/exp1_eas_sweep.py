@@ -57,29 +57,17 @@ def _agent_debug_log(hypothesis_id: str, location: str, message: str, data: dict
 
 TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-# ── Dense open-weight models with include=1 (EAS_vs_MODEL_SIZE.md) ─────────
-# (display_name, params_B, openrouter_model_id)
-DENSE_MODELS = [
-    ("Llama 3.2 3B",        3.0,   "meta-llama/llama-3.2-3b-instruct"),
-    ("Gemma 3 4B",          4.0,   "google/gemma-3-4b-it"),
-    ("Mistral 7B",          7.3,   "mistralai/mistral-7b-instruct-v0.1"),
-    ("Llama 3.1 8B",        8.0,   "meta-llama/llama-3.1-8b-instruct"),
-    ("Qwen3 8B",            8.2,   "qwen/qwen3-8b"),
-    ("Gemma 3 12B",         12.0,  "google/gemma-3-12b-it"),
-    ("Phi-4",               14.0,  "microsoft/phi-4"),
-    # ("DS-R1-D 14B",       14.0,  "deepseek/deepseek-r1-distill-qwen-14b"),  # removed from OpenRouter
-    ("Mistral Small 24B",   24.0,  "mistralai/mistral-small-3.1-24b-instruct"),
-    ("Gemma 3 27B",         27.0,  "google/gemma-3-27b-it"),
-    ("DS-R1-D 32B",         32.0,  "deepseek/deepseek-r1-distill-qwen-32b"),
-    ("Llama 3.3 70B",       70.0,  "meta-llama/llama-3.3-70b-instruct"),
-    ("Llama 3.1 70B",       70.0,  "meta-llama/llama-3.1-70b-instruct"),
-    ("DS-R1-D 70B",         70.0,  "deepseek/deepseek-r1-distill-llama-70b"),
-    ("Nemotron 70B",        70.0,  "nvidia/llama-3.1-nemotron-70b-instruct"),
-    ("Qwen2.5 72B",         72.0,  "qwen/qwen-2.5-72b-instruct"),
-    # ("Llama 3.1 405B",    405.0, "meta-llama/llama-3.1-405b-instruct"),     # removed from OpenRouter
-    ("Hermes 3 405B",       405.0, "nousresearch/hermes-3-llama-3.1-405b"),
-    ("Hermes 4 405B",       405.0, "nousresearch/hermes-4-405b"),
-]
+MODELS_JSON = PROJECT_ROOT / "documentation" / "open_weights_models.json"
+
+
+def _load_models() -> list[tuple[str, float, str]]:
+    """Load the open-weights model list from documentation/open_weights_models.json."""
+    with open(MODELS_JSON, encoding="utf-8") as f:
+        entries = json.load(f)
+    return [(e["display_name"], e["params_b"], e["slug"]) for e in entries]
+
+
+DENSE_MODELS = _load_models()
 
 # Fixed simulation args (matches exp1.py _BASE_FIXED)
 _BASE_FIXED = [
@@ -90,7 +78,7 @@ _BASE_FIXED = [
     "--overhead-costs", "14",
     "--consumer-scenario", "THE_CRASH",
     "--wtp-algo", "none",
-    "--prompt-algo", "cot", "--no-diaries",
+    "--prompt-algo", "io", "--no-diaries",
 ]
 
 # ── Shared state ────────────────────────────────────────────────────────────
@@ -254,7 +242,7 @@ def main() -> None:
     ap.add_argument("--skip-existing", action="store_true",
                     help="Skip runs whose log directory already exists.")
     ap.add_argument("--max-timesteps", type=int, default=365, metavar="T")
-    ap.add_argument("--max-tokens",    type=int, default=2000, metavar="N")
+    ap.add_argument("--max-tokens",    type=int, default=1000, metavar="N")
     ap.add_argument("--log-prompts",   action="store_true",
                     help="Enable --log-crash-firm-prompts for each run.")
     ap.add_argument("--list",          action="store_true",

@@ -33,6 +33,7 @@ Usage:
 """
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -48,29 +49,17 @@ if not (PROJECT_ROOT / "ai_bazaar").exists():
 
 TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-# ── Dense open-weight models with include=1 (EAS_vs_MODEL_SIZE.md) ─────────
-# (display_name, params_B, openrouter_model_id)
-DENSE_MODELS = [
-    ("Llama 3.2 3B",        3.0,   "meta-llama/llama-3.2-3b-instruct"),
-    ("Gemma 3 4B",          4.0,   "google/gemma-3-4b-it"),
-    ("Mistral 7B",          7.3,   "mistralai/mistral-7b-instruct-v0.1"),
-    ("Llama 3.1 8B",        8.0,   "meta-llama/llama-3.1-8b-instruct"),
-    ("Qwen3 8B",            8.2,   "qwen/qwen3-8b"),
-    ("Gemma 3 12B",         12.0,  "google/gemma-3-12b-it"),
-    ("Phi-4",               14.0,  "microsoft/phi-4"),
-    # ("DS-R1-D 14B",       14.0,  "deepseek/deepseek-r1-distill-qwen-14b"),  # removed from OpenRouter
-    ("Mistral Small 24B",   24.0,  "mistralai/mistral-small-3.1-24b-instruct"),
-    ("Gemma 3 27B",         27.0,  "google/gemma-3-27b-it"),
-    ("DS-R1-D 32B",         32.0,  "deepseek/deepseek-r1-distill-qwen-32b"),
-    ("Llama 3.3 70B",       70.0,  "meta-llama/llama-3.3-70b-instruct"),
-    ("Llama 3.1 70B",       70.0,  "meta-llama/llama-3.1-70b-instruct"),
-    ("DS-R1-D 70B",         70.0,  "deepseek/deepseek-r1-distill-llama-70b"),
-    ("Nemotron 70B",        70.0,  "nvidia/llama-3.1-nemotron-70b-instruct"),
-    ("Qwen2.5 72B",         72.0,  "qwen/qwen-2.5-72b-instruct"),
-    # ("Llama 3.1 405B",    405.0, "meta-llama/llama-3.1-405b-instruct"),     # removed from OpenRouter
-    ("Hermes 3 405B",       405.0, "nousresearch/hermes-3-llama-3.1-405b"),
-    ("Hermes 4 405B",       405.0, "nousresearch/hermes-4-405b"),
-]
+MODELS_JSON = PROJECT_ROOT / "documentation" / "open_weights_models.json"
+
+
+def _load_models() -> list[tuple[str, float, str]]:
+    """Load the open-weights model list from documentation/open_weights_models.json."""
+    with open(MODELS_JSON, encoding="utf-8") as f:
+        entries = json.load(f)
+    return [(e["display_name"], e["params_b"], e["slug"]) for e in entries]
+
+
+DENSE_MODELS = _load_models()
 
 NUM_TOTAL_SELLERS = 12   # total seller slots (honest + sybil) — constant
 SEEDS     = (8, 16, 64)
@@ -367,18 +356,12 @@ def main() -> None:
                     help="Skip runs whose log directory already exists.")
     ap.add_argument("--max-timesteps", type=int, default=50, metavar="T",
                     help="Episode length in timesteps (default: 50).")
-    ap.add_argument("--max-tokens",    type=int, default=2000, metavar="N")
-    ap.add_argument("--prompt-algo",   type=str, default="cot",
+    ap.add_argument("--max-tokens",    type=int, default=1000, metavar="N")
+    ap.add_argument("--prompt-algo",   type=str, default="io",
                     choices=["io", "cot", "sc"],
                     help="Prompt algorithm for all runs (default: cot).")
     ap.add_argument("--seller-llm",     type=str, required=True, metavar="MODEL",
                     help="Fixed LLM for honest sellers and sybil principal (required).")
-    ap.add_argument("--buyer-service",  type=str, default=None, metavar="SVC", dest="buyer_service",
-                    help="Service backend for buyer agents (vllm|ollama). Falls back to --service.")
-    ap.add_argument("--seller-service", type=str, default=None, metavar="SVC", dest="seller_service",
-                    help="Service backend for seller agents (vllm|ollama). Falls back to --service.")
-    ap.add_argument("--service",        type=str, default=None, metavar="SVC",
-                    help="Service backend for all agents (vllm|ollama).")
     ap.add_argument("--buyer-port",     type=int, default=None, metavar="N", dest="buyer_port",
                     help="Port for buyer LLM service. Falls back to --port.")
     ap.add_argument("--seller-port",    type=int, default=None, metavar="N", dest="seller_port",
@@ -432,12 +415,6 @@ def main() -> None:
         extra += ["--buyer-openrouter-provider", *cli.buyer_openrouter_provider]
     if cli.seller_openrouter_provider:
         extra += ["--seller-openrouter-provider", *cli.seller_openrouter_provider]
-    if cli.service:
-        extra += ["--service", cli.service]
-    if cli.buyer_service:
-        extra += ["--buyer-service", cli.buyer_service]
-    if cli.seller_service:
-        extra += ["--seller-service", cli.seller_service]
     if cli.port:
         extra += ["--port", str(cli.port)]
     if cli.buyer_port:

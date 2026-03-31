@@ -9,33 +9,22 @@ avoid confounding buyer/test-LLM comparisons across the sweep.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Iterable
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MODELS_JSON = PROJECT_ROOT / "documentation" / "open_weights_models.json"
 
-# Hardcoded open-weights list (kept aligned with OPEN_WEIGHTS_MODELS.md).
-# Format: (display_name, params_in_billions, openrouter_slug)
-OPEN_WEIGHTS_MODELS: list[tuple[str, float, str]] = [
-    ("Llama 3.2 3B", 3.0, "meta-llama/llama-3.2-3b-instruct"),
-    ("Gemma 3 4B", 4.0, "google/gemma-3-4b-it"),
-    ("Mistral 7B", 7.3, "mistralai/mistral-7b-instruct-v0.1"),
-    ("Llama 3.1 8B", 8.0, "meta-llama/llama-3.1-8b-instruct"),
-    ("Qwen3 8B", 8.2, "qwen/qwen3-8b"),
-    ("Gemma 3 12B", 12.0, "google/gemma-3-12b-it"),
-    ("Phi-4", 14.0, "microsoft/phi-4"),
-    ("Mistral Small 24B", 24.0, "mistralai/mistral-small-3.1-24b-instruct"),
-    ("Gemma 3 27B", 27.0, "google/gemma-3-27b-it"),
-    ("DS-R1-D 32B", 32.0, "deepseek/deepseek-r1-distill-qwen-32b"),
-    ("Llama 3.3 70B", 70.0, "meta-llama/llama-3.3-70b-instruct"),
-    ("Llama 3.1 70B", 70.0, "meta-llama/llama-3.1-70b-instruct"),
-    ("DS-R1-D 70B", 70.0, "deepseek/deepseek-r1-distill-llama-70b"),
-    ("Nemotron 70B", 70.0, "nvidia/llama-3.1-nemotron-70b-instruct"),
-    ("Qwen2.5 72B", 72.0, "qwen/qwen-2.5-72b-instruct"),
-    ("Hermes 3 405B", 405.0, "nousresearch/hermes-3-llama-3.1-405b"),
-    ("Hermes 4 405B", 405.0, "nousresearch/hermes-4-405b"),
-]
+
+def _load_models() -> list[tuple[str, float, str]]:
+    """Load the open-weights model list from documentation/open_weights_models.json."""
+    with open(MODELS_JSON, encoding="utf-8") as f:
+        entries = json.load(f)
+    return [(e["display_name"], e["params_b"], e["slug"]) for e in entries]
 
 
 def _matches_any(needles: Iterable[str], haystack: str) -> bool:
@@ -110,7 +99,7 @@ def main() -> None:
     )
     cli = ap.parse_args()
 
-    models = OPEN_WEIGHTS_MODELS
+    models = _load_models()
     if cli.models:
         models = [
             (disp, params, slug)
@@ -138,8 +127,6 @@ def main() -> None:
             test_llm,
             "--seller-llm",
             cli.seller_llm,
-            "--service",
-            "openrouter",
             "--max-tokens",
             str(cli.max_tokens),
             "--prompt-algo",
