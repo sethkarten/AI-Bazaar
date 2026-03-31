@@ -357,7 +357,7 @@ def main() -> None:
     ap.add_argument("--max-timesteps", type=int, default=50, metavar="T",
                     help="Episode length in timesteps (default: 50).")
     ap.add_argument("--max-tokens",    type=int, default=1000, metavar="N")
-    ap.add_argument("--prompt-algo",   type=str, default="io",
+    ap.add_argument("--prompt-algo",   type=str, default="cot",
                     choices=["io", "cot", "sc"],
                     help="Prompt algorithm for all runs (default: cot).")
     ap.add_argument("--seller-llm",     type=str, required=True, metavar="MODEL",
