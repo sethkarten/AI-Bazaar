@@ -56,9 +56,7 @@ def get_volume_series(run_dir: str):
         return None
     import json
     bids_pts, passes_pts = [], []
-    for p in files:
-        with open(p) as f:
-            s = json.load(f)
+    for s in files:
         t = s.get("timestep")
         b = s.get("lemon_market_bids_count")
         pa = s.get("lemon_market_passes_count")

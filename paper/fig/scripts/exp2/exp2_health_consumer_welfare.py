@@ -72,9 +72,7 @@ def compute_welfare(run_dir: str) -> float | None:
     if not files:
         return None
     vals = []
-    for p in files:
-        with open(p) as f:
-            s = json.load(f)
+    for s in files:
         w = s.get("lemon_market_avg_consumer_surplus")
         if w is not None:
             vals.append(float(w))

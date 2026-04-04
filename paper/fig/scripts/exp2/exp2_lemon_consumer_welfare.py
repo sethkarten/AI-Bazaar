@@ -56,9 +56,7 @@ def get_welfare_series(run_dir: str):
     if not files:
         return None
     pts = []
-    for p in files:
-        with open(p) as f:
-            s = json.load(f)
+    for s in files:
         t = s.get("timestep")
         v = s.get("lemon_market_avg_consumer_surplus")
         if t is not None and v is not None:

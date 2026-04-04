@@ -20,6 +20,7 @@ Usage:
 
 import argparse
 import glob
+import json
 import os
 import sys
 
@@ -40,9 +41,17 @@ plt.rcParams.update({
 
 
 def load_run(run_dir):
+    states_path = os.path.join(run_dir, "states.json")
+    if os.path.isfile(states_path):
+        with open(states_path) as f:
+            return json.load(f)
     files = glob.glob(os.path.join(run_dir, "state_t*.json"))
     files.sort(key=lambda p: int("".join(filter(str.isdigit, os.path.basename(p))) or "0"))
-    return files
+    states = []
+    for p in files:
+        with open(p) as f:
+            states.append(json.load(f))
+    return states
 
 
 def final_consumer_surplus(run_dirs):
@@ -52,7 +61,7 @@ def final_consumer_surplus(run_dirs):
         files = load_run(run_dir)
         if not files:
             continue
-        db = DataFrameBuilder(state_files=files)
+        db = DataFrameBuilder(states=files)
         cs = db.consumer_surplus_per_consumer_over_time()
         if cs.empty:
             continue

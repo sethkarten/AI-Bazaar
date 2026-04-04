@@ -1280,11 +1280,18 @@ class BazaarWorld:
         run_name = getattr(self.args, "name", None) or "simulation"
         run_dir = os.path.join(log_dir, run_name)
         os.makedirs(run_dir, exist_ok=True)
-        filename = os.path.join(run_dir, f"state_t{self.timestep}.json")
         import json
 
-        with open(filename, "w") as f:
-            json.dump(state, f, indent=2)
+        filename = os.path.join(run_dir, "states.json")
+        state_str = json.dumps(state, indent=2, default=str)
+
+        if not os.path.exists(filename):
+            with open(filename, "w") as f:
+                f.write("[\n" + state_str + "\n]")
+        else:
+            with open(filename, "r+b") as f:
+                f.seek(-2, 2)  # seek back over the closing `\n]`
+                f.write(b",\n" + state_str.encode() + b"\n]")
         self._retired_this_step = []  # consumed; don't leak into next snapshot
 
     def _build_firms_state(self, money: Dict, inventories: Dict, retired: list = None) -> List[Dict]:

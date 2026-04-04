@@ -56,7 +56,7 @@ def get_rep_series(run_dir: str):
     files = load_state_files(run_dir)
     if not files:
         return None
-    db = DataFrameBuilder(state_files=files)
+    db = DataFrameBuilder(states=files)
     firm_types = load_firm_types(run_dir)
     rep_df = db.reputation_per_firm_over_time()
     if rep_df.empty:

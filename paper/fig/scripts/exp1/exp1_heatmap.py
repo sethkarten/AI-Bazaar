@@ -97,20 +97,23 @@ def _deserialize(data):
 
 
 def load_states(run_dir):
-    """Sorted list of valid (non-empty, parseable) state_t*.json paths in run_dir."""
+    """Return sorted state dicts from run_dir (states.json preferred, state_t*.json fallback)."""
+    states_path = os.path.join(run_dir, "states.json")
+    if os.path.isfile(states_path):
+        with open(states_path) as f:
+            return json.load(f)
     files = glob.glob(os.path.join(run_dir, "state_t*.json"))
     files.sort(key=lambda p: int("".join(filter(str.isdigit, os.path.basename(p))) or "0"))
-    valid = []
+    states = []
     for p in files:
         if os.path.getsize(p) == 0:
             continue
         try:
             with open(p) as f:
-                json.load(f)
-            valid.append(p)
+                states.append(json.load(f))
         except (json.JSONDecodeError, OSError):
             pass
-    return valid
+    return states
 
 
 def get_unit_cost(run_dir):
@@ -135,7 +138,7 @@ def compute_metrics(run_dir, good):
     files = load_states(run_dir)
     if not files:
         return None
-    db = DataFrameBuilder(state_files=files)
+    db = DataFrameBuilder(states=files)
 
     # Bankruptcy rate: 1 - (active firms at last step) / num_firms
     firms_df = db.firms_in_business_over_time().sort_values("timestep")

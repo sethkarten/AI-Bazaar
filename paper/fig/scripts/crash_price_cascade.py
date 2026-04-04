@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import glob
+import json
 import os
 import sys
 
@@ -41,11 +42,18 @@ FIRM_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
 
 
 def load_run(run_dir):
-    """Return sorted list of state file paths for a run directory."""
-    pattern = os.path.join(run_dir, "state_t*.json")
-    files = glob.glob(pattern)
+    """Return sorted list of state dicts for a run directory."""
+    states_path = os.path.join(run_dir, "states.json")
+    if os.path.isfile(states_path):
+        with open(states_path) as f:
+            return json.load(f)
+    files = glob.glob(os.path.join(run_dir, "state_t*.json"))
     files.sort(key=lambda p: int("".join(filter(str.isdigit, os.path.basename(p))) or "0"))
-    return files
+    states = []
+    for p in files:
+        with open(p) as f:
+            states.append(json.load(f))
+    return states
 
 
 def bankruptcy_timesteps(db):
@@ -80,7 +88,7 @@ def main():
         if not files:
             print(f"Warning: no state files in {run_dir}", file=sys.stderr)
             continue
-        db = DataFrameBuilder(state_files=files)
+        db = DataFrameBuilder(states=files)
 
         # Auto-detect good name
         good = args.good

@@ -59,9 +59,7 @@ def get_distrust_series(run_dir: str):
     if not files:
         return None
     pts = []
-    for p in files:
-        with open(p) as f:
-            s = json.load(f)
+    for s in files:
         t = s.get("timestep")
         bids   = s.get("lemon_market_bids_count", 0) or 0
         passes = s.get("lemon_market_passes_count", 0) or 0

@@ -66,35 +66,36 @@ def collect_run_dirs(logs_dir, model=""):
 
 
 def load_states(run_dir):
+    states_path = os.path.join(run_dir, "states.json")
+    if os.path.isfile(states_path):
+        with open(states_path) as f:
+            return json.load(f)
     files = glob.glob(os.path.join(run_dir, "state_t*.json"))
     files.sort(key=lambda p: int("".join(filter(str.isdigit, os.path.basename(p))) or "0"))
-    valid = []
+    states = []
     for p in files:
         if os.path.getsize(p) == 0:
             continue
         try:
             with open(p) as f:
-                json.load(f)
-            valid.append(p)
+                states.append(json.load(f))
         except (json.JSONDecodeError, OSError):
             pass
-    return valid
+    return states
 
 
 def find_first_collapse(run_dir):
     """
     Returns the timestep of the first bankruptcy event, or None if no collapse.
-    Scans state files in order; returns t when active firms < initial firms.
+    Scans state dicts in order; returns t when active firms < initial firms.
     """
-    files = load_states(run_dir)
-    if not files:
+    states = load_states(run_dir)
+    if not states:
         return None
 
     # Get initial firm count from first state
     try:
-        with open(files[0]) as f:
-            first_state = json.load(f)
-        initial_firms = len(first_state.get("firms", []))
+        initial_firms = len(states[0].get("firms", []))
     except Exception:
         return None
 
@@ -102,17 +103,12 @@ def find_first_collapse(run_dir):
         return None
 
     # Scan subsequent states for first bankruptcy
-    for p in files[1:]:
+    for state in states[1:]:
         try:
-            with open(p) as f:
-                state = json.load(f)
             firms = state.get("firms", [])
             active = sum(1 for firm in firms if firm.get("in_business", False))
             if active < initial_firms:
                 ts = state.get("timestep")
-                if ts is None:
-                    digits = "".join(filter(str.isdigit, os.path.basename(p)))
-                    ts = int(digits) if digits else None
                 return ts
         except Exception:
             pass

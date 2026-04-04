@@ -38,7 +38,13 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 def _iter_state_files(run_dir: str):
-    """Yield (timestep, state_dict) pairs from state_t*.json files, sorted."""
+    """Yield (timestep, state_dict) pairs. Prefers states.json, falls back to state_t*.json."""
+    states_path = Path(run_dir) / "states.json"
+    if states_path.is_file():
+        with open(states_path, encoding="utf-8") as fh:
+            for state in json.load(fh):
+                yield state["timestep"], state
+        return
     p = Path(run_dir)
     files = sorted(p.glob("state_t*.json"), key=lambda f: int(f.stem.split("_t")[1]))
     for f in files:

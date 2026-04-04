@@ -660,6 +660,28 @@ Outputs: deception rate, pass rate, description style stats (word count, model-h
 
 ---
 
+## Consolidate Legacy Log Files
+
+Simulation runs now write all timestep states to a single `states.json` per run directory instead of one `state_t{N}.json` file per timestep. Use this script to migrate legacy run directories to the new format.
+
+```bash
+# Single run directory
+python scripts/consolidate_states.py logs/exp1_gemini_stab_2_dlc3_seed0
+
+# Entire experiment directory (recurses into all run subdirs)
+python scripts/consolidate_states.py logs-data/exp1_gemini-3-flash-preview --recursive
+
+# Preview without writing
+python scripts/consolidate_states.py logs-data/ --recursive --dry-run
+
+# Consolidate and delete the per-timestep files when done
+python scripts/consolidate_states.py logs-data/ --recursive --delete
+```
+
+`--delete` is off by default. Omit it on the first pass to verify `states.json` looks correct before cleaning up.
+
+---
+
 ## Start vLLM server (for local/Hugging Face models)
 
 Run this in a **separate terminal** from the project root before running a simulation with `--service vllm`. Use the same `--port` when you run the app (default is **8009**).

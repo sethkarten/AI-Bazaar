@@ -77,10 +77,7 @@ def compute_metrics(run_dir: str, k: int) -> dict | None:
     bids_total     = 0
     passes_total   = 0
 
-    for p in files:
-        with open(p) as f:
-            s = json.load(f)
-
+    for s in files:
         w = s.get("lemon_market_avg_consumer_surplus")
         if w is not None:
             welfare_vals.append(float(w))

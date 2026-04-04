@@ -145,10 +145,20 @@ def load_episode_lengths(logs_dir: str, or_id: str) -> list[int]:
         run_dir = os.path.join(model_dir, entry)
         if not os.path.isdir(run_dir):
             continue
-        valid = [f for f in glob.glob(os.path.join(run_dir, "state_t*.json"))
-                 if os.path.getsize(f) > 0]
-        if valid:
-            lengths.append(len(valid))
+        states_path = os.path.join(run_dir, "states.json")
+        if os.path.isfile(states_path):
+            try:
+                with open(states_path) as f:
+                    count = len(json.load(f))
+                if count > 0:
+                    lengths.append(count)
+            except (json.JSONDecodeError, OSError):
+                pass
+        else:
+            valid = [f for f in glob.glob(os.path.join(run_dir, "state_t*.json"))
+                     if os.path.getsize(f) > 0]
+            if valid:
+                lengths.append(len(valid))
     return lengths
 
 

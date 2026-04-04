@@ -5,22 +5,22 @@ Run Experiment 3 (Supply Shock & Sybil Flood) — recovery benchmark.
 Sub-experiments
 ---------------
 exp3a  THE_CRASH + supply cost shock at t=25
-  Grid: n_stab=5 × dlc=3 × seeds {8,16,64} → 3 runs
+  Grid: n_stab ∈ {3,5} × dlc=3 (fixed) × seeds {8,16,64} → 6 runs
 
 exp3b  LEMON_MARKET + sybil flood at t=15
-  Grid: k_initial=6 × rep_visible=True × seeds {8,16,64} → 3 runs
+  Grid: k_initial=6 (fixed) × rep_visible ∈ {True,False} × seeds {8,16,64} → 6 runs
   Flood target: 4 × (12 − 6) = 24 sybils → 80% saturation post-shock.
 
-Total: 6 runs per model
+Total: 12 runs per model
 
 Usage (from project root)
 --------------------------
-  python scripts/exp3.py                              # all 6 runs, sequential (gemini-3-flash-preview)
+  python scripts/exp3.py                              # all 12 runs, sequential (gemini-3-flash-preview)
   python scripts/exp3.py --workers 3                  # 3 parallel workers
   python scripts/exp3.py --test-llm my-finetuned-model  # swap the model under test
   python scripts/exp3.py --seller-llm other-model     # override fixed seller (lemon only)
-  python scripts/exp3.py --experiment crash            # only exp3a (3 runs)
-  python scripts/exp3.py --experiment lemon            # only exp3b (3 runs)
+  python scripts/exp3.py --experiment crash            # only exp3a (6 runs)
+  python scripts/exp3.py --experiment lemon            # only exp3b (6 runs)
   python scripts/exp3.py --n-stab 3 5                 # crash: only n_stab=3 or 5
   python scripts/exp3.py --rep-visible 1               # lemon: rep-visible only
   python scripts/exp3.py --seeds 8                     # seed=8 only
@@ -50,7 +50,7 @@ SUMMARY_LOG: Path | None = None
 
 # ── Exp3a constants ────────────────────────────────────────────────────────────
 CRASH_SEEDS = (8, 16, 64)
-CRASH_N_STAB_VALUES = (5,)
+CRASH_N_STAB_VALUES = (3, 5)
 CRASH_DLC_VALUES = (3,)
 
 _BASE_CRASH = [
@@ -154,7 +154,7 @@ def build_lemon_runs(
         # Flood to 80% saturation: flood_k / (num_honest + flood_k) = 0.8
         # → flood_k = 4 × num_honest
         flood_k = 4 * num_honest
-        for rep_visible in (True,):
+        for rep_visible in (True, False):
             for seed in LEMON_SEEDS:
                 rep_tag = "rep1" if rep_visible else "rep0"
                 label = f"{label_prefix}_k{k_initial}_{rep_tag}_seed{seed}"

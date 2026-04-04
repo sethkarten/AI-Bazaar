@@ -100,19 +100,22 @@ def _find_cache(dir_candidates, good, fig_exp1_dir):
 
 
 def _load_states(run_dir):
+    states_path = os.path.join(run_dir, "states.json")
+    if os.path.isfile(states_path):
+        with open(states_path) as f:
+            return json.load(f)
     files = glob.glob(os.path.join(run_dir, "state_t*.json"))
     files.sort(key=lambda p: int("".join(filter(str.isdigit, os.path.basename(p))) or "0"))
-    valid = []
+    states = []
     for p in files:
         if os.path.getsize(p) == 0:
             continue
         try:
             with open(p) as f:
-                json.load(f)
-            valid.append(p)
+                states.append(json.load(f))
         except (json.JSONDecodeError, OSError):
             pass
-    return valid
+    return states
 
 
 def _get_unit_cost(run_dir):
@@ -136,7 +139,7 @@ def _compute_metrics(run_dir, good):
     if not files:
         return None
     from ai_bazaar.utils.dataframe_builder import DataFrameBuilder
-    db = DataFrameBuilder(state_files=files)
+    db = DataFrameBuilder(states=files)
     firms_df = db.firms_in_business_over_time().sort_values("timestep")
     if firms_df.empty:
         return None

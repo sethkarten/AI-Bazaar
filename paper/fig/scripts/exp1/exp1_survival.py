@@ -101,39 +101,37 @@ def _deserialize(data):
 
 
 def load_states(run_dir):
-    """Sorted list of valid (non-empty, parseable) state_t*.json paths in run_dir."""
+    """Return sorted state dicts from run_dir (states.json preferred, state_t*.json fallback)."""
+    states_path = os.path.join(run_dir, "states.json")
+    if os.path.isfile(states_path):
+        with open(states_path) as f:
+            return json.load(f)
     files = glob.glob(os.path.join(run_dir, "state_t*.json"))
     files.sort(key=lambda p: int("".join(filter(str.isdigit, os.path.basename(p))) or "0"))
-    valid = []
+    states = []
     for p in files:
         if os.path.getsize(p) == 0:
             continue
         try:
             with open(p) as f:
-                json.load(f)
-            valid.append(p)
+                states.append(json.load(f))
         except (json.JSONDecodeError, OSError):
             pass
-    return valid
+    return states
 
 
 def _load_both(run_dir):
     """Load survival and firms-at-end for a run directory in a single pass."""
-    files = load_states(run_dir)
-    if not files:
+    states = load_states(run_dir)
+    if not states:
         return None, None
-    last_file = files[-1]
     survival = None
     firms_count = None
     try:
-        with open(last_file) as f:
-            state = json.load(f)
+        state = states[-1]
         ts = state.get("timestep")
         if isinstance(ts, (int, float)):
             survival = int(ts)
-        else:
-            digits = "".join(filter(str.isdigit, os.path.basename(last_file)))
-            survival = int(digits) if digits else None
         firms = state.get("firms", [])
         firms_count = sum(1 for firm in firms if firm.get("in_business", False))
     except Exception:

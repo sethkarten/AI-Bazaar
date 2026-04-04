@@ -67,9 +67,7 @@ def get_revenue_share_series(run_dir: str):
     if not files:
         return None
     pts = []
-    for p in files:
-        with open(p) as f:
-            s = json.load(f)
+    for s in files:
         v = s.get("lemon_market_sybil_revenue_share")
         if v is not None and s.get("timestep") is not None:
             pts.append((s["timestep"], float(v)))

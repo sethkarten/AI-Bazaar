@@ -24,12 +24,17 @@ def get_cache_path(data_dir, script_stem, good):
 
 
 def newest_run_mtime(run_dirs):
-    """Return the newest mtime of any state_t*.json across all run_dirs."""
+    """Return the newest mtime of states.json (or state_t*.json) across all run_dirs."""
     newest = 0.0
     for d in run_dirs:
         if not d or not os.path.isdir(d):
             continue
-        for f in glob.glob(os.path.join(d, "state_t*.json")):
+        states_path = os.path.join(d, "states.json")
+        candidates = (
+            [states_path] if os.path.isfile(states_path)
+            else glob.glob(os.path.join(d, "state_t*.json"))
+        )
+        for f in candidates:
             try:
                 mtime = os.path.getmtime(f)
                 if mtime > newest:

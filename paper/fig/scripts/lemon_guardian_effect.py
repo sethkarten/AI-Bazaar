@@ -45,9 +45,17 @@ CONDITIONS = {
 
 
 def load_run(run_dir):
+    states_path = os.path.join(run_dir, "states.json")
+    if os.path.isfile(states_path):
+        with open(states_path) as f:
+            return json.load(f)
     files = glob.glob(os.path.join(run_dir, "state_t*.json"))
     files.sort(key=lambda p: int("".join(filter(str.isdigit, os.path.basename(p))) or "0"))
-    return files
+    states = []
+    for p in files:
+        with open(p) as f:
+            states.append(json.load(f))
+    return states
 
 
 def load_firm_types(run_dir):
@@ -108,7 +116,7 @@ def aggregate_series(run_dirs, extract_fn):
         files = load_run(run_dir)
         if not files:
             continue
-        db = DataFrameBuilder(state_files=files)
+        db = DataFrameBuilder(states=files)
         ts, vals = extract_fn(run_dir, db)
         if all_ts is None:
             all_ts = ts

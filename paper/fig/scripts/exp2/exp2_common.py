@@ -70,8 +70,15 @@ def collect_all_run_dirs(logs_dir: str, name_prefix: str, include_baseline: bool
 # State loading
 # ---------------------------------------------------------------------------
 
-def load_state_files(run_dir: str) -> list[str]:
-    """Return sorted, valid state_t*.json paths from run_dir."""
+def load_state_files(run_dir: str) -> list[dict]:
+    """Return sorted, valid state dicts from run_dir. Prefers states.json, falls back to state_t*.json."""
+    states_path = os.path.join(run_dir, "states.json")
+    if os.path.isfile(states_path):
+        try:
+            with open(states_path) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
     files = glob.glob(os.path.join(run_dir, "state_t*.json"))
     files.sort(key=lambda p: int("".join(filter(str.isdigit, os.path.basename(p))) or "0"))
     valid = []
@@ -80,8 +87,7 @@ def load_state_files(run_dir: str) -> list[str]:
             continue
         try:
             with open(p) as f:
-                json.load(f)
-            valid.append(p)
+                valid.append(json.load(f))
         except (json.JSONDecodeError, OSError):
             pass
     return valid

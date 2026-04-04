@@ -78,10 +78,7 @@ def compute_metrics(run_dir: str, k: int) -> dict | None:
     bids_total     = 0
     detection_vals = []  # per-timestep detection premium
 
-    for p in files:
-        with open(p) as f:
-            s = json.load(f)
-
+    for s in files:
         # Consumer welfare: avg consumer surplus per step
         w = s.get("lemon_market_avg_consumer_surplus")
         if w is not None:

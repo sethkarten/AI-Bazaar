@@ -122,7 +122,7 @@ def collect_runs(
     for run_dir in run_dirs:
         if "_stab" not in run_dir.name:
             continue
-        if not list(run_dir.glob("state_t*.json")):
+        if not (run_dir / "states.json").is_file() and not list(run_dir.glob("state_t*.json")):
             continue
         label = _parse_run_label(run_dir.name)
         shock_t = find_shock_timestep(str(run_dir))

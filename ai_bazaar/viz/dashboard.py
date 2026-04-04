@@ -118,7 +118,7 @@ st.title("🏛️ Agent Bazaar: Civilization Simulacra Dashboard")
 
 
 def discover_run_dirs(log_root: str) -> list[tuple[str, str]]:
-    """Find every directory under log_root that contains state_t*.json.
+    """Find every directory under log_root that contains states.json or state_t*.json.
 
     Returns sorted list of (absolute_path, display_label). Labels use forward slashes
     relative to log_root (e.g. exp1_model/run_name) so nested experiment layouts are clear.
@@ -128,7 +128,11 @@ def discover_run_dirs(log_root: str) -> list[tuple[str, str]]:
         return runs
     log_root = os.path.normpath(log_root)
     for dirpath, _dirnames, _filenames in os.walk(log_root):
-        if glob.glob(os.path.join(dirpath, "state_t*.json")):
+        has_states = (
+            os.path.isfile(os.path.join(dirpath, "states.json"))
+            or bool(glob.glob(os.path.join(dirpath, "state_t*.json")))
+        )
+        if has_states:
             rel = os.path.relpath(dirpath, log_root)
             if rel in (".", ""):
                 label = "logs (root)"
@@ -178,10 +182,29 @@ with st.sidebar:
         run_dir = next(p for p, lab in filtered if lab == run_label)
     else:
         run_dir, run_label = None, None
-state_files = sorted(
-    glob.glob(os.path.join(run_dir, "state_t*.json")) if run_dir else [],
-    key=lambda x: int(os.path.basename(x).replace("state_t", "").replace(".json", "")),
-)
+def _load_states(run_dir: str | None) -> list[dict]:
+    """Load all timestep states from a run directory.
+
+    Prefers the consolidated states.json; falls back to legacy state_t*.json files.
+    """
+    if not run_dir:
+        return []
+    states_path = os.path.join(run_dir, "states.json")
+    if os.path.isfile(states_path):
+        with open(states_path) as f:
+            return json.load(f)
+    files = sorted(
+        glob.glob(os.path.join(run_dir, "state_t*.json")),
+        key=lambda x: int(os.path.basename(x).replace("state_t", "").replace(".json", "")),
+    )
+    states = []
+    for path in files:
+        with open(path) as f:
+            states.append(json.load(f))
+    return states
+
+
+states = _load_states(run_dir)
 if run_label:
     st.caption(f"Selected run: `{log_dir}/{run_label}`" if run_label != "logs (root)" else f"Selected run: `{log_dir}/` (root)")
 # Consumer attributes from the selected run folder (optional)
@@ -240,21 +263,20 @@ if crash_prompt_log_path and os.path.isfile(crash_prompt_log_path):
             except json.JSONDecodeError:
                 pass
 
-if not state_files:
+if not states:
     st.warning(
-        "No state files found under logs/ (searched recursively for state_t*.json). "
+        "No state files found under logs/ (searched recursively for states.json or state_t*.json). "
         "Run a simulation from the project root or adjust the logs/ layout."
     )
 else:
     # Which snapshot to show in the first three tabs (single-timestep view)
     timestep = st.select_slider(
         "Timestep",
-        options=list(range(len(state_files))),
-        value=len(state_files) - 1,
+        options=list(range(len(states))),
+        value=len(states) - 1,
     )
 
-    with open(state_files[timestep], "r") as f:
-        state = json.load(f)
+    state = states[timestep]
 
     st.header(f"Timestep {state['timestep']}")
 
@@ -341,7 +363,7 @@ else:
         st.table(firms_df)
 
         st.subheader("Firms in business over time")
-        df_builder_firms_count = DataFrameBuilder(state_files=state_files)
+        df_builder_firms_count = DataFrameBuilder(states=states)
         firms_in_business_df = df_builder_firms_count.firms_in_business_over_time()
         if not firms_in_business_df.empty:
             chart_firms_in_business = (
@@ -406,7 +428,7 @@ else:
             st.caption("No firm_attributes.json; system prompts not available.")
 
         st.subheader("Supply purchases by good (selected firm)")
-        df_builder_firm = DataFrameBuilder(state_files=state_files)
+        df_builder_firm = DataFrameBuilder(states=states)
         supply_by_good_df = df_builder_firm.supply_purchases_by_good_over_time(selected_firm)
         if not supply_by_good_df.empty:
             chart_supply_by_good = (
@@ -539,7 +561,7 @@ else:
 
         # ---- Goods, cash, labor, and total utility for selected consumer ----
         st.subheader("Goods, cash, labor, and total utility")
-        df_builder_consumer = DataFrameBuilder(state_files=state_files)
+        df_builder_consumer = DataFrameBuilder(states=states)
         utility_components = df_builder_consumer.consumer_utility_components_over_time(
             consumer_name=selected_consumer
         )
@@ -580,9 +602,7 @@ else:
         # ---- Consumer diary: all entries across all state files ----
         st.subheader("Consumer diary (all timesteps)")
         diary_entries_all = []
-        for path in state_files:
-            with open(path, "r") as f:
-                snap = json.load(f)
+        for snap in states:
             file_ts = snap.get("timestep", 0)
             for c in snap.get("consumers", []):
                 if c["name"] != selected_consumer:
@@ -606,7 +626,7 @@ else:
             
     # CHARTS TAB: Time-series charts across all state files.            
     with tab4:
-        df_builder = DataFrameBuilder(state_files=state_files)
+        df_builder = DataFrameBuilder(states=states)
 
         # ---- Overlay charts: combine multiple series on one chart ----
         def _long_firms_in_business(db):
@@ -1167,7 +1187,7 @@ else:
             import altair as alt
 
             # ---- Section 1: Listings, bids, passes over time ----
-            df_builder_lemon = DataFrameBuilder(state_files=state_files)
+            df_builder_lemon = DataFrameBuilder(states=states)
             lemon_metrics = df_builder_lemon.lemon_market_metrics_over_time()
             st.subheader("Listings, bids, and passes over time")
             if not lemon_metrics.empty:
@@ -1561,9 +1581,7 @@ else:
             # ---- Section 3: Listings and unsold listings across the full run ----
             all_listings = []
             all_unsold = []
-            for path in state_files:
-                with open(path, "r") as f:
-                    snap = json.load(f)
+            for snap in states:
                 t = snap.get("timestep", 0)
                 firm_meta_snap = {}
                 for f in snap.get("firms", []):
@@ -1988,7 +2006,7 @@ else:
 
             # --- Section 4: Views over time ---
             st.subheader("Views per firm over time")
-            df_builder_disc = DataFrameBuilder(state_files=state_files)
+            df_builder_disc = DataFrameBuilder(states=states)
             views_df = df_builder_disc.views_per_firm_over_time()
             if not views_df.empty:
                 chart_views = (
