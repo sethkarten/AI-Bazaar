@@ -1067,3 +1067,258 @@ With parallelism and skip-existing:
 python scripts/exp1.py --llm gemini-2.5-flash --n-stab 3 --dlc 3 --enable-n-stab-3 --enable-consumer-personas --workers 3 --skip-existing
 ```
 
+---
+
+## EXPERIMENT 6 — Consumer Procedural Personas
+
+**Purpose:** Isolate demand-side heterogeneity effects in THE_CRASH by enabling behavioral consumer personas at a higher discovery level (dlc=5).
+
+**Design:** Hold dlc=5 fixed; sweep n_stab ∈ {0, 3, 5} × seeds {8, 16, 64}. `--enable-consumer-personas` is always active. All other settings match Exp1/Exp5 (5 LLM firms, 50 CES consumers, 365 timesteps, overhead 14).
+
+**Consumer persona types** assigned round-robin: `LOYAL`, `SMALL_BIZ`, `PRICE_HAWK`, `POPULAR`, `VARIETY`.
+
+### `scripts/exp6.py` — Consumer personas runner
+
+**Full matrix:** 9 runs — n_stab ∈ {0, 3, 5} × seeds {8, 16, 64}.
+
+```bash
+# All 9 runs
+python scripts/exp6.py
+
+# Parallel
+python scripts/exp6.py --workers 3
+
+# Only baseline (no stabilizing firm)
+python scripts/exp6.py --n-stab 0
+
+# Preview
+python scripts/exp6.py --list
+
+# Skip existing
+python scripts/exp6.py --skip-existing --workers 3
+```
+
+Supports same `--llm`, `--service`, `--port`, `--stab-llm` passthrough flags as all other crash experiment scripts.
+
+---
+
+## DELLA HPC (Princeton)
+
+Della is Princeton's HPC cluster. Compute nodes have **no internet access**, so all LLM inference must use local models served by vLLM. The existing `.venv` at `/scratch/gpfs/CHIJ/milkkarten/AI-Bazaar/.venv` (built for RL training) already includes vLLM — no new conda environment is needed.
+
+Two Slurm scripts are provided:
+- **`della_lemon.sh`** — lemon market experiments (Exp2 + Exp3 lemon), 1 GPU, ~8–12h
+- **`della_crash.sh`** — crash experiments (Exp3 crash + Exp5 + Exp6), 1 GPU, ~36h
+
+Both use a single vLLM server with LoRA serving so one GPU handles both the base model (non-stabilizing firms / sellers) and the trained adapter (stabilizing firm / guardian buyer).
+
+---
+
+### One-time setup
+
+#### 0. Set up your scratch directory
+
+Every Della user has their own scratch space at `/scratch/gpfs/<netid>/`. Clone the repo there:
+
+```bash
+ssh <netid>@della.princeton.edu
+cd /scratch/gpfs/camc/AI-Bazaar   # adjust path as needed
+```
+
+Conda is available in `(base)` by default — no module load needed. Create an environment and install:
+
+```bash
+module load cudatoolkit/12.6
+conda create -n ai-bazaar python=3.12 -y
+conda activate ai-bazaar
+pip install -e . --no-deps
+pip install vllm openai requests numpy pandas scipy wandb streamlit
+python -c "import vllm; import ai_bazaar; print('OK')"
+```
+
+The Slurm scripts default to `REPO_ROOT=/scratch/gpfs/$(whoami)/AI-Bazaar` automatically. If your repo is elsewhere, pass `REPO_ROOT=/your/path sbatch della_lemon.sh`.
+
+**Alternatively**, if you have access to Seth's group directory (`/scratch/gpfs/CHIJ/`), clone or symlink the repo there and pass `REPO_ROOT=/scratch/gpfs/CHIJ/milkkarten/AI-Bazaar sbatch della_lemon.sh`.
+
+#### 1. Transfer models to Della
+
+Della login nodes have internet. Transfer the base model and both LoRA adapters:
+
+```bash
+ssh <netid>@della.princeton.edu
+cd /scratch/gpfs/<netid>/AI-Bazaar
+source .venv/bin/activate
+
+# Base model
+huggingface-cli download <base-model-hf-id> --local-dir ./models/Qwen3.5-9B
+
+# Trained LoRA adapters
+huggingface-cli download <stab-adapter-hf-id>     --local-dir ./models/qwen-stab-lora
+huggingface-cli download <guardian-adapter-hf-id> --local-dir ./models/qwen-guardian-lora
+```
+
+Alternatively, `scp` from local:
+
+```bash
+scp -r ./models/Qwen3.5-9B         <netid>@della.princeton.edu:/scratch/gpfs/<netid>/AI-Bazaar/models/
+scp -r ./models/qwen-stab-lora     <netid>@della.princeton.edu:/scratch/gpfs/<netid>/AI-Bazaar/models/
+scp -r ./models/qwen-guardian-lora <netid>@della.princeton.edu:/scratch/gpfs/<netid>/AI-Bazaar/models/
+```
+
+#### 2. Compile the listing corpus (run once, locally)
+
+The lemon market experiments use a pre-compiled corpus of seller/sybil listing descriptions sampled from existing Gemini exp2 runs — no seller LLM calls are made at inference time. Compile the corpus **before transferring logs to Della**:
+
+```bash
+# From project root (local machine, with Gemini exp2 logs available)
+python scripts/compile_listing_corpus.py
+```
+
+Output: `data/listing_corpus.json` (~30,600 entries: ~4,700 honest per quality tier, ~11,700 sybil).
+
+Then transfer it to Della:
+
+```bash
+scp data/listing_corpus.json <netid>@della.princeton.edu:/scratch/gpfs/CHIJ/milkkarten/AI-Bazaar/data/
+```
+
+#### 3. Push code changes and reinstall package
+
+```bash
+# On local machine — push to remote
+git push
+
+# On Della login node
+ssh <netid>@della.princeton.edu
+cd /scratch/gpfs/CHIJ/milkkarten/AI-Bazaar
+git pull
+source .venv/bin/activate
+pip install -e . --no-deps     # picks up any new code in ai_bazaar/
+```
+
+#### 4. Verify vLLM and LoRA setup
+
+```bash
+# On Della login node (or in an interactive job)
+source .venv/bin/activate
+python -c "import vllm; print(vllm.__version__)"   # expect >= 0.6.0
+
+# Quick vLLM LoRA smoke test (interactive job with 1 GPU)
+srun --partition=ailab --gres=gpu:1 --mem=32G --time=00:10:00 --pty bash
+source /scratch/gpfs/CHIJ/milkkarten/AI-Bazaar/.venv/bin/activate
+python -m vllm.entrypoints.openai.api_server \
+  --model ./models/Qwen3.5-9B \
+  --enable-lora \
+  --lora-modules stab=./models/qwen-stab-lora \
+  --port 8000 --gpu-memory-utilization 0.7 &
+sleep 30 && curl http://localhost:8000/v1/models   # should list base + stab
+```
+
+---
+
+### Submitting jobs
+
+```bash
+ssh <netid>@della.princeton.edu
+cd /scratch/gpfs/CHIJ/milkkarten/AI-Bazaar
+
+# Lemon experiments (Exp2 no-seller-IDs + Exp3 lemon sybil flood)
+sbatch della_lemon.sh
+
+# Crash experiments (Exp3 crash + Exp5 DLF + Exp6 personas)
+sbatch della_crash.sh
+```
+
+Both jobs can run **concurrently** on separate GPU nodes.
+
+Override model paths or worker count with env vars:
+
+```bash
+BASE_MODEL=./models/Qwen3.5-9B \
+GUARDIAN_LORA=./models/qwen-guardian-lora \
+WORKERS=4 \
+sbatch della_lemon.sh
+
+BASE_MODEL=./models/Qwen3.5-9B \
+STAB_LORA=./models/qwen-stab-lora \
+WORKERS=4 \
+sbatch della_crash.sh
+```
+
+#### Monitoring
+
+```bash
+# Check job queue
+squeue -u $USER
+
+# Watch a running job's log (replace JOBID)
+tail -f logs/lemon_<JOBID>.log
+tail -f logs/crash_<JOBID>.log
+
+# Cancel a job
+scancel <JOBID>
+```
+
+---
+
+### How LoRA routing works
+
+Both scripts start a single vLLM server with `--enable-lora --lora-modules <alias>=<path>`. This lets one GPU serve two "model names" via the OpenAI-compatible API:
+
+| Model name in request | Weights used |
+|-----------------------|-------------|
+| `./models/Qwen3.5-9B` | Base model (no adapter) |
+| `stab` | Crash stabilizing firm LoRA adapter |
+| `guardian` | Lemon buyer/guardian LoRA adapter |
+
+**`della_crash.sh`** passes:
+- `--llm ./models/Qwen3.5-9B` → non-stabilizing firms use base weights
+- `--stab-llm stab` → stabilizing firm requests use the `stab` adapter
+
+**`della_lemon.sh`** passes:
+- `--llm ./models/Qwen3.5-9B` → base weights (sellers use pre-compiled corpus; no LLM calls)
+- `--buyer-llm guardian` → buyer/guardian requests use the `guardian` adapter
+
+The `--stab-llm` and `--buyer-llm` flags are supported by all experiment scripts (`exp1.py`, `exp2.py`, `exp3.py`, `exp5.py`, `exp6.py`).
+
+---
+
+### Listing corpus feeder (lemon experiments)
+
+Lemon market seller/sybil agents are stateless w.r.t. market dynamics — their listing descriptions depend only on assigned quality tier. Rather than calling the LLM for each listing, a pre-compiled corpus of Gemini-generated descriptions is sampled at runtime.
+
+Pass `--listing-corpus data/listing_corpus.json` to any lemon experiment to activate feeder mode:
+
+```bash
+# Manual run with corpus feeder
+python -m ai_bazaar.main \
+  --consumer-scenario LEMON_MARKET \
+  --firm-type LLM --num-sellers 12 --num-buyers 12 \
+  --sybil-cluster-size 3 --no-seller-ids \
+  --listing-corpus data/listing_corpus.json \
+  --llm ./models/Qwen3.5-9B --buyer-llm guardian \
+  --service vllm --port 8000 \
+  --max-timesteps 50 --seed 8 --name feeder_test
+```
+
+Corpus coverage (from 51 Gemini exp2 runs): ~4,700 honest entries per quality tier (poor/fair/good/mint), ~11,700 sybil entries (all `quality=poor`, deceptive descriptions). New sybil identities spawned mid-run during flood shocks draw from the same corpus without any special handling.
+
+To rebuild the corpus (e.g. after adding new runs):
+
+```bash
+python scripts/compile_listing_corpus.py
+# Optionally include additional log directories:
+python scripts/compile_listing_corpus.py --log-dirs logs/exp2_gemini-3-flash-preview logs/exp2_my_new_run
+```
+
+---
+
+### Estimated runtimes
+
+| Job | Experiments | Runs | Wall time |
+|-----|-------------|------|-----------|
+| `della_lemon.sh` | Exp2 (no-seller-IDs) + Exp3 lemon | ~33 | 24h |
+| `della_crash.sh` | Exp3 crash + Exp5 DLF + Exp6 personas | ~69 | 48h |
+
+Times assume `--workers 3` and vLLM throughput on a single A100. Adjust `WORKERS` up (e.g. `4`) if the GPU is under-utilized; down if OOM errors appear.
+
