@@ -434,6 +434,114 @@ python experiments/run_experiments.py --experiment scalability --wandb
 
 ```
 
+## 🎯 REINFORCE++ Training (Economic Alignment)
+
+We provide REINFORCE++ trainers for two scenarios that produce **economically aligned** Qwen 3.5 9B agents that outperform frontier models on the Economic Alignment Score (EAS).
+
+### Pre-trained Checkpoints
+
+LoRA adapters are available on HuggingFace: [`milkkarten/ai-bazaar-checkpoints`](https://huggingface.co/milkkarten/ai-bazaar-checkpoints) (private — request access).
+
+| Adapter | Scenario | Result |
+|---------|----------|--------|
+| `crash_stabilizer/` | THE_CRASH | EAS=0.79 (#1 of 20 models, beats Hermes 3 405B and Sonnet 4.6) |
+| `lemon_guardian/` | LEMON_MARKET | 93–95% sybil detection at K=6–7 |
+
+**Loading:**
+```python
+from peft import PeftModel
+from transformers import AutoModelForCausalLM
+import torch
+
+base = AutoModelForCausalLM.from_pretrained(
+    "unsloth/Qwen3.5-9B",
+    torch_dtype=torch.bfloat16,
+    device_map="cuda",
+    attn_implementation="sdpa",
+)
+model = PeftModel.from_pretrained(
+    base, "milkkarten/ai-bazaar-checkpoints", subfolder="crash_stabilizer"
+)
+```
+
+### Training from Scratch
+
+**Hardware requirements:**
+- 2× GPU with ≥80GB VRAM (we used B200 141GB on della-ailab)
+- GPU 0: LoRA training + trained agent inference
+- GPU 1: Frozen 4-bit base model for non-trained agents + KL reference
+
+**Setup:**
+```bash
+git clone https://github.com/sethkarten/AI-Bazaar.git
+cd AI-Bazaar
+git checkout Market-v1
+pip install -e .
+pip install peft bitsandbytes accelerate
+
+# Download base model (or set --llm to a HF model id)
+huggingface-cli download unsloth/Qwen3.5-9B --local-dir models/Qwen3.5-9B
+```
+
+**THE_CRASH — Stabilizing Firm:**
+```bash
+python -m ai_bazaar.train.train_reinforce \
+    --llm ./models/Qwen3.5-9B \
+    --num_episodes 32 --num_iterations 40 \
+    --num-firms 5 --num-consumers 50 --num-stabilizing-firms 1 \
+    --firm-personas "competitive:2,reactive:1,volume_seeker:1" \
+    --max-timesteps 32 --max-tokens 256 \
+    --consumer-scenario THE_CRASH \
+    --discovery-limit-consumers 3 \
+    --overhead-costs 14 --firm-initial-cash 1000 --num-goods 1 \
+    --use-cost-pref-gen \
+    --lora_r 64 --quant_bits 16 --lr 5e-6 \
+    --train_batch_size 32 --micro_batch_size 16 \
+    --kl_coeff 0.2 \
+    --reward_weights "0.4,0.3,0.3" --survival_bonus 5.0 \
+    --sft_warmup 500 --sft_epochs 5 \
+    --run_name my_crash_run --seed 42
+```
+
+**LEMON_MARKET — Guardian Buyer:**
+```bash
+python -m ai_bazaar.train.train_lemon \
+    --llm ./models/Qwen3.5-9B \
+    --num-firms 12 --sybil-cluster-size 3 --num-consumers 12 \
+    --max-timesteps 40 --max-tokens 256 \
+    --num_episodes 16 --num_iterations 20 \
+    --lora_r 64 --quant_bits 16 --lr 5e-6 \
+    --train_batch_size 32 --micro_batch_size 16 \
+    --kl_coeff 0.2 \
+    --sft_warmup 500 --sft_epochs 5 \
+    --discovery-limit-consumers 3 \
+    --run_name my_lemon_run --seed 42
+```
+
+**SLURM submission (della):**
+```bash
+sbatch train_della.sh  # uses NUM_EPISODES, NUM_ITERATIONS, etc. env vars
+```
+
+### Resuming Training / Evaluation
+
+Both trainers support `--resume` to continue from the last checkpoint at `checkpoints/{run_name}/latest/`. Periodic snapshots are saved every 5 iterations and the best checkpoint by survival/detection rate is tracked separately at `checkpoints/{run_name}/best/`.
+
+### Key Algorithm Details
+
+- **Squared KL penalty**: `(log π - log π_ref)²` instead of linear `(log π - log π_ref).mean()`. The linear version goes negative when the policy becomes less confident, *rewarding* divergence and causing model collapse.
+- **`</think>` prefill**: Appends `<think>\n</think>\n\n` to the prompt so the model skips reasoning and outputs JSON directly. Critical for getting clean action outputs in 256 tokens.
+- **Adaptive curriculum**: Stage advancement based on running survival rate (crash) or sybil detection rate (lemon), with mixing of multiple difficulty levels to prevent forgetting.
+- **Dual-model architecture**: LoRA-adapted model on GPU 0 for training, frozen 4-bit base on GPU 1 for non-trained agents and KL reference.
+
+### Reproduction
+
+The exact configurations that produced our paper results:
+- **THE_CRASH**: bf16 r=64 lr=5e-6, 27 iterations, ~24h on 2× B200
+- **LEMON_MARKET**: bf16 r=64 lr=5e-6, 17 iterations, ~24h on 2× B200
+
+Training logs, figures, and analysis scripts are in [`ai-bazaar-latex/`](https://github.com/sethkarten/ai-bazaar-latex) (paper repo). See `RL_TRAINING_SUMMARY.md` for the full results table.
+
 ## 🚀 Advanced Features
 
 ### Custom Agent Types
