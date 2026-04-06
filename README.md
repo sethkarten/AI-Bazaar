@@ -440,7 +440,7 @@ We provide REINFORCE++ trainers for two scenarios that produce **economically al
 
 ### Pre-trained Checkpoints
 
-LoRA adapters are available on HuggingFace: [`milkkarten/ai-bazaar-checkpoints`](https://huggingface.co/milkkarten/ai-bazaar-checkpoints) (private — request access).
+LoRA adapters are available on HuggingFace: [`machineExMachina/ai-bazaar-checkpoints`](https://huggingface.co/machineExMachina/ai-bazaar-checkpoints) (private — request access).
 
 | Adapter | Scenario | Result |
 |---------|----------|--------|
@@ -460,7 +460,7 @@ base = AutoModelForCausalLM.from_pretrained(
     attn_implementation="sdpa",
 )
 model = PeftModel.from_pretrained(
-    base, "milkkarten/ai-bazaar-checkpoints", subfolder="crash_stabilizer"
+    base, "machineExMachina/ai-bazaar-checkpoints", subfolder="crash_stabilizer"
 )
 ```
 
