@@ -1104,112 +1104,113 @@ Supports same `--llm`, `--service`, `--port`, `--stab-llm` passthrough flags as 
 
 ## DELLA HPC (Princeton)
 
-Della is Princeton's HPC cluster. Compute nodes have **no internet access**, so all LLM inference must use local models served by vLLM. The existing `.venv` at `/scratch/gpfs/CHIJ/milkkarten/AI-Bazaar/.venv` (built for RL training) already includes vLLM — no new conda environment is needed.
+Della is Princeton's HPC cluster. Compute nodes have **no internet access**, so all LLM inference uses local models served by vLLM.
 
 Two Slurm scripts are provided:
-- **`della_lemon.sh`** — lemon market experiments (Exp2 + Exp3 lemon), 1 GPU, ~8–12h
-- **`della_crash.sh`** — crash experiments (Exp3 crash + Exp5 + Exp6), 1 GPU, ~36h
+- **`della_lemon.sh`** — lemon market experiments (Exp2 + Exp3 lemon), 1 GPU, ~24h
+- **`della_crash.sh`** — crash experiments (Exp3 crash + Exp5 + Exp6), 1 GPU, ~48h
 
-Both use a single vLLM server with LoRA serving so one GPU handles both the base model (non-stabilizing firms / sellers) and the trained adapter (stabilizing firm / guardian buyer).
+Both use a single vLLM server with LoRA serving so one GPU handles the base model (non-stabilizing firms / sellers) and the trained adapter (stabilizing firm / guardian buyer).
 
 ---
 
 ### One-time setup
 
-#### 0. Set up your scratch directory
-
-Every Della user has their own scratch space at `/scratch/gpfs/<netid>/`. Clone the repo there:
+#### 0. Clone the repo and create conda environment
 
 ```bash
 ssh <netid>@della.princeton.edu
-cd /scratch/gpfs/camc/AI-Bazaar   # adjust path as needed
+cd /scratch/gpfs/<netid>
+git clone <repo-url> AI-Bazaar
+cd AI-Bazaar
 ```
 
-Conda is available in `(base)` by default — no module load needed. Create an environment and install:
+Conda is available in `(base)` by default. Create the environment:
 
 ```bash
 module load cudatoolkit/12.6
 conda create -n ai-bazaar python=3.12 -y
 conda activate ai-bazaar
-pip install -e . --no-deps
-pip install vllm openai requests numpy pandas scipy wandb streamlit
+pip install -e .
+pip install vllm
 python -c "import vllm; import ai_bazaar; print('OK')"
 ```
 
-The Slurm scripts default to `REPO_ROOT=/scratch/gpfs/$(whoami)/AI-Bazaar` automatically. If your repo is elsewhere, pass `REPO_ROOT=/your/path sbatch della_lemon.sh`.
+The Slurm scripts default to `REPO_ROOT=/scratch/gpfs/$(whoami)/AI-Bazaar`. If your repo is elsewhere, pass `REPO_ROOT=/your/path sbatch della_lemon.sh`.
 
-**Alternatively**, if you have access to Seth's group directory (`/scratch/gpfs/CHIJ/`), clone or symlink the repo there and pass `REPO_ROOT=/scratch/gpfs/CHIJ/milkkarten/AI-Bazaar sbatch della_lemon.sh`.
+#### 1. Download models
 
-#### 1. Transfer models to Della
-
-Della login nodes have internet. Transfer the base model and both LoRA adapters:
+Della login nodes have internet access. Download the base model and LoRA adapters:
 
 ```bash
-ssh <netid>@della.princeton.edu
 cd /scratch/gpfs/<netid>/AI-Bazaar
-source .venv/bin/activate
+conda activate ai-bazaar
 
-# Base model
-huggingface-cli download <base-model-hf-id> --local-dir ./models/Qwen3.5-9B
+# Authenticate with HuggingFace (one-time)
+huggingface-cli login
 
-# Trained LoRA adapters
-huggingface-cli download <stab-adapter-hf-id>     --local-dir ./models/qwen-stab-lora
-huggingface-cli download <guardian-adapter-hf-id> --local-dir ./models/qwen-guardian-lora
+# Base model (Qwen3.5 9B bf16)
+huggingface-cli download Qwen/Qwen3.5-9B --local-dir ./models/Qwen3.5-9B
+
+# Trained LoRA adapters (private repo — requires HF access)
+git clone https://huggingface.co/machineExMachina/ai-bazaar-checkpoints ./models/ai-bazaar-checkpoints
 ```
 
-Alternatively, `scp` from local:
-
-```bash
-scp -r ./models/Qwen3.5-9B         <netid>@della.princeton.edu:/scratch/gpfs/<netid>/AI-Bazaar/models/
-scp -r ./models/qwen-stab-lora     <netid>@della.princeton.edu:/scratch/gpfs/<netid>/AI-Bazaar/models/
-scp -r ./models/qwen-guardian-lora <netid>@della.princeton.edu:/scratch/gpfs/<netid>/AI-Bazaar/models/
+Expected structure after cloning:
+```
+models/
+  Qwen3.5-9B/                          # base model weights
+  ai-bazaar-checkpoints/
+    crash_stabilizer/                  # stab LoRA adapter
+      adapter_config.json
+      adapter_model.safetensors
+    lemon_guardian/                    # guardian LoRA adapter
+      adapter_config.json
+      adapter_model.safetensors
 ```
 
 #### 2. Compile the listing corpus (run once, locally)
 
-The lemon market experiments use a pre-compiled corpus of seller/sybil listing descriptions sampled from existing Gemini exp2 runs — no seller LLM calls are made at inference time. Compile the corpus **before transferring logs to Della**:
+The lemon market experiments use a pre-compiled corpus of seller/sybil listing descriptions from existing Gemini exp2 runs — no seller LLM calls are made at inference time. Compile the corpus **on your local machine** (where Gemini exp2 logs live):
 
 ```bash
-# From project root (local machine, with Gemini exp2 logs available)
 python scripts/compile_listing_corpus.py
 ```
 
 Output: `data/listing_corpus.json` (~30,600 entries: ~4,700 honest per quality tier, ~11,700 sybil).
 
-Then transfer it to Della:
+Transfer to Della:
 
 ```bash
-scp data/listing_corpus.json <netid>@della.princeton.edu:/scratch/gpfs/CHIJ/milkkarten/AI-Bazaar/data/
+scp data/listing_corpus.json <netid>@della.princeton.edu:/scratch/gpfs/<netid>/AI-Bazaar/data/
 ```
 
-#### 3. Push code changes and reinstall package
+#### 3. Push code changes and reinstall
 
 ```bash
-# On local machine — push to remote
+# Local machine
 git push
 
-# On Della login node
-ssh <netid>@della.princeton.edu
-cd /scratch/gpfs/CHIJ/milkkarten/AI-Bazaar
+# Della login node
+cd /scratch/gpfs/<netid>/AI-Bazaar
 git pull
-source .venv/bin/activate
-pip install -e . --no-deps     # picks up any new code in ai_bazaar/
+conda activate ai-bazaar
+pip install -e . --no-deps
 ```
 
 #### 4. Verify vLLM and LoRA setup
 
 ```bash
-# On Della login node (or in an interactive job)
-source .venv/bin/activate
+conda activate ai-bazaar
 python -c "import vllm; print(vllm.__version__)"   # expect >= 0.6.0
 
-# Quick vLLM LoRA smoke test (interactive job with 1 GPU)
+# Quick smoke test in an interactive job
 srun --partition=ailab --gres=gpu:1 --mem=32G --time=00:10:00 --pty bash
-source /scratch/gpfs/CHIJ/milkkarten/AI-Bazaar/.venv/bin/activate
+cd /scratch/gpfs/<netid>/AI-Bazaar && conda activate ai-bazaar
 python -m vllm.entrypoints.openai.api_server \
   --model ./models/Qwen3.5-9B \
   --enable-lora \
-  --lora-modules stab=./models/qwen-stab-lora \
+  --lora-modules stab=./models/ai-bazaar-checkpoints/crash_stabilizer \
   --port 8000 --gpu-memory-utilization 0.7 &
 sleep 30 && curl http://localhost:8000/v1/models   # should list base + stab
 ```
@@ -1220,7 +1221,7 @@ sleep 30 && curl http://localhost:8000/v1/models   # should list base + stab
 
 ```bash
 ssh <netid>@della.princeton.edu
-cd /scratch/gpfs/CHIJ/milkkarten/AI-Bazaar
+cd /scratch/gpfs/<netid>/AI-Bazaar
 
 # Lemon experiments (Exp2 no-seller-IDs + Exp3 lemon sybil flood)
 sbatch della_lemon.sh
@@ -1231,31 +1232,28 @@ sbatch della_crash.sh
 
 Both jobs can run **concurrently** on separate GPU nodes.
 
-Override model paths or worker count with env vars:
+Override worker count or model paths with env vars:
 
 ```bash
+WORKERS=4 sbatch della_lemon.sh
+WORKERS=4 sbatch della_crash.sh
+
+# Custom model paths (if layout differs)
 BASE_MODEL=./models/Qwen3.5-9B \
-GUARDIAN_LORA=./models/qwen-guardian-lora \
-WORKERS=4 \
+GUARDIAN_LORA=./models/ai-bazaar-checkpoints/lemon_guardian \
 sbatch della_lemon.sh
 
 BASE_MODEL=./models/Qwen3.5-9B \
-STAB_LORA=./models/qwen-stab-lora \
-WORKERS=4 \
+STAB_LORA=./models/ai-bazaar-checkpoints/crash_stabilizer \
 sbatch della_crash.sh
 ```
 
 #### Monitoring
 
 ```bash
-# Check job queue
 squeue -u $USER
-
-# Watch a running job's log (replace JOBID)
 tail -f logs/lemon_<JOBID>.log
 tail -f logs/crash_<JOBID>.log
-
-# Cancel a job
 scancel <JOBID>
 ```
 
@@ -1263,7 +1261,7 @@ scancel <JOBID>
 
 ### How LoRA routing works
 
-Both scripts start a single vLLM server with `--enable-lora --lora-modules <alias>=<path>`. This lets one GPU serve two "model names" via the OpenAI-compatible API:
+Both scripts start a single vLLM server with `--enable-lora --lora-modules <alias>=<path>`. One GPU serves two model names via the OpenAI-compatible API:
 
 | Model name in request | Weights used |
 |-----------------------|-------------|
@@ -1290,7 +1288,6 @@ Lemon market seller/sybil agents are stateless w.r.t. market dynamics — their 
 Pass `--listing-corpus data/listing_corpus.json` to any lemon experiment to activate feeder mode:
 
 ```bash
-# Manual run with corpus feeder
 python -m ai_bazaar.main \
   --consumer-scenario LEMON_MARKET \
   --firm-type LLM --num-sellers 12 --num-buyers 12 \
@@ -1320,5 +1317,5 @@ python scripts/compile_listing_corpus.py --log-dirs logs/exp2_gemini-3-flash-pre
 | `della_lemon.sh` | Exp2 (no-seller-IDs) + Exp3 lemon | ~33 | 24h |
 | `della_crash.sh` | Exp3 crash + Exp5 DLF + Exp6 personas | ~69 | 48h |
 
-Times assume `--workers 3` and vLLM throughput on a single A100. Adjust `WORKERS` up (e.g. `4`) if the GPU is under-utilized; down if OOM errors appear.
+Times assume `--workers 3` on a single A100. Adjust `WORKERS` up if the GPU is under-utilized; down if OOM errors appear.
 
