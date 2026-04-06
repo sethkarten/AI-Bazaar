@@ -7,7 +7,7 @@
 #SBATCH --constraint=gpu80
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00
-#SBATCH --partition=ailab
+#SBATCH --partition=gpu
 #SBATCH --output=logs/lemon_%j.log
 #SBATCH --error=logs/lemon_%j.err
 

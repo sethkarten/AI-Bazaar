@@ -1205,7 +1205,7 @@ conda activate ai-bazaar
 python -c "import vllm; print(vllm.__version__)"   # expect >= 0.6.0
 
 # Quick smoke test in an interactive job
-srun --partition=ailab --gres=gpu:1 --constraint=gpu80 --mem=32G --time=00:10:00 --pty bash
+srun --partition=gpu --gres=gpu:1 --constraint=gpu80 --mem=32G --time=00:10:00 --pty bash
 cd /scratch/gpfs/<netid>/AI-Bazaar && conda activate ai-bazaar
 python -m vllm.entrypoints.openai.api_server \
   --model ./models/Qwen3.5-9B \
@@ -1235,8 +1235,10 @@ Both jobs can run **concurrently** on separate GPU nodes.
 Override worker count or model paths with env vars:
 
 ```bash
-WORKERS=4 sbatch della_lemon.sh
-WORKERS=4 sbatch della_crash.sh
+# Workers controls parallel simulation runs on the vLLM server.
+# Default is 3; recommended 5–6 on an 80GB A100 (more workers = larger batches = better GPU utilization).
+WORKERS=6 sbatch della_lemon.sh
+WORKERS=6 sbatch della_crash.sh
 
 # Custom model paths (if layout differs)
 BASE_MODEL=./models/Qwen3.5-9B \
