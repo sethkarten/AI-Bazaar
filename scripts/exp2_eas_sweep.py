@@ -372,6 +372,8 @@ def main() -> None:
                     help="Log buyer LLM prompts/responses per run.")
     ap.add_argument("--log-seller-prompts", action="store_true",
                     help="Log seller/sybil LLM prompts/responses per run.")
+    ap.add_argument("--no-seller-ids",  action="store_true",
+                    help="LEMON_MARKET ablation: omit seller identifiers from buyer observations.")
     ap.add_argument("--no-color",       action="store_true",
                     help="Disable ANSI color in terminal output.")
     ap.add_argument("--list",          action="store_true",
@@ -425,6 +427,8 @@ def main() -> None:
         extra += ["--log-buyer-prompts"]
     if cli.log_seller_prompts:
         extra += ["--log-seller-prompts"]
+    if cli.no_seller_ids:
+        extra += ["--no-seller-ids"]
 
     # ── Build all runs across all models ─────────────────────────────────
     # or_id is the buyer model; seller is fixed via --seller-llm.

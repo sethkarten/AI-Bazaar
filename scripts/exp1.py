@@ -253,6 +253,11 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--stab-llm", type=str, default=None, dest="stab_llm",
+        help="Model name for stabilizing firm requests (vLLM LoRA alias, e.g. 'stab'). "
+             "Uses same --service and --port as non-stabilizing firms.",
+    )
+    parser.add_argument(
         "--dlc", type=int, nargs="+", metavar="N",
         help="Only run cells with these discovery-limit-consumers values (e.g. --dlc 1 3).",
     )
@@ -306,6 +311,8 @@ def main() -> None:
         llm_args += ["--openrouter-provider", *cli.openrouter_provider]
     if cli.log_prompts:
         llm_args += ["--log-crash-firm-prompts"]
+    if cli.stab_llm:
+        llm_args += ["--stab-llm", cli.stab_llm]
     base = (
         _BASE_FIXED
         + ["--max-tokens", str(cli.max_tokens), "--max-timesteps", str(cli.max_timesteps)]

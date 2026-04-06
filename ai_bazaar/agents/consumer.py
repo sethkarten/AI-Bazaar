@@ -8,7 +8,7 @@ from ..utils.common import PERSONAS, ROLE_MESSAGES
 from ..agents.llm_agent import LLMAgent
 
 
-CONSUMER_PERSONA_TYPES = ["LOYAL", "SMALL_BIZ", "REP_SEEKER", "VARIETY"]
+CONSUMER_PERSONA_TYPES = ["LOYAL", "SMALL_BIZ", "PRICE_HAWK", "POPULAR", "VARIETY"]
 
 
 class CESConsumerAgent(LLMAgent):
@@ -516,8 +516,14 @@ class CESConsumerAgent(LLMAgent):
                             total = sum(_sales.values()) or 1.0
                             share = _sales.get(q.firm_id, 0.0) / total
                             return base * (1.0 + 0.5 * (1.0 - share))
-                        elif ptype == "REP_SEEKER":
-                            return rep / p
+                        elif ptype == "PRICE_HAWK":
+                            # Price-rational: no social modifier, base score drives everything
+                            return base
+                        elif ptype == "POPULAR":
+                            # Follows crowd: boosts firms with higher cumulative sales share
+                            total = sum(_sales.values()) or 1.0
+                            share = _sales.get(q.firm_id, 0.0) / total
+                            return base * (1.0 + 0.5 * share)
                         elif ptype == "VARIETY":
                             last = self._purchase_history[-1] if self._purchase_history else None
                             return base * (0.2 if q.firm_id == last else 1.0)

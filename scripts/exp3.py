@@ -493,6 +493,15 @@ def main() -> None:
         "--max-tokens", type=int, default=1000,
         help="Max tokens per LLM call (default: 1000).",
     )
+    parser.add_argument(
+        "--stab-llm", type=str, default=None, dest="stab_llm",
+        help="(crash) Model name for stabilizing firm requests (vLLM LoRA alias, e.g. 'stab'). "
+             "Uses same --service and --port as non-stabilizing firms.",
+    )
+    parser.add_argument(
+        "--listing-corpus", type=str, default=None, dest="listing_corpus",
+        help="(lemon) Path to pre-compiled listing corpus JSON. Replaces seller/sybil LLM calls.",
+    )
     # Crash-specific filters
     parser.add_argument(
         "--n-stab", type=int, nargs="+", metavar="N", dest="n_stab",
@@ -563,6 +572,8 @@ def main() -> None:
         llm_args_crash += ["--port", str(cli.port)]
     if cli.openrouter_provider:
         llm_args_crash += ["--openrouter-provider", *cli.openrouter_provider]
+    if cli.stab_llm:
+        llm_args_crash += ["--stab-llm", cli.stab_llm]
 
     # Lemon: test-llm → buyer; seller-llm → seller/sybil
     llm_args_lemon = [
@@ -588,6 +599,8 @@ def main() -> None:
         llm_args_lemon += ["--seller-port", str(cli.seller_port)]
     if cli.seller_openrouter_provider:
         llm_args_lemon += ["--seller-openrouter-provider", *cli.seller_openrouter_provider]
+    if cli.listing_corpus:
+        llm_args_lemon += ["--listing-corpus", cli.listing_corpus]
 
     prompt_args = ["--prompt-algo", cli.prompt_algo]
 

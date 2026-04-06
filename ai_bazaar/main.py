@@ -403,6 +403,22 @@ def create_argument_parser():
         help="LEMON_MARKET ablation: withhold seller reputation EMA from buyer observation context.",
     )
     parser.add_argument(
+        "--no-seller-ids",
+        action="store_true",
+        default=False,
+        help="LEMON_MARKET ablation: omit seller identifiers from buyer observations. "
+             "Listings get ephemeral per-round IDs; transaction history omits seller_id.",
+    )
+    parser.add_argument(
+        "--listing-corpus",
+        type=str,
+        default=None,
+        dest="listing_corpus",
+        help="LEMON_MARKET: path to pre-compiled listing corpus JSON (from compile_listing_corpus.py). "
+             "When set, seller/sybil create_listings() calls are replaced by corpus sampling, "
+             "eliminating LLM calls for the seller side.",
+    )
+    parser.add_argument(
         "--lemon-base-buyer",
         action="store_true",
         default=False,
@@ -502,6 +518,16 @@ def create_argument_parser():
         type=int,
         default=1000,
         help="Maximum number of tokens to generate",
+    )
+    parser.add_argument(
+        "--stab-llm",
+        type=str,
+        default=None,
+        dest="stab_llm",
+        help="Model name for stabilizing firm API requests (THE_CRASH). When set, stabilizing "
+             "firms use this model name instead of --llm — use a vLLM LoRA adapter alias "
+             "(e.g. 'stab') while non-stabilizing firms use the base model. "
+             "Service and port are inherited from --service / --port.",
     )
     parser.add_argument(
         "--service",

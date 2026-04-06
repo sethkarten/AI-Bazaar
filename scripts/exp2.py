@@ -447,6 +447,15 @@ def main() -> None:
         help="Enable minimal base-buyer variant (stripped prompt, no transaction history).",
     )
     parser.add_argument(
+        "--no-seller-ids", action="store_true", default=False, dest="no_seller_ids",
+        help="LEMON_MARKET ablation: omit seller identifiers from buyer observations.",
+    )
+    parser.add_argument(
+        "--listing-corpus", type=str, default=None, dest="listing_corpus",
+        help="Path to pre-compiled listing corpus JSON. When set, seller/sybil LLM calls "
+             "are replaced by corpus sampling (use with --no-seller-ids on Della).",
+    )
+    parser.add_argument(
         "--k", type=int, nargs="+", metavar="K",
         help="Only run cells with these K values (0 = baseline). E.g. --k 0 3 6",
     )
@@ -520,6 +529,10 @@ def main() -> None:
     ablation_args = []
     if cli.lemon_base_buyer:
         ablation_args += ["--lemon-base-buyer"]
+    if cli.no_seller_ids:
+        ablation_args += ["--no-seller-ids"]
+    if cli.listing_corpus:
+        ablation_args += ["--listing-corpus", cli.listing_corpus]
 
     base = _BASE_FIXED + llm_args + prompt_args + log_args + ablation_args
 

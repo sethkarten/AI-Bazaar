@@ -53,6 +53,29 @@ class BazaarWorld:
         self._llm_model_stabilizing = llm_model
         self._llm_model_default = llm_model_base or llm_model
         self.args = args
+
+        # Listing corpus for LEMON_MARKET feeder mode (--listing-corpus).
+        # Indexed as {(is_sybil: bool, quality: str): [listing_entry, ...]}.
+        self._listing_corpus: dict | None = None
+        listing_corpus_path = getattr(args, "listing_corpus", None)
+        if listing_corpus_path:
+            import collections as _collections
+            import json as _json
+            corpus_path = Path(listing_corpus_path)
+            if not corpus_path.is_absolute():
+                # Resolve relative to project root (cwd when launched from scripts/)
+                import os as _os
+                corpus_path = Path(_os.getcwd()) / corpus_path
+            with open(corpus_path, encoding="utf-8") as _f:
+                _raw = _json.load(_f)
+            _idx: dict = _collections.defaultdict(list)
+            for _e in _raw:
+                _idx[(_e["is_sybil"], _e["quality"])].append(_e)
+            self._listing_corpus = dict(_idx)
+            self.logger.info(
+                f"Listing corpus loaded: {len(_raw)} entries across "
+                f"{len(self._listing_corpus)} (is_sybil, quality) buckets."
+            )
         self.logger = logging.getLogger("main")
         self.ledger = Ledger()
         self.market = Market()
@@ -183,7 +206,7 @@ class BazaarWorld:
                         )
                 if args.firm_type == "LLM":
                     firm_kw = {
-                        "llm": args.llm,
+                        "llm": (getattr(args, "stab_llm", None) or args.llm) if is_stabilizing else args.llm,
                         "port": args.port,
                         "name": name,
                         "goods": self.goods,
@@ -701,8 +724,35 @@ class BazaarWorld:
                     "posted": False,
                 })
 
-            # 2) Honest sellers: parallel create_listings
+            # 2) Listing feeder mode: sample descriptions from pre-compiled corpus
+            #    instead of making LLM calls. Activated when --listing-corpus is set.
             new_listings = []
+            if self._listing_corpus is not None:
+                for firm in all_active:
+                    assigned = firm.listings[-1]  # just-endowed item
+                    is_sybil = getattr(firm, "sybil", False)
+                    key = (is_sybil, assigned["quality"])
+                    bucket = self._listing_corpus.get(key)
+                    if not bucket:
+                        # Fallback: any sybil/honest entry if exact quality missing
+                        fallback_key = (is_sybil, "poor") if is_sybil else (False, "fair")
+                        bucket = self._listing_corpus.get(fallback_key, [])
+                    if bucket:
+                        entry = random.choice(bucket)
+                        new_listings.append({
+                            "id": f"{firm.name}_listing_0",
+                            "firm_id": firm.name,
+                            "description": entry["description"],
+                            "price": entry["price"],
+                            "reputation": firm.reputation,
+                            "quality": assigned["quality"],
+                            "quality_value": assigned["quality_value"],
+                        })
+                    assigned["posted"] = True
+                self.lemon_market_listings = new_listings
+                return
+
+            # 3) Honest sellers: parallel create_listings
             if active_honest:
                 with concurrent.futures.ThreadPoolExecutor(
                     max_workers=max(1, len(active_honest))
@@ -714,11 +764,11 @@ class BazaarWorld:
                     for future in concurrent.futures.as_completed(future_to_firm):
                         new_listings.extend(future.result())
 
-            # 3) Sybil principal: one coordinated call covering all K identities
+            # 4) Sybil principal: one coordinated call covering all K identities
             if self.deceptive_principal and active_identities:
                 new_listings.extend(self.deceptive_principal.create_listings(self.timestep))
 
-            # 4) Store the new listings on the world for downstream use
+            # 5) Store the new listings on the world for downstream use
             self.lemon_market_listings = new_listings
         
         # 3. Firm phases
@@ -762,6 +812,7 @@ class BazaarWorld:
             self.lemon_market_bids_count = 0
             self.lemon_market_passes_count = 0
             include_rep = not getattr(self.args, "no_buyer_rep", False)
+            include_seller_ids = not getattr(self.args, "no_seller_ids", False)
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=max(1, len(self.consumers))
             ) as executor:
@@ -772,6 +823,7 @@ class BazaarWorld:
                         list(self.market.listings),
                         discovery_limit_consumers,
                         include_rep,
+                        include_seller_ids,
                     ): buyer
                     for buyer in self.consumers
                 }

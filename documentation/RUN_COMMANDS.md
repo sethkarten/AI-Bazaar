@@ -608,6 +608,120 @@ Figure scripts and their outputs:
 
 ---
 
+## EXPERIMENT 5 — Discovery limit firms (DLF) ablation
+
+**Purpose:** Mirror **Experiment 1’s discovery-limit-consumers (DLC) ablation** on THE_CRASH, but isolate **firm-side** price discovery: hold consumer discovery fixed and sweep how many competitor prices each firm observes.
+
+**Design (parallel to Exp1):**
+
+| Experiment | What varies | Held fixed (for the ablation axis) |
+|------------|-------------|-------------------------------------|
+| **Exp1** | `dlc` ∈ {1, 3, 5} | `dlf` at default (0 = no limit) |
+| **Exp5** | `dlf` ∈ {1, 3, 5} | `dlc` = **3** (Exp1’s middle grid value) |
+
+**Common settings:** Same as [EXPERIMENT 1](#experiment-1) (5 LLM firms, 50 CES consumers, 365 timesteps, THE_CRASH, `--use-cost-pref-gen`, `--no-diaries`, `--prompt-algo cot`, `--max-tokens 2000`, `--llm gemini-2.5-flash`, `--overhead-costs 14` unless overridden on the CLI).
+
+### `scripts/exp5.py` — DLF ablation runner
+
+`scripts/exp5.py` uses the **same 54-run layout as `scripts/exp1.py`**: baseline (no stabilizing firm) over **dlf** ∈ {1, 3, 5} × seeds {8, 16, 64}, plus stabilizing-firm sweeps over **dlf** ∈ {1, 3, 5} × n_stab ∈ {1, 2, 3, 4, 5} × seeds {8, 16, 64}. Every run sets `--discovery-limit-consumers 3` and `--discovery-limit-firms` to the cell’s dlf value.
+
+**Fixed settings (match Exp1):** `--wtp-algo none`, competitive persona for non-stabilizing firms, price-only consumer scoring (no `--crash-rep-scoring`), `--overhead-costs 14`.
+
+**Outputs:** Run names look like `exp5_<model>_stab_0_dlf3_seed8` or `exp5_<model>_stab_2_dlf5_seed16`. Per-run logs and state live under `logs/exp5_<model>/<run_name>/`; batch summary logs are `logs/exp5_<model>/exp5_<timestamp>.log`.
+
+#### Basic usage
+
+```bash
+# All 54 runs, sequential
+python scripts/exp5.py
+
+# Parallel (keep workers low for API limits)
+python scripts/exp5.py --workers 3
+```
+
+#### Model / service
+
+Same overrides as Exp1 (`--llm`, `--service`, `--port`, `--openrouter-provider`).
+
+```bash
+python scripts/exp5.py --llm gemini-2.0-flash --workers 3
+python scripts/exp5.py --llm gemma3:4b --service ollama --port 11434
+```
+
+#### Filtering runs
+
+Filters combine with **AND** logic. Use `--list` to preview.
+
+```bash
+python scripts/exp5.py --list
+
+# Only dlf=3 cells
+python scripts/exp5.py --dlf 3
+
+# Only n_stab=4 and n_stab=5
+python scripts/exp5.py --n-stab 4 5
+
+# Only seed=8
+python scripts/exp5.py --seeds 8
+
+# Combine: dlf=1, n_stab=1 or 2, all seeds
+python scripts/exp5.py --dlf 1 --n-stab 1 2
+
+# Exact run labels
+python scripts/exp5.py --run exp5_gemini-2.5-flash_stab_0_dlf3_seed8
+
+# Resume partial batches
+python scripts/exp5.py --skip-existing --workers 3
+```
+
+#### Figure scripts
+
+Use `exp_crash_appendix.py` (see below) with `--exp exp5` to generate the standard 3×3 appendix figure for Exp5.
+
+---
+
+### `paper/fig/scripts/exp_crash_appendix.py` — Crash appendix figure (Exp1 + Exp5)
+
+Generates a **3 rows × 3 cols** line-plot figure matching `fig_crash_appendix.pdf`:
+
+| Row | Metric |
+|-----|--------|
+| A | Price / Unit Cost (dashed reference at y = 1) |
+| B | Market Volume (mean `filled_orders_count` / timestep) |
+| C | Price Volatility (std of per-timestep mean price) |
+
+Columns are the discovery-limit sweep values (dlc=1/3/5 for Exp1, dlf=1/3/5 for Exp5). X-axis is stabilizing firms k ∈ {0, 1, 3, 5}. Each model gets a line with mean ± 1σ shaded band across seeds {8, 16, 64}.
+
+**Default models:**
+- Exp1: Gemini 3 Flash (`gemini-3-flash-preview`), GPT 5.4 (`openai_gpt-5.4`), Sonnet 4.6 (`anthropic_claude-sonnet-4.6`)
+- Exp5: Gemini 3 Flash (`gemini-3-flash-preview`) — add others as runs complete
+
+**Run directories expected:**
+- Exp1: `logs/exp1_{slug}/exp1_{slug}_stab_{k}_dlc{dlc}_seed{seed}/states.json`
+- Exp5: `logs/exp5_{slug}/exp5_{slug}_stab_{k}_dlf{dlf}_seed{seed}/states.json`
+
+Missing cells (runs not yet complete) are silently skipped.
+
+```bash
+# Exp1 — all three frontier models
+python paper/fig/scripts/exp_crash_appendix.py --exp exp1
+
+# Exp5 — Gemini only (for now)
+python paper/fig/scripts/exp_crash_appendix.py --exp exp5
+
+# Custom logs directory
+python paper/fig/scripts/exp_crash_appendix.py --exp exp1 --logs-dir logs/
+
+# Parallel data loading
+python paper/fig/scripts/exp_crash_appendix.py --exp exp1 --workers 8
+```
+
+**Output:**
+- Exp1: `paper/fig/exp1/exp1_crash_appendix.pdf`
+- Exp5: `paper/fig/exp5/exp5_crash_appendix.pdf`
+
+---
+
 ## Extract Sybil Principal Prompts (Exp2)
 
 After running Exp2 with prompt logging enabled, extracts Sybil principal

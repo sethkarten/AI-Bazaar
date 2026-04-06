@@ -128,6 +128,7 @@ class BuyerAgent(LLMAgent):
         listings: list,
         discovery_limit: int = 5,
         include_reputation: bool = True,
+        include_seller_ids: bool = True,
     ) -> List[Order]:
         """Sample up to discovery_limit listings, prompt the LLM, return ≤1 Order."""
         if not listings:
@@ -137,7 +138,7 @@ class BuyerAgent(LLMAgent):
         self.discovered_listings_this_step = list(visible)
 
         obs = self._build_observation(
-            timestep, visible, include_reputation
+            timestep, visible, include_reputation, include_seller_ids
         )
 
         self.add_message(
@@ -192,12 +193,16 @@ class BuyerAgent(LLMAgent):
         timestep: int,
         visible_listings: list,
         include_reputation: bool,
+        include_seller_ids: bool = True,
     ) -> dict:
         self._anon_listing_map = {}  # reset each step
         listing_dicts = []
         for j, L in enumerate(visible_listings):
-            anon_seller = self._anon_seller_id(L.firm_id)
-            anon_listing_id = f"{anon_seller}_listing_{j}"
+            if include_seller_ids:
+                anon_seller = self._anon_seller_id(L.firm_id)
+                anon_listing_id = f"{anon_seller}_listing_{j}"
+            else:
+                anon_listing_id = f"listing_{j}"
             self._anon_listing_map[anon_listing_id] = L.id
             entry = {
                 "listing_id": anon_listing_id,
@@ -222,7 +227,13 @@ class BuyerAgent(LLMAgent):
             )
             obs["persona"] = self.persona
             obs["your_mean_quality_received"] = personal_mean_quality
-            obs["your_transaction_history"] = personal_history
+            if include_seller_ids:
+                obs["your_transaction_history"] = personal_history
+            else:
+                obs["your_transaction_history"] = [
+                    {k: v for k, v in r.items() if k != "seller_id"}
+                    for r in personal_history
+                ]
         return obs
 
     # Post-purchase review (second LLM call after market clearing)
