@@ -7,7 +7,6 @@
 #SBATCH --constraint=gpu80
 #SBATCH --mem=64G
 #SBATCH --time=48:00:00
-#SBATCH --partition=gpu
 #SBATCH --output=logs/crash_%j.log
 #SBATCH --error=logs/crash_%j.err
 
