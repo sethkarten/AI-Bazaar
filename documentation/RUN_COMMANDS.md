@@ -1102,6 +1102,35 @@ Supports same `--llm`, `--service`, `--port`, `--stab-llm` passthrough flags as 
 
 ---
 
+## Downloading models from HuggingFace
+
+Install the CLI: `pip install huggingface_hub`
+
+**Authenticate (one-time, required for gated/private repos):**
+```bash
+huggingface-cli login
+# paste your HF token from huggingface.co/settings/tokens
+```
+
+**Download a public model:**
+```bash
+huggingface-cli download Qwen/Qwen3.5-9B --local-dir ./models/Qwen3.5-9B
+```
+
+**Download a private repo (e.g. LoRA checkpoints):**
+```bash
+git clone https://huggingface.co/machineExMachina/ai-bazaar-checkpoints ./models/ai-bazaar-checkpoints
+```
+
+**Download specific files only:**
+```bash
+huggingface-cli download Qwen/Qwen3.5-9B --include "*.safetensors" "*.json" --local-dir ./models/Qwen3.5-9B
+```
+
+Resume interrupted downloads by re-running the same command — `huggingface-cli` skips already-downloaded files.
+
+---
+
 ## DELLA HPC (Princeton)
 
 Della is Princeton's HPC cluster. Compute nodes have **no internet access**, so all LLM inference uses local models served by vLLM.
