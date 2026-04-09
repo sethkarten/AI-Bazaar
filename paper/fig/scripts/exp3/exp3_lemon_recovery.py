@@ -212,7 +212,7 @@ def make_figure(
         ax_ts.axhspan(
             band_lo, band_hi,
             alpha=0.12, color="#0072B2", zorder=1,
-            label=f"Baseline \u00b1{int(rel_threshold*100)}%",
+            label=f"Pre-shock \u00b1{int(rel_threshold*100)}%",
         )
 
     for kv in k_values:

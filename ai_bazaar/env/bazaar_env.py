@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+from pathlib import Path
 import numpy as np
 import random
 from dataclasses import asdict
@@ -53,6 +54,7 @@ class BazaarWorld:
         self._llm_model_stabilizing = llm_model
         self._llm_model_default = llm_model_base or llm_model
         self.args = args
+        self.logger = logging.getLogger("main")
 
         # Listing corpus for LEMON_MARKET feeder mode (--listing-corpus).
         # Indexed as {(is_sybil: bool, quality: str): [listing_entry, ...]}.
@@ -76,7 +78,6 @@ class BazaarWorld:
                 f"Listing corpus loaded: {len(_raw)} entries across "
                 f"{len(self._listing_corpus)} (is_sybil, quality) buckets."
             )
-        self.logger = logging.getLogger("main")
         self.ledger = Ledger()
         self.market = Market()
         # LEMON_MARKET: use lemon_market_goods and force num_goods = 1

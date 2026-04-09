@@ -98,6 +98,7 @@ class LLMAgent:
             or "ministral" in llm_type.lower()
             or llm_type.startswith(".")
             or llm_type.startswith("/")
+            or (service or getattr(args, "service", None)) in ("vllm", "ollama")
         ):
             if port == 0:
                 return None  # Should be provided via llm_instance

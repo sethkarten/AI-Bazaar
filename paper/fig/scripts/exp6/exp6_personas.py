@@ -12,8 +12,8 @@ Expected run naming convention:
     name ∈ {price_hawk, loyal, small_biz, popular, variety}
 
 Usage:
-    python paper/fig/scripts/exp6/exp6_personas.py [--slug gemini-2.5-flash] \\
-        [--logs-dir logs/] [--output ...]
+    python paper/fig/scripts/exp6/exp6_personas.py [--llm gemini-2.5-flash] \\
+        [--logs-dir logs/] [--list] [--output ...]
 """
 
 import argparse
@@ -29,6 +29,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def llm_filesystem_slug(llm: str) -> str:
+    """Convert a model name to a filesystem-safe slug."""
+    s = llm.strip()
+    for ch in '<>:"/\\|?*':
+        s = s.replace(ch, "_")
+    s = s.replace(":", "_")
+    return s or "model"
 
 K_VALUES  = [0, 1, 3, 5]
 SEEDS     = [8, 16, 64]
@@ -102,10 +111,22 @@ def compute_br(run_dir):
 
 
 def resolve_condition_dir(logs_dir, slug, condition, k, seed):
-    """Resolve run dir for a given condition string and k level."""
-    name = f"exp6_{slug}_{condition}_stab_{k}_dlc5_seed{seed}"
-    d = os.path.join(logs_dir, f"exp6_{slug}", name)
-    return d if os.path.isdir(d) else None
+    """Resolve run dir for a given condition string and k level.
+
+    Tries the condition-qualified name first, then falls back to the plain
+    name (no condition tag) for the homogeneous baseline condition.
+    """
+    base = os.path.join(logs_dir, f"exp6_{slug}")
+    # Primary: condition-qualified name (future / mixed runs)
+    d = os.path.join(base, f"exp6_{slug}_{condition}_stab_{k}_dlc5_seed{seed}")
+    if os.path.isdir(d):
+        return d
+    # Fallback for homogeneous: plain name without condition tag
+    if condition == "homogeneous":
+        d = os.path.join(base, f"exp6_{slug}_stab_{k}_dlc5_seed{seed}")
+        if os.path.isdir(d):
+            return d
+    return None
 
 
 def resolve_persona_dir(logs_dir, slug, persona, seed):
@@ -241,32 +262,73 @@ def draw_right_panel(ax, persona_data):
     ax.spines["right"].set_visible(False)
 
 
+# ── List helper ───────────────────────────────────────────────────────────────
+
+def list_runs(logs_dir, slug):
+    rows = []
+    # Condition sweep runs
+    for condition in ["homogeneous", "mixed"]:
+        for k in K_VALUES:
+            for seed in SEEDS:
+                d = resolve_condition_dir(logs_dir, slug, condition, k, seed)
+                # Show plain fallback path for homogeneous when condition-qualified doesn't exist
+                if condition == "homogeneous":
+                    canonical = os.path.join(
+                        logs_dir, f"exp6_{slug}",
+                        f"exp6_{slug}_stab_{k}_dlc5_seed{seed}")
+                else:
+                    canonical = os.path.join(
+                        logs_dir, f"exp6_{slug}",
+                        f"exp6_{slug}_{condition}_stab_{k}_dlc5_seed{seed}")
+                rows.append(("✓" if d else "✗", f"{condition} k={k}", seed, d or canonical))
+    # Per-persona runs
+    for persona in PERSONAS:
+        for seed in SEEDS:
+            d = resolve_persona_dir(logs_dir, slug, persona, seed)
+            canonical = os.path.join(
+                logs_dir, f"exp6_{slug}",
+                f"exp6_{slug}_persona_{persona}_k0_dlc5_seed{seed}")
+            rows.append(("✓" if d else "✗", f"persona={persona}", seed, d or canonical))
+
+    print(f"Expected runs  slug='{slug}':")
+    for exists, label, seed, path in rows:
+        print(f"  [{exists}] {label:28s}  seed={seed:3d}  {path}")
+    print(f"\n{sum(1 for r in rows if r[0]=='✓')} / {len(rows)} runs present")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     ap = argparse.ArgumentParser(description="Fig C: exp6 consumer personas.")
-    ap.add_argument("--slug",     default="gemini-2.5-flash")
+    ap.add_argument("--llm",      default="gemini-2.5-flash",
+                    help="LLM model name (converted to filesystem slug)")
     ap.add_argument("--logs-dir", default="logs/")
+    ap.add_argument("--list",     action="store_true",
+                    help="Print expected run directories and exit without plotting.")
     ap.add_argument("--output",   default=None)
     args = ap.parse_args()
+
+    slug     = llm_filesystem_slug(args.llm)
+    logs_dir = args.logs_dir
+
+    if args.list:
+        list_runs(logs_dir, slug)
+        return
 
     if args.output is None:
         fig_dir = os.path.abspath(os.path.join(_SCRIPT_DIR, "..", "..", "exp6"))
         args.output = os.path.join(fig_dir, "exp6_personas.pdf")
 
-    logs_dir = args.logs_dir
-    slug     = args.slug
-
-    homo_data  = load_condition_sweep(logs_dir, slug, "homogeneous")
-    mixed_data = load_condition_sweep(logs_dir, slug, "mixed")
+    homo_data    = load_condition_sweep(logs_dir, slug, "homogeneous")
+    mixed_data   = load_condition_sweep(logs_dir, slug, "mixed")
     persona_data = {p: load_persona_brs(logs_dir, slug, p) for p in PERSONAS}
 
-    total_cells = sum(len(v) for v in homo_data.values()) + \
-                  sum(len(v) for v in mixed_data.values()) + \
-                  sum(len(v) for v in persona_data.values())
+    total_cells = (sum(len(v) for v in homo_data.values()) +
+                   sum(len(v) for v in mixed_data.values()) +
+                   sum(len(v) for v in persona_data.values()))
 
     if total_cells == 0:
-        warnings.warn(f"No data found for slug='{slug}' in {logs_dir}. "
+        warnings.warn(f"No data found for llm='{args.llm}' (slug='{slug}') in {logs_dir}. "
                       "Saving empty figure.")
 
     # ── Figure ────────────────────────────────────────────────────────────────

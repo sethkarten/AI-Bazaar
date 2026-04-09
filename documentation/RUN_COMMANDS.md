@@ -176,88 +176,6 @@ After the sweep finishes, run `exp1_run_all.py --src exp1_{model_slug}` per mode
 
 ---
 
-#### Experiment 1 figures
-
-After runs have produced state files, generate figures from the **project root**. Figure scripts live in `paper/fig/scripts/exp1/` and write PDFs to `paper/fig/exp1/<model>/` by default.
-
-Use `--src` to point at the model-specific subdirectory inside `logs/` where runs are stored. `--src` also sets the model prefix automatically (e.g. `exp1_gemini-2.5-flash` → `--model gemini-2.5-flash`). Output PDFs go to `paper/fig/exp1/<src-name>/`.
-
-```bash
-# Regenerate all Exp1 figures — reads from logs/exp1_gemini-2.5-flash/, writes to paper/fig/exp1/exp1_gemini-2.5-flash/
-python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash
-
-# --dst overrides the output subdirectory (defaults to --src name)
-python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash --dst my_run
-
-# Optional arguments
-#   --src DIR        subdirectory within logs/ to read from
-#   --dst DIR        subdirectory within paper/fig/exp1/ to write to (default: --src name)
-#   --logs-dir DIR   base logs directory (default: logs/)
-#   --good NAME      good name for price/volume metrics (default: food)
-#   --fig-dir DIR    base output directory for PDFs (default: paper/fig/exp1/)
-
-# Single figure
-python paper/fig/scripts/exp1/exp1_heatmap.py --logs-dir logs/exp1_gemini-2.5-flash
-python paper/fig/scripts/exp1/exp1_score.py   --logs-dir logs/exp1_gemini-2.5-flash
-```
-
----
-
-### Experiment 1 Model Comparison Figure
-
-Compares M models side-by-side across 5 metrics (bankruptcy rate, final price, volume, volatility, health score) for k ∈ {0,1,3,5} and dlc ∈ {1,3,5}. Pass `--name` to name the comparison and `--src` once per model.
-
-Data loading priority per model:
-
-1. Comparison cache (`paper/fig/exp1/comparisons/{name}/data/`)
-2. Heatmap cache written by `exp1_run_all` (`paper/fig/exp1/{src}/data/exp1_heatmap_food.json`) — reused to avoid recomputation
-3. Fallback: compute from raw state files
-
-```bash
-# Compare two models
-python paper/fig/scripts/exp1/exp1_model_comparison.py --name claude_vs_gpt --src exp1_anthropic_claude-sonnet-4.6 --src exp1_openai_gpt-5.4
-
-# Compare three models
-python paper/fig/scripts/exp1/exp1_model_comparison.py --name frontier_3way --src exp1_anthropic_claude-sonnet-4.6 --src exp1_openai_gpt-5.4 --src exp1_meta-llama_llama-3.2-3b-instruct
-```
-
-Output: `paper/fig/exp1/comparisons/{name}/{name}.pdf`
-Cache:  `paper/fig/exp1/comparisons/{name}/data/exp1_model_comparison_{model}_food.json`
-
-Colormaps for rows B–D (price, volume, volatility) are normalized globally across all models so color values are directly comparable. The health score row uses global normalization too.
-
----
-
-### Experiment 1 Health Score vs. Model Size
-
-Scatter plot of composite market health score (y) vs. parameter count (x, log scale) for all dense open-weight models with `include=1` in `EAS_vs_MODEL_SIZE.md`, at the fixed setting dlc=3, k=3. Points are colored by developer; error bars show min/max across seeds 8/16/64.
-
-Data is read from the heatmap cache written by `exp1_run_all` — no recomputation needed if runs have already been processed. Falls back to raw state files if no cache exists.
-
-```bash
-python paper/fig/scripts/exp1/exp1_health_vs_size.py --logs-dir logs/
-```
-
-Output: `paper/fig/exp1/exp1_health_vs_size.pdf`
-
-The title reports how many of the 21 models have data (e.g. `[8/21 models with data]`), so partial sweeps render cleanly.
-
----
-
-Individual figure scripts can also be called directly with the same `--logs-dir` / `--model` args that `exp1_run_all.py` passes internally:
-
-```bash
-python paper/fig/scripts/exp1/exp1_heatmap.py        --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
-python paper/fig/scripts/exp1/exp1_score.py          --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
-python paper/fig/scripts/exp1/exp1_timeseries.py     --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
-python paper/fig/scripts/exp1/exp1_survival.py       --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
-python paper/fig/scripts/exp1/exp1_phase.py          --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
-python paper/fig/scripts/exp1/exp1_collapse_timing.py --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
-python paper/fig/scripts/exp1/exp1_tokens.py         --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
-```
-
----
-
 ## EXPERIMENT 2
 
 **Scenario:** LEMON_MARKET — LLM sellers (honest + Sybil cluster) post used-car listings; LLM buyers bid/pass based on description, price, and seller reputation. Sybil identities rotate when their rolling-window reputation drops below `rho_min`. Ablation: reputation visible vs. hidden.
@@ -351,34 +269,38 @@ python scripts/exp2.py --run exp2_gemini-2.5-flash_k0_rep1_seed8 exp2_gemini-2.5
 python scripts/exp2.py --skip-existing
 ```
 
-#### Experiment 2 figures
+---
 
-After runs have produced state files under `logs/<run_name>/`, generate figures from the **project root**. Figure scripts live in `paper/fig/scripts/exp2/` and write PDFs to `paper/fig/exp2/` by default.
+### `scripts/exp2_2.py` — Experiment 2-2: no-seller-ids ablation
+
+Identical to `exp2.py` except `--no-seller-ids` is **hardwired on**. Buyer observations contain no seller identifier of any kind — listings receive ephemeral per-round labels (`listing_0`, `listing_1`, …) that reset each timestep, and `seller_id` is absent from transaction history. This removes all cross-round seller tracking, isolating whether buyers can avoid lemons using only description quality and (optionally) reputation.
+
+Run logs go to `logs/exp2_2_{buyer_slug}/`; run names use prefix `exp2_2_` to distinguish from exp2.
 
 ```bash
-# Regenerate all Exp2 figures — reads from logs/exp2_gemini-2.5-flash/, writes to paper/fig/exp2/exp2_gemini-2.5-flash/
-python paper/fig/scripts/exp2/exp2_run_all.py --src exp2_gemini-2.5-flash
+# All 18 runs, sequential
+python scripts/exp2_2.py --llm gemini-2.5-flash
 
-# --dst overrides the output subdirectory (defaults to --src name)
-python paper/fig/scripts/exp2/exp2_run_all.py --src exp2_gemini-2.5-flash --dst my_run
+# Parallel
+python scripts/exp2_2.py --llm gemini-2.5-flash --workers 3
 
-# Optional arguments
-#   --src DIR        subdirectory within logs/ to read from
-#   --dst DIR        subdirectory within paper/fig/exp2/ to write to (default: --src name)
-#   --logs-dir DIR   base logs directory (default: logs/)
-#   --good NAME      good name for price/volume metrics (default: car)
-#   --fig-dir DIR    base output directory for PDFs (default: paper/fig/exp2/)
-#   --workers N      parallel load workers per script (default: 8)
-#   --force          ignore cache and rebuild from scratch
+# Buyer/seller split (same as exp2)
+python scripts/exp2_2.py \
+  --buyer-llm meta-llama/llama-3.1-8b-instruct \
+  --seller-llm google/gemma-3-12b-it
 
-# Single figure
-python paper/fig/scripts/exp2/exp2_sybil_detection.py          --logs-dir logs/exp2_gemini-2.5-flash
-python paper/fig/scripts/exp2/exp2_lemon_volume.py             --logs-dir logs/exp2_gemini-2.5-flash
-python paper/fig/scripts/exp2/exp2_lemon_reputation_quality.py --logs-dir logs/exp2_gemini-2.5-flash
-python paper/fig/scripts/exp2/exp2_lemon_consumer_welfare.py   --logs-dir logs/exp2_gemini-2.5-flash
-python paper/fig/scripts/exp2/exp2_sybil_revenue_share.py      --logs-dir logs/exp2_gemini-2.5-flash
-python paper/fig/scripts/exp2/exp2_market_collapse.py          --logs-dir logs/exp2_gemini-2.5-flash
+# Filter by condition
+python scripts/exp2_2.py --llm gemini-2.5-flash --rep-visible 1 # rep visible only
+python scripts/exp2_2.py --llm gemini-2.5-flash --seeds 8
+
+# Preview without executing
+python scripts/exp2_2.py --llm gemini-2.5-flash --list
+
+# Resume a partial sweep
+python scripts/exp2_2.py --llm gemini-2.5-flash --skip-existing
 ```
+
+All `exp2.py` flags are supported except `--no-seller-ids` (always active). Outputs follow the same structure as `exp2.py`.
 
 ---
 
@@ -569,43 +491,6 @@ Shock parameters:
 
 State files include a `"shock"` key every timestep: `applied`, `type`, `shock_timestep`, `post_shock_unit_cost`, `post_shock_sybil_k`.
 
-#### Experiment 3 figures
-
-After runs have produced state files, generate figures from the **project root**. Figure scripts live in `paper/fig/scripts/exp3/` and write PDFs to `paper/fig/exp3/<src>/` by default.
-
-Use `--src` to point at the model-specific subdirectory inside `logs/` where both crash (exp3a) and lemon (exp3b) runs are stored. `--src` also sets the model prefix automatically (e.g. `exp3_gemini-3-flash-preview` → `--model gemini-3-flash-preview`). Output PDFs go to `paper/fig/exp3/<src-name>/`.
-
-```bash
-# Regenerate all Exp3 figures — reads from logs/exp3_gemini-3-flash-preview/, writes to paper/fig/exp3/exp3_gemini-3-flash-preview/
-python paper/fig/scripts/exp3/exp3_run_all.py --src exp3_gemini-3-flash-preview
-
-# --dst overrides the output subdirectory (defaults to --src name)
-python paper/fig/scripts/exp3/exp3_run_all.py --src exp3_gemini-3-flash-preview --dst my_run
-
-# Optional arguments
-#   --src DIR        subdirectory within logs/ to read from
-#   --dst DIR        subdirectory within paper/fig/exp3/ to write to (default: --src name)
-#   --logs-dir DIR   base logs directory (default: logs/)
-#   --fig-dir DIR    base output directory for PDFs (default: paper/fig/exp3/)
-#   --good NAME      good name for price/volume metrics (default: food)
-#   --workers N      parallel load workers per script (default: 8)
-
-# Single figure (direct --logs-dir)
-python paper/fig/scripts/exp3/exp3_crash_heatmap.py    --logs-dir logs/exp3_gemini-3-flash-preview
-python paper/fig/scripts/exp3/exp3_crash_timeseries.py --logs-dir logs/exp3_gemini-3-flash-preview
-python paper/fig/scripts/exp3/exp3_crash_recovery.py   --logs-dir logs/exp3_gemini-3-flash-preview
-python paper/fig/scripts/exp3/exp3_lemon_recovery.py   --logs-dir logs/exp3_gemini-3-flash-preview
-```
-
-Figure scripts and their outputs:
-
-| Script | Output | Description |
-|--------|--------|-------------|
-| `exp3_crash_heatmap.py` | `exp3_crash_heatmap.pdf` | 1×4 metric heatmap (bankruptcy, price, volume, volatility) over n_stab × dlc grid |
-| `exp3_crash_timeseries.py` | `exp3_crash_timeseries.pdf` | 3×3 timeseries (price, firms, orders) by n_stab ∈ {1,3,5}, shock line at t=25 |
-| `exp3_crash_recovery.py` | `exp3_crash_recovery.pdf` | Markup ratio μ_t timeseries + recovery time bar chart |
-| `exp3_lemon_recovery.py` | `exp3_lemon_recovery.pdf` | Detection premium δ_t timeseries + recovery time bar chart |
-
 ---
 
 ## EXPERIMENT 5 — Discovery limit firms (DLF) ablation
@@ -674,51 +559,214 @@ python scripts/exp5.py --run exp5_gemini-2.5-flash_stab_0_dlf3_seed8
 python scripts/exp5.py --skip-existing --workers 3
 ```
 
-#### Figure scripts
+---
 
-Use `exp_crash_appendix.py` (see below) with `--exp exp5` to generate the standard 3×3 appendix figure for Exp5.
+## Figures
+
+Figure scripts live in `paper/fig/scripts/` and write PDFs to `paper/fig/`. Always run from the **project root**.
 
 ---
 
-### `paper/fig/scripts/exp_crash_appendix.py` — Crash appendix figure (Exp1 + Exp5)
+### Experiment 1
 
-Generates a **3 rows × 3 cols** line-plot figure matching `fig_crash_appendix.pdf`:
-
-| Row | Metric |
-|-----|--------|
-| A | Price / Unit Cost (dashed reference at y = 1) |
-| B | Market Volume (mean `filled_orders_count` / timestep) |
-| C | Price Volatility (std of per-timestep mean price) |
-
-Columns are the discovery-limit sweep values (dlc=1/3/5 for Exp1, dlf=1/3/5 for Exp5). X-axis is stabilizing firms k ∈ {0, 1, 3, 5}. Each model gets a line with mean ± 1σ shaded band across seeds {8, 16, 64}.
-
-**Default models:**
-- Exp1: Gemini 3 Flash (`gemini-3-flash-preview`), GPT 5.4 (`openai_gpt-5.4`), Sonnet 4.6 (`anthropic_claude-sonnet-4.6`)
-- Exp5: Gemini 3 Flash (`gemini-3-flash-preview`) — add others as runs complete
-
-**Run directories expected:**
-- Exp1: `logs/exp1_{slug}/exp1_{slug}_stab_{k}_dlc{dlc}_seed{seed}/states.json`
-- Exp5: `logs/exp5_{slug}/exp5_{slug}_stab_{k}_dlf{dlf}_seed{seed}/states.json`
-
-Missing cells (runs not yet complete) are silently skipped.
+Use `--src` to point at the model-specific subdirectory inside `logs/`. `--src` sets the model prefix automatically (e.g. `exp1_gemini-2.5-flash` → `--model gemini-2.5-flash`). Output PDFs go to `paper/fig/exp1/<src-name>/`.
 
 ```bash
-# Exp1 — all three frontier models
+# Regenerate all Exp1 figures
+python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash
+
+# --dst overrides the output subdirectory (defaults to --src name)
+python paper/fig/scripts/exp1/exp1_run_all.py --src exp1_gemini-2.5-flash --dst my_run
+
+# Optional arguments
+#   --src DIR        subdirectory within logs/ to read from
+#   --dst DIR        subdirectory within paper/fig/exp1/ to write to (default: --src name)
+#   --logs-dir DIR   base logs directory (default: logs/)
+#   --good NAME      good name for price/volume metrics (default: food)
+#   --fig-dir DIR    base output directory for PDFs (default: paper/fig/exp1/)
+
+# Individual scripts
+python paper/fig/scripts/exp1/exp1_heatmap.py         --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_score.py           --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_timeseries.py      --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_survival.py        --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_phase.py           --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_collapse_timing.py --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+python paper/fig/scripts/exp1/exp1_tokens.py          --logs-dir logs/exp1_gemini-2.5-flash --model gemini-2.5-flash
+```
+
+#### Model Comparison
+
+Compares M models side-by-side across 5 metrics (bankruptcy rate, final price, volume, volatility, health score) for k ∈ {0,1,3,5} and dlc ∈ {1,3,5}. Data loading priority per model: comparison cache → heatmap cache written by `exp1_run_all` → raw state files.
+
+```bash
+# Compare two models
+python paper/fig/scripts/exp1/exp1_model_comparison.py --name claude_vs_gpt --src exp1_anthropic_claude-sonnet-4.6 --src exp1_openai_gpt-5.4
+
+# Compare three models
+python paper/fig/scripts/exp1/exp1_model_comparison.py --name frontier_3way --src exp1_anthropic_claude-sonnet-4.6 --src exp1_openai_gpt-5.4 --src exp1_meta-llama_llama-3.2-3b-instruct
+```
+
+Output: `paper/fig/exp1/comparisons/{name}/{name}.pdf`  
+Cache: `paper/fig/exp1/comparisons/{name}/data/exp1_model_comparison_{model}_food.json`
+
+Colormaps for rows B–D (price, volume, volatility) are normalized globally across all models so color values are directly comparable.
+
+#### Health Score vs. Model Size
+
+Scatter plot of composite market health score (y) vs. parameter count (x, log scale) for all dense open-weight models, at dlc=3, k=3. Points colored by developer; error bars show min/max across seeds. Reads heatmap cache from `exp1_run_all`; falls back to raw state files.
+
+```bash
+python paper/fig/scripts/exp1/exp1_health_vs_size.py --logs-dir logs/
+```
+
+Output: `paper/fig/exp1/exp1_health_vs_size.pdf`
+
+---
+
+### Experiment 2
+
+Use `--src` to point at the buyer-model subdirectory inside `logs/`. Output PDFs go to `paper/fig/exp2/<src-name>/`.
+
+```bash
+# Regenerate all Exp2 figures
+python paper/fig/scripts/exp2/exp2_run_all.py --src exp2_gemini-2.5-flash
+
+# --dst overrides the output subdirectory (defaults to --src name)
+python paper/fig/scripts/exp2/exp2_run_all.py --src exp2_gemini-2.5-flash --dst my_run
+
+# Optional arguments
+#   --src DIR        subdirectory within logs/ to read from
+#   --dst DIR        subdirectory within paper/fig/exp2/ to write to (default: --src name)
+#   --logs-dir DIR   base logs directory (default: logs/)
+#   --good NAME      good name for price/volume metrics (default: car)
+#   --fig-dir DIR    base output directory for PDFs (default: paper/fig/exp2/)
+#   --workers N      parallel load workers per script (default: 8)
+#   --force          ignore cache and rebuild from scratch
+
+# Individual scripts
+python paper/fig/scripts/exp2/exp2_sybil_detection.py          --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_lemon_volume.py             --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_lemon_reputation_quality.py --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_lemon_consumer_welfare.py   --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_sybil_revenue_share.py      --logs-dir logs/exp2_gemini-2.5-flash
+python paper/fig/scripts/exp2/exp2_market_collapse.py          --logs-dir logs/exp2_gemini-2.5-flash
+```
+
+---
+
+### Experiment 2-2
+
+Produces a 3-panel grouped bar chart (Fig D) comparing Sybil detection rate, Sybil revenue share, and consumer surplus. Four bars per panel: base buyer (k=0) and Skeptical Guardian (k=K), each in ID-visible (exp2) and ID-blinded (exp2_2) conditions.
+
+```bash
+# Fig D: Detection mechanism — ID memory vs. quality reasoning
+python paper/fig/scripts/exp2_2/exp2_2_blinded.py --llm gemini-3-flash-preview
+
+# Different k level or rep visibility
+python paper/fig/scripts/exp2_2/exp2_2_blinded.py --llm gemini-3-flash-preview --k 9 --rep 1
+
+# Preview expected run directories and existence status
+python paper/fig/scripts/exp2_2/exp2_2_blinded.py --llm gemini-3-flash-preview --list
+```
+
+Output: `paper/fig/exp2_2/exp2_2_blinded.pdf`
+
+Run directories expected:
+- Exp2 (visible): `logs/exp2_{slug}/exp2_{slug}_k{k}_rep{rep}_seed{seed}/` (k=0 also accepts `_baseline_seed{seed}`)
+- Exp2-2 (blinded): `logs/exp2_2_{slug}/exp2_2_{slug}_k{k}_rep{rep}_seed{seed}/`
+
+Note: exp2_2 k=0 runs (base buyer blinded) not yet complete — those bars will be empty until finished.
+
+---
+
+### Experiment 3
+
+Use `--src` to point at the model subdirectory inside `logs/` containing both crash (exp3a) and lemon (exp3b) runs. Output PDFs go to `paper/fig/exp3/<src-name>/`.
+
+```bash
+# Regenerate all Exp3 figures
+python paper/fig/scripts/exp3/exp3_run_all.py --src exp3_gemini-3-flash-preview
+
+# --dst overrides the output subdirectory
+python paper/fig/scripts/exp3/exp3_run_all.py --src exp3_gemini-3-flash-preview --dst my_run
+
+# Optional arguments
+#   --src DIR        subdirectory within logs/ to read from
+#   --dst DIR        subdirectory within paper/fig/exp3/ to write to (default: --src name)
+#   --logs-dir DIR   base logs directory (default: logs/)
+#   --fig-dir DIR    base output directory for PDFs (default: paper/fig/exp3/)
+#   --good NAME      good name for price/volume metrics (default: food)
+#   --workers N      parallel load workers per script (default: 8)
+
+# Individual scripts
+python paper/fig/scripts/exp3/exp3_crash_heatmap.py    --logs-dir logs/exp3_gemini-3-flash-preview
+python paper/fig/scripts/exp3/exp3_crash_timeseries.py --logs-dir logs/exp3_gemini-3-flash-preview
+python paper/fig/scripts/exp3/exp3_crash_recovery.py   --logs-dir logs/exp3_gemini-3-flash-preview
+python paper/fig/scripts/exp3/exp3_lemon_recovery.py   --logs-dir logs/exp3_gemini-3-flash-preview
+```
+
+| Script | Output | Description |
+|--------|--------|-------------|
+| `exp3_crash_heatmap.py` | `exp3_crash_heatmap.pdf` | 1×4 metric heatmap (bankruptcy, price, volume, volatility) over n_stab × dlc grid |
+| `exp3_crash_timeseries.py` | `exp3_crash_timeseries.pdf` | 1×2 timeseries (mean price with stepped unit-cost reference, active firms) for n_stab=5, shock line at t=25 |
+| `exp3_crash_recovery.py` | `exp3_crash_recovery.pdf` | Markup ratio μ_t timeseries + recovery time bar chart |
+| `exp3_lemon_recovery.py` | `exp3_lemon_recovery.pdf` | Detection premium δ_t timeseries + recovery time bar chart |
+
+---
+
+### Experiment 5
+
+```bash
+# dlc (exp1) vs dlf (exp5) comparison at k=0
+python paper/fig/scripts/exp5/exp5_dlf_comparison.py
+
+# k × dlf heatmap of bankruptcy rate
+python paper/fig/scripts/exp5/exp5_dlf_heatmap.py --slug gemini-3-flash-preview
+```
+
+**`exp5_dlf_comparison.py`** — Compares consumer-side visibility (dlc) against firm-side visibility (dlf), both at k=0. One line per model; shaded band = min/max across seeds. Output: `paper/fig/exp5/exp5_dlf_comparison.pdf`
+
+**`exp5_dlf_heatmap.py`** — Heatmap of bankruptcy rate over the k × dlf grid (rows: k ∈ {0,1,3,5}; cols: dlf ∈ {1,3,5}). Output: `paper/fig/exp5/exp5_dlf_heatmap.pdf`
+
+---
+
+### Experiment 6
+
+```bash
+# Fig C: Mixed personas vs. homogeneous baseline — two-panel figure
+python paper/fig/scripts/exp6/exp6_personas.py --llm gemini-2.5-flash
+
+# Preview expected run directories and existence status
+python paper/fig/scripts/exp6/exp6_personas.py --llm gemini-2.5-flash --list
+```
+
+Left panel: bankruptcy rate vs k for homogeneous (PRICE_HAWK) vs mixed-persona conditions at dlc=5. Right panel: per-persona bankruptcy rate bar chart at k=0. Output: `paper/fig/exp6/exp6_personas.pdf`
+
+**Run directories expected:**
+- `logs/exp6_{slug}/exp6_{slug}_homogeneous_stab_{k}_dlc5_seed{seed}/`
+- `logs/exp6_{slug}/exp6_{slug}_mixed_stab_{k}_dlc5_seed{seed}/`
+- `logs/exp6_{slug}/exp6_{slug}_persona_{name}_k0_dlc5_seed{seed}/` — name ∈ {price_hawk, loyal, small_biz, popular, variety}
+
+---
+
+### Crash Appendix (Exp1 + Exp5)
+
+Generates a **3 rows × 3 cols** line-plot figure (Price/Unit Cost, Market Volume, Price Volatility) over the discovery-limit sweep (dlc for Exp1, dlf for Exp5). X-axis is stabilizing firms k ∈ {0,1,3,5}; each model gets a mean ± 1σ band across seeds.
+
+**Default models:**
+- Exp1: Gemini 3 Flash, GPT 5.4, Sonnet 4.6
+- Exp5: Gemini 3 Flash
+
+```bash
 python paper/fig/scripts/exp_crash_appendix.py --exp exp1
-
-# Exp5 — Gemini only (for now)
 python paper/fig/scripts/exp_crash_appendix.py --exp exp5
-
-# Custom logs directory
-python paper/fig/scripts/exp_crash_appendix.py --exp exp1 --logs-dir logs/
-
-# Parallel data loading
 python paper/fig/scripts/exp_crash_appendix.py --exp exp1 --workers 8
 ```
 
-**Output:**
-- Exp1: `paper/fig/exp1/exp1_crash_appendix.pdf`
-- Exp5: `paper/fig/exp5/exp5_crash_appendix.pdf`
+Output: `paper/fig/exp1/exp1_crash_appendix.pdf` / `paper/fig/exp5/exp5_crash_appendix.pdf`
+
+Missing cells (runs not yet complete) are silently skipped.
 
 ---
 
@@ -1099,6 +1147,47 @@ python scripts/exp6.py --skip-existing --workers 3
 ```
 
 Supports same `--llm`, `--service`, `--port`, `--stab-llm` passthrough flags as all other crash experiment scripts.
+
+---
+
+## EXPERIMENT 4 — Supply and Demand Shocks
+
+**Purpose:** Test harness fragility under non-stationary market conditions. A shock is applied at t=182 (run midpoint) to the exp1 baseline (k=0, dlc=3).
+
+**Conditions:** supply_up (unit cost 1.0 → 2.0), supply_down (cost → 0.5), demand_up (λ × 2), demand_down (λ × 0.5), plus unshocked baseline.
+
+**Run directories expected:**
+- `logs/exp4_{slug}/exp4_{slug}_{condition}_seed{seed}/`  — condition ∈ {baseline, supply_up, supply_down, demand_up, demand_down}
+
+#### Figure scripts
+
+```bash
+# Fig E: Supply and demand shock timeseries — two-panel figure
+python paper/fig/scripts/exp4/exp4_shocks.py --slug gemini-3-flash-preview
+```
+
+Two panels: left = supply shock (price/cost over time), right = demand shock. Each panel shows three lines (baseline, shock-up, shock-down) with min/max shading and a secondary axis for active firm count. Vertical dashed line at t=182. Output: `paper/fig/exp4/exp4_shocks.pdf`
+
+---
+
+## Multi-Good Crash
+
+**Purpose:** Show that THE_CRASH generalizes to 2-good markets. Same N/M/T as exp1 (k=0, dlc=3).
+
+**Run directories expected:**
+- `logs/multigood_{slug}/multigood_{slug}_baseline_seed{seed}/`
+
+#### Figure scripts
+
+```bash
+# Fig F: Price trajectories and firm survival for a 2-good market
+python paper/fig/scripts/multigood/multigood_crash.py --slug gemini-3-flash-preview
+
+# Specify goods explicitly (default: auto-detect from first run)
+python paper/fig/scripts/multigood/multigood_crash.py --slug gemini-3-flash-preview --goods food clothing
+```
+
+Left panel: mean price/unit-cost per good over time (faint per-seed traces + thick mean). Right panel: firm survival count over time with first-bankruptcy annotations. Output: `paper/fig/multigood/multigood_crash.pdf`
 
 ---
 

@@ -145,9 +145,10 @@ def draw_panel(ax, all_data, models, title, xlabel):
             if not brs:
                 continue
             xs.append(dl)
-            means.append(float(np.mean(brs)))
-            mins.append(float(np.min(brs)))
-            maxs.append(float(np.max(brs)))
+            srs = [1.0 - b for b in brs]  # success rate = 1 - b_r
+            means.append(float(np.mean(srs)))
+            mins.append(float(np.min(srs)))
+            maxs.append(float(np.max(srs)))
         if not xs:
             continue
 
@@ -165,14 +166,14 @@ def draw_panel(ax, all_data, models, title, xlabel):
         if slope_first is None and len(xs) >= 2:
             slope_first = float(np.polyfit(xs_arr, means_arr, 1)[0])
 
-    # Reference line at b_r = 0.5
+    # Reference line at success rate = 0.5 (stability threshold)
     ax.axhline(0.5, color="0.6", lw=0.8, ls="--", zorder=1)
 
     ax.set_xticks(DL_VALUES)
     ax.set_xlim(0.5, 5.5)
     ax.set_ylim(-0.05, 1.05)
     ax.set_xlabel(xlabel)
-    ax.set_ylabel("Bankruptcy Rate $b_r$")
+    ax.set_ylabel("Success Rate $1 - b_r$")
     ax.set_title(title, fontsize=10, fontweight="bold")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -240,15 +241,6 @@ def main():
     if handles:
         ax_left.legend(handles, labels, loc="upper left", fontsize=8)
 
-    # Callout annotation below figure
-    if slope_dlc is not None and slope_dlf is not None:
-        if slope_dlc * slope_dlf < 0:
-            callout = ("Consumer visibility worsens stability; "
-                       "firm visibility improves it.")
-        else:
-            callout = "Both discovery limits amplify the crash dynamic."
-        fig.text(0.5, -0.04, callout, ha="center", va="top",
-                 fontsize=8, style="italic", color="0.3")
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)

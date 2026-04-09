@@ -1,23 +1,19 @@
 """
-Fig: Experiment 3a — Crash Dynamics (3×3 timeseries)
+Fig: Experiment 3a — Crash Dynamics (1×2 timeseries)
 
-Columns (left -> right): increasing stabilization at dlc=3
-  A: n_stab=1  (seeds 8, 16, 64)
-  B: n_stab=3  (seeds 8, 16, 64)
-  C: n_stab=5  (seeds 8, 16, 64)
+Single condition: n_stab=5, dlc=3 (seeds 8, 16, 64)
 
-Rows (top -> bottom):
-  1: Mean price +/- 1-sigma band + per-seed faint lines + unit-cost reference
-     Vertical shock line at t=25 labelled "Shock (c x10)".
-  2: Active firm count (step-down survival curve)
-  3: Filled orders per step
-     Vertical shock line at t=25 labelled "Shock (c x10)".
+Panels (left -> right):
+  A: Mean price — gradient line + faint per-seed lines + stepped unit-cost reference
+     (unit cost doubles at the shock; reference line steps up at t=25).
+     Vertical shock line at t=25 labelled "Shock (c×2)".
+  B: Active firm count (step-down survival curve)
 
-Run directory naming: exp3a_{model}_stab{n_stab}_dlc{dlc}_seed{seed}
-  (no underscore after "stab", no baseline run)
+Run directory naming: exp3a_stab{n_stab}_dlc{dlc}_seed{seed}
+  (no model prefix in run name, no underscore after "stab", no baseline run)
 
 Usage:
-    python exp3_crash_timeseries.py [--logs-dir logs/exp3a_gemini-3-flash-preview/] [--good food] [--output ...]
+    python exp3_crash_timeseries.py [--logs-dir logs/exp3_gemini-3-flash-preview/] [--good food] [--output ...]
 """
 
 import argparse
@@ -60,20 +56,20 @@ plt.rcParams.update({
 
 COLOR_PRICE    = "#0072B2"   # Okabe Blue
 COLOR_FIRMS    = "#009E73"   # Okabe Green
-COLOR_ORDERS   = "#E69F00"   # Okabe Orange
 COLOR_COST_REF = "#D55E00"   # Okabe Vermillion (also used for shock line)
 COLOR_SHOCK    = "#D55E00"   # Okabe Vermillion
 
-SHOCK_T = 25  # cost-shock timestep; fixed for all exp3a runs
+SHOCK_T        = 25   # cost-shock timestep; fixed for all exp3a runs
+SHOCK_COST_MULT = 2.0  # unit cost multiplier applied at the shock
 
 DLC_FIXED = 3  # all columns use dlc=3
 
 COLUMNS = [
-    {"n_stab": 3, "dlc": DLC_FIXED, "seeds": [8, 16, 64], "label": "n_stab = 3"},
     {"n_stab": 5, "dlc": DLC_FIXED, "seeds": [8, 16, 64], "label": "n_stab = 5"},
 ]
 
-ROW_LABELS = ["Mean price", "Active firms", "Filled orders/step"]
+ROW_LABELS = ["Mean price", "Active firms"]
+PANEL_TITLES = ["Mean Price", "Active Firms"]
 
 
 # ---------------------------------------------------------------------------
@@ -272,24 +268,11 @@ def get_active_firms_series(run_dir):
     return df["timestep"].values, df["value"].values
 
 
-def get_volume_series(run_dir):
-    """Returns (timesteps, filled_orders_per_step) or None."""
-    files = load_states(run_dir)
-    if not files:
-        return None
-    db = DataFrameBuilder(states=files)
-    df = db.filled_orders_count_over_time().sort_values("timestep")
-    if df.empty:
-        return None
-    return df["timestep"].values, df["value"].values
-
-
 def load_one_run(run_dir, good):
-    """Load all three metrics for a single run directory."""
-    price  = get_price_series(run_dir, good)
-    firms  = get_active_firms_series(run_dir)
-    volume = get_volume_series(run_dir)
-    return {"price": price, "firms": firms, "volume": volume}
+    """Load all metrics for a single run directory."""
+    price = get_price_series(run_dir, good)
+    firms = get_active_firms_series(run_dir)
+    return {"price": price, "firms": firms}
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +305,7 @@ def _gradient_line(ax, ts, vals, cmap, norm, lw=1.8, alpha=1.0, zorder=4):
 
 
 def plot_price_column(ax, seeds_data, cmap, norm):
-    """Price row: gradient line whose color tracks the heatmap avg-price scale."""
+    """Price panel: gradient line whose color tracks the heatmap avg-price scale."""
     valid = [(ts, v) for ts, v in seeds_data if ts is not None]
     if not valid:
         ax.text(0.5, 0.5, "no data", transform=ax.transAxes,
@@ -362,7 +345,7 @@ def _interp_common(ts_list, val_list):
 def plot_metric_column(ax, seeds_data, metric_key, color,
                        drawstyle="default", y_min=None):
     """
-    Plot one (row, column) cell.
+    Plot one panel.
 
     seeds_data: list of (ts, values) tuples (or None entries for missing seeds)
     """
@@ -400,8 +383,8 @@ def plot_metric_column(ax, seeds_data, metric_key, color,
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Exp3a Crash Dynamics timeseries (3x3)")
-    parser.add_argument("--logs-dir", default="logs/exp3a_gemini-3-flash-preview/")
+    parser = argparse.ArgumentParser(description="Exp3a Crash Dynamics timeseries (1×2)")
+    parser.add_argument("--logs-dir", default="logs/exp3_gemini-3-flash-preview/")
     parser.add_argument("--good",     default="food")
     parser.add_argument(
         "--output",
@@ -481,102 +464,91 @@ def main():
     _cmap_price = plt.get_cmap("coolwarm")
     _price_norm = _BelowCostNorm(vmin=uc_ref, vmax=ablated_price_max)
 
-    n_rows, n_cols = 3, len(COLUMNS)
+    # 1×2 layout: price panel + active firms panel
+    metric_keys = ["price", "firms"]
+    colors      = [COLOR_PRICE, COLOR_FIRMS]
+    drawstyles  = ["default", "steps-post"]
+    y_mins      = [None, 0]
+
+    col = COLUMNS[0]
+    col_idx = 0
+    uc = unit_costs[col_idx]
+    uc_post = uc * SHOCK_COST_MULT
+
     fig, axes = plt.subplots(
-        n_rows, n_cols,
-        figsize=(9.0, 7.5),
-        sharex="col",
-        sharey="row",
+        1, 2,
+        figsize=(8.0, 3.5),
+        sharex=True,
         constrained_layout=True,
     )
 
-    metric_keys = ["price", "firms", "volume"]
-    colors      = [COLOR_PRICE, COLOR_FIRMS, COLOR_ORDERS]
-    drawstyles  = ["default", "steps-post", "default"]
-    y_mins      = [None, 0, 0]
+    for metric_idx in range(2):
+        ax     = axes[metric_idx]
+        metric = metric_keys[metric_idx]
+        ds     = drawstyles[metric_idx]
+        ym     = y_mins[metric_idx]
 
-    for col_idx, col in enumerate(COLUMNS):
-        for row_idx in range(n_rows):
-            ax = axes[row_idx][col_idx]
-            metric = metric_keys[row_idx]
-            ds     = drawstyles[row_idx]
-            ym     = y_mins[row_idx]
-
-            seeds_data = []
-            for seed in col["seeds"]:
-                key  = (col_idx, seed)
-                data = results.get(key)
-                if data and data[metric] is not None:
-                    seeds_data.append(data[metric])
-                else:
-                    seeds_data.append((None, None))
-
-            if row_idx == 0:
-                plot_price_column(ax, seeds_data, _cmap_price, _price_norm)
+        seeds_data = []
+        for seed in col["seeds"]:
+            key  = (col_idx, seed)
+            data = results.get(key)
+            if data and data[metric] is not None:
+                seeds_data.append(data[metric])
             else:
-                plot_metric_column(ax, seeds_data, metric, colors[row_idx],
-                                   drawstyle=ds, y_min=ym)
+                seeds_data.append((None, None))
 
-            # Collapse markers on firm-count row: vertical dashed line at first firm-drop
-            if row_idx == 1:
-                for (ts_f, firms_f) in [sd for sd in seeds_data if sd[0] is not None]:
-                    first_drop = next(
-                        (t for t, f in zip(ts_f, firms_f) if f < 5), None)
-                    if first_drop is not None:
-                        ax.axvline(first_drop, color=COLOR_SHOCK, lw=0.8,
-                                   ls='--', alpha=0.6, zorder=3)
+        if metric_idx == 0:
+            plot_price_column(ax, seeds_data, _cmap_price, _price_norm)
+        else:
+            plot_metric_column(ax, seeds_data, metric, colors[metric_idx],
+                               drawstyle=ds, y_min=ym)
 
-            # Shock line at t=25 (price row and orders row)
-            if row_idx in (0, 2):
-                ax.axvline(
-                    SHOCK_T,
-                    color=COLOR_SHOCK,
-                    linestyle="--",
-                    linewidth=1.4,
-                    alpha=0.8,
-                    zorder=6,
-                    label="Shock (c\u00d710)",
-                )
-                if row_idx == 0:
-                    # Legend for shock line placed in price row only (avoid duplication)
-                    ax.legend(
-                        loc="upper right",
-                        handlelength=1.5,
-                        fontsize=9,
-                        handles=[
-                            plt.Line2D([0], [0], color=COLOR_SHOCK, linestyle="--",
-                                       linewidth=1.4, label="Shock (c\u00d710)"),
-                        ],
-                    )
+        # Shock line (both panels)
+        ax.axvline(
+            SHOCK_T,
+            color=COLOR_SHOCK,
+            linestyle="--",
+            linewidth=1.4,
+            alpha=0.8,
+            zorder=6,
+        )
 
-            # Price row extras
-            if row_idx == 0:
-                uc = unit_costs[col_idx]
-                ax.axhline(uc, color=COLOR_COST_REF, linestyle=":", linewidth=1.2,
-                           alpha=0.8, zorder=5, label=f"Unit cost {uc:.1f}")
-                ax.axhspan(0, uc, color=COLOR_COST_REF, alpha=0.05, zorder=1)
-                ax.set_title(col["label"])
+        # Price panel: stepped unit-cost reference that doubles at the shock
+        if metric_idx == 0:
+            # Stepped unit-cost line: pre-shock at uc, post-shock at uc_post
+            cost_xs = [0,        SHOCK_T, SHOCK_T,  100]
+            cost_ys = [uc,       uc,      uc_post,  uc_post]
+            ax.plot(cost_xs, cost_ys, color=COLOR_COST_REF, linestyle=":",
+                    linewidth=1.2, alpha=0.8, zorder=5)
+            # Below-cost shading: two separate regions
+            ax.fill_between([0,       SHOCK_T], 0, uc,      color=COLOR_COST_REF, alpha=0.05, zorder=1)
+            ax.fill_between([SHOCK_T, 100],     0, uc_post, color=COLOR_COST_REF, alpha=0.05, zorder=1)
+            ax.legend(
+                loc="lower right",
+                handlelength=1.5,
+                fontsize=9,
+                handles=[
+                    plt.Line2D([0], [0], color=COLOR_SHOCK, linestyle="--",
+                               linewidth=1.4, label="Shock (c\u00d72)"),
+                    plt.Line2D([0], [0], color=COLOR_COST_REF, linestyle=":",
+                               linewidth=1.2, label="Unit cost"),
+                ],
+            )
 
-            # Active firms row
-            if row_idx == 1:
-                ax.set_ylim(0, 5.5)
-                ax.set_yticks([0, 1, 2, 3, 4, 5])
+        # Active firms panel y-axis
+        if metric_idx == 1:
+            ax.set_ylim(0, 5.5)
+            ax.set_yticks([0, 1, 2, 3, 4, 5])
 
-            # Orders row
-            if row_idx == 2:
-                ax.set_ylim(bottom=0)
-                ax.set_xlabel("Day")
-
-            # Row y-labels on leftmost column
-            if col_idx == 0:
-                ax.set_ylabel(ROW_LABELS[row_idx])
-
-    for row_i in range(n_rows):
-        for col_i in range(n_cols):
-            axes[row_i][col_i].set_xlim(0, 100)
+        ax.set_title(PANEL_TITLES[metric_idx])
+        ax.set_xlabel("Day")
+        ax.set_ylabel(ROW_LABELS[metric_idx])
+        ax.set_xlim(0, 100)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-    fig.savefig(args.output)
+    fig.savefig(args.output, dpi=150, bbox_inches="tight")
     print(f"Saved: {args.output}")
 
 
