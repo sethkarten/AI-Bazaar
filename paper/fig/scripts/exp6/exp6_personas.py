@@ -297,23 +297,6 @@ def draw_left_panel(ax, homo_data, mixed_data):
                 label=label, zorder=4)
         ax.fill_between(xs, mins, maxs, color=color, alpha=0.15, zorder=2)
 
-    # Annotate gap at k=0 if data present (in success-rate terms)
-    homo_k0  = homo_data.get(0)
-    mixed_k0 = mixed_data.get(0)
-    if homo_k0 and mixed_k0:
-        homo_sr0  = 1.0 - float(np.mean(homo_k0))
-        mixed_sr0 = 1.0 - float(np.mean(mixed_k0))
-        delta = mixed_sr0 - homo_sr0
-        if abs(delta) > 0.1:
-            ax.annotate(f"Persona effect: {delta:+.2f} $1-b_r$",
-                        xy=(0, homo_sr0),
-                        xytext=(0.5, homo_sr0 + 0.15 * np.sign(delta)),
-                        fontsize=7.5, color="0.3",
-                        arrowprops=dict(arrowstyle="->", color="0.5", lw=0.8))
-        else:
-            ax.text(0, 0.95, "No persona effect at $dlc=5$",
-                    fontsize=7.5, color="0.4", ha="left")
-
     ax.axhline(0.5, color="0.6", lw=0.8, ls=":", zorder=1)
     ax.set_xticks(K_VALUES)
     ax.set_xlim(-0.3, K_VALUES[-1] + 0.3)
