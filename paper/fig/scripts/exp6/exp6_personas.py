@@ -320,7 +320,7 @@ def draw_left_panel(ax, homo_data, mixed_data):
     ax.set_ylim(-0.05, 1.1)
     ax.set_xlabel("Stabilizing Firms ($k$)")
     ax.set_ylabel("Success Rate $1 - b_r$")
-    ax.set_title("Mixed vs. Homogeneous ($dlc=5$)", fontsize=10, fontweight="bold")
+    ax.set_title("Success Rate", fontsize=10, fontweight="bold")
     ax.legend(loc="upper left", fontsize=8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -450,16 +450,18 @@ def main():
     draw_left_panel(axes[0], homo_data, mixed_data)
     _draw_line_panel(axes[1], homo_vol, mixed_vol,
                      ylabel="Price Volatility (std)",
-                     title="Price Volatility ($dlc=5$)",
+                     title="Price Volatility",
                      legend_loc="best")
     _draw_line_panel(axes[2], homo_price, mixed_price,
                      ylabel="Final Avg. Price",
-                     title="Final Avg. Price ($dlc=5$)",
+                     title="Final Avg. Price",
                      legend_loc="best")
 
     # Remove duplicate legends from panels 2 and 3 — panel 1 has the legend
     for ax in axes[1:]:
         ax.get_legend().remove()
+
+    fig.suptitle("Mixed vs. Homogeneous ($dlc=5$)", fontsize=11, fontweight="bold")
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)
