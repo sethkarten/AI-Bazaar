@@ -45,7 +45,7 @@ COLOR_DLF3  = "#009E73"   # bluish-green  — exp5 dlf=3
 COLOR_DLF5  = "#E69F00"   # orange        — exp5 dlf=5
 
 CONDITIONS = [
-    ("exp1\ndlc=3", COLOR_EXP1,  "exp1", 3),
+    ("exp1\ndlc=3\ndlf=5", COLOR_EXP1,  "exp1", 3),
     ("exp5\ndlf=1", COLOR_DLF1,  "exp5", 1),
     ("exp5\ndlf=3", COLOR_DLF3,  "exp5", 3),
     ("exp1\ndlc,dlf=5", COLOR_DLF5,  "exp1", 5),
