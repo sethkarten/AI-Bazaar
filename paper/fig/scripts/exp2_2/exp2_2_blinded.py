@@ -6,13 +6,15 @@ Three-panel grouped bar chart:
   Panel 2: Sybil revenue share
   Panel 3: Consumer surplus
 
-Three bar groups per panel, all at k=K (default 6):
+Bar groups per panel (at k=K, default 6):
   1. Base buyer,         ID-visible  (exp2,   k=K, _base suffix)  — sky blue,   solid
   2. Skeptical Guardian, ID-visible  (exp2,   k=K, regular)       — vermillion, solid
   3. Skeptical Guardian, ID-blinded  (exp2_2, k=K, regular)       — vermillion, hatched
+  4. [optional] Second model, ID-blinded (exp2_2, k=K)            — bluish-green, hatched
 
 Bar 1 vs 2: effect of quality reasoning (ID memory available in both).
 Bar 2 vs 3: effect of removing ID memory from the Guardian.
+Bar 3 vs 4: cross-model comparison under blinded condition.
 
 "Base buyer" runs use the --lemon-base-buyer flag and carry a _base suffix in the dir name.
 "Guardian"   runs are the standard exp2/exp2_2 runs (no suffix).
@@ -24,8 +26,8 @@ Run naming:
 
 Usage:
     python paper/fig/scripts/exp2_2/exp2_2_blinded.py \\
-        --llm gemini-3-flash-preview [--k 6] [--rep 1] \\
-        [--logs-dir logs/] [--list] [--output ...]
+        --llm gemini-3-flash-preview [--llm2 qwen3.5-guardian:latest] \\
+        [--k 6] [--rep 1] [--logs-dir logs/] [--list] [--output ...]
 """
 
 import argparse
@@ -53,6 +55,7 @@ SEEDS = [8, 16, 64]
 # Okabe-Ito
 COLOR_BASE     = "#56B4E9"   # sky blue
 COLOR_GUARDIAN = "#D55E00"   # vermillion
+COLOR_QWEN     = "#009E73"   # bluish-green (second model)
 
 plt.rcParams.update({
     "font.family":        "serif",
@@ -137,13 +140,32 @@ def compute_metrics(run_dir):
         if surplus is not None:
             surplus_vals.append(float(surplus))
 
+    premium_vals = []
+    for s in states:
+        consumers = s.get("consumers", [])
+        honest_hits, sybil_hits = [], []
+        for cdata in consumers:
+            if not isinstance(cdata, dict):
+                continue
+            h_seen   = cdata.get("honest_seen_total",   0) or 0
+            h_passed = cdata.get("honest_passed_total", 0) or 0
+            s_seen   = cdata.get("sybil_seen_total",    0) or 0
+            s_passed = cdata.get("sybil_passed_total",  0) or 0
+            if h_seen > 0:
+                honest_hits.append((h_seen - h_passed) / h_seen)
+            if s_seen > 0:
+                sybil_hits.append((s_seen - s_passed) / s_seen)
+        if honest_hits and sybil_hits:
+            premium_vals.append(np.mean(honest_hits) - np.mean(sybil_hits))
+
     if not rev_vals and not surplus_vals:
         return None
 
     return {
-        "detection_rate":   float(np.mean(det_vals))     if det_vals     else float("nan"),
-        "sybil_rev_share":  float(np.mean(rev_vals))     if rev_vals     else float("nan"),
-        "consumer_surplus": float(np.mean(surplus_vals)) if surplus_vals else float("nan"),
+        "detection_rate":      float(np.mean(det_vals))      if det_vals      else float("nan"),
+        "sybil_rev_share":     float(np.mean(rev_vals))      if rev_vals      else float("nan"),
+        "consumer_surplus":    float(np.mean(surplus_vals))  if surplus_vals  else float("nan"),
+        "detection_premium":   float(np.mean(premium_vals))  if premium_vals  else float("nan"),
     }
 
 
@@ -182,27 +204,37 @@ def agg(records, key):
 # ── Plotting ──────────────────────────────────────────────────────────────────
 
 METRICS = [
-    ("detection_rate",   "Sybil Detection Rate",  "Higher = better", [0, 1]),
-    ("sybil_rev_share",  "Sybil Revenue Share",   "Lower = better",  [0, 1]),
-    ("consumer_surplus", "Consumer Surplus",       "Higher = better", None),
+    ("detection_rate",    "Detection Rate",    "Higher = better", [0, 1],  False),
+    ("detection_premium", "Detection Premium", "Higher = better", None,    True),
+    ("sybil_rev_share",   "Revenue Share",     "Lower = better",  [0, 1],  False),
+    ("consumer_surplus",  "Consumer Surplus",  "Higher = better", None,    False),
 ]
 
 
-def make_bar_groups():
-    """Return bar group spec: (tick_label, color, hatch, exp, base_buyer)."""
-    return [
-        ("Base, visible",   COLOR_BASE,     "",   "exp2",   True),
-        ("Guard., visible", COLOR_GUARDIAN, "",   "exp2",   False),
-        ("Guard., blinded", COLOR_GUARDIAN, "//", "exp2_2", False),
+def make_bar_groups(slug, slug2=None):
+    """
+    Return bar group spec: (tick_label, color, hatch, exp, base_buyer, slug).
+    If slug2 is provided, appends a 4th bar for the second model's blinded condition.
+    """
+    groups = [
+        ("Base, vis.",     COLOR_BASE,     "",   "exp2",   True,  slug),
+        ("Guard., vis.",   COLOR_GUARDIAN, "",   "exp2",   False, slug),
+        ("Guard., blind.", COLOR_GUARDIAN, "//", "exp2_2", False, slug),
     ]
+    if slug2:
+        groups.append(
+            ("Qwen Guard., blind.", COLOR_QWEN, "//", "exp2_2", False, slug2)
+        )
+    return groups
 
 
-def draw_metric_panel(ax, metric_key, all_records, bar_groups, ylim, ylabel, subtitle):
+def draw_metric_panel(ax, metric_key, all_records, bar_groups, ylim, ylabel, subtitle,
+                      hline=False):
     """Draw one grouped bar panel for a single metric."""
     xs = np.arange(len(bar_groups))
 
-    for xi, (label, color, hatch, exp, base_buyer) in enumerate(bar_groups):
-        records = all_records[(exp, base_buyer)]
+    for xi, (label, color, hatch, exp, base_buyer, slug) in enumerate(bar_groups):
+        records = all_records[(exp, base_buyer, slug)]
         mean, mn, mx = agg(records, metric_key)
         bar_h = mean if not np.isnan(mean) else 0.0
         ax.bar(xi, bar_h, width=0.6, color=color, hatch=hatch,
@@ -212,11 +244,13 @@ def draw_metric_panel(ax, metric_key, all_records, bar_groups, ylim, ylabel, sub
             ax.errorbar(xi, mean, yerr=[[mean - mn], [mx - mean]],
                         fmt="none", color="0.3", capsize=3, lw=1.0, zorder=4)
 
+    if hline:
+        ax.axhline(0, color="#555555", linewidth=0.8, linestyle="--", zorder=2)
 
     ax.set_xticks(xs)
     ax.set_xticklabels([g[0] for g in bar_groups], rotation=45, ha="right", fontsize=7)
     ax.set_ylabel(ylabel, fontsize=8)
-    ax.set_title(subtitle, fontsize=10, fontweight="bold")
+    ax.set_title(subtitle, fontsize=8.5, fontweight="bold")
     if ylim is not None:
         ax.set_ylim(ylim[0] - 0.05, ylim[1] + 0.1)
     ax.spines["top"].set_visible(False)
@@ -225,24 +259,24 @@ def draw_metric_panel(ax, metric_key, all_records, bar_groups, ylim, ylabel, sub
 
 # ── List helper ───────────────────────────────────────────────────────────────
 
-def list_runs(logs_dir, slug, k, rep_visible):
-    bar_groups = make_bar_groups()
+def list_runs(logs_dir, slug, slug2, k, rep_visible):
+    bar_groups = make_bar_groups(slug, slug2)
     rows = []
-    for label, _c, _h, exp, base_buyer in bar_groups:
+    for label, _c, _h, exp, base_buyer, grp_slug in bar_groups:
         for seed in SEEDS:
-            d = resolve_run_dir(logs_dir, exp, slug, k, rep_visible, seed, base_buyer)
+            d = resolve_run_dir(logs_dir, exp, grp_slug, k, rep_visible, seed, base_buyer)
             rep_tag = "rep1" if rep_visible else "rep0"
             suffix = "_base" if base_buyer else ""
             canonical = os.path.join(
-                logs_dir, f"{exp}_{slug}", f"{exp}_{slug}_k{k}_{rep_tag}_seed{seed}{suffix}")
-            exists = "✓" if d else "✗"
+                logs_dir, f"{exp}_{grp_slug}", f"{exp}_{grp_slug}_k{k}_{rep_tag}_seed{seed}{suffix}")
+            exists = "Y" if d else "N"
             rows.append((exists, label, seed, d or canonical))
 
     rep_str = "visible" if rep_visible else "hidden"
-    print(f"Expected runs  slug='{slug}'  k={k}  rep={rep_str}:")
+    print(f"Expected runs  slug='{slug}'  slug2='{slug2}'  k={k}  rep={rep_str}:")
     for exists, label, seed, path in rows:
-        print(f"  [{exists}] {label:20s}  seed={seed:3d}  {path}")
-    print(f"\n{sum(1 for r in rows if r[0]=='✓')} / {len(rows)} runs present")
+        print(f"  [{exists}] {label:22s}  seed={seed:3d}  {path}")
+    print(f"\n{sum(1 for r in rows if r[0]=='Y')} / {len(rows)} runs present")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -250,9 +284,13 @@ def list_runs(logs_dir, slug, k, rep_visible):
 def main():
     ap = argparse.ArgumentParser(description="Fig D: exp2_2 blinded detection.")
     ap.add_argument("--llm",      default="gemini-3-flash-preview",
-                    help="LLM model name (converted to filesystem slug)")
+                    help="Primary LLM model name (converted to filesystem slug)")
+    ap.add_argument("--llm2",     default="qwen3.5-guardian:latest",
+                    help="Second model for blinded-only comparison bar (omit to hide)")
+    ap.add_argument("--no-llm2",  action="store_true",
+                    help="Suppress the second-model bar entirely")
     ap.add_argument("--k",        type=int, default=6,
-                    help="k value used for all four bars (default: 6)")
+                    help="k value used for all bars (default: 6)")
     ap.add_argument("--rep",      type=int, default=1, choices=[0, 1],
                     help="Rep visibility (1=visible, 0=hidden)")
     ap.add_argument("--logs-dir", default="logs/")
@@ -262,42 +300,44 @@ def main():
     args = ap.parse_args()
 
     slug      = llm_filesystem_slug(args.llm)
+    slug2     = None if args.no_llm2 else llm_filesystem_slug(args.llm2)
     k         = args.k
     rep_vis   = bool(args.rep)
     logs_dir  = args.logs_dir
-    bar_groups = make_bar_groups()
+    bar_groups = make_bar_groups(slug, slug2)
 
     if args.list:
-        list_runs(logs_dir, slug, k, rep_vis)
+        list_runs(logs_dir, slug, slug2, k, rep_vis)
         return
 
     if args.output is None:
         fig_dir = os.path.abspath(os.path.join(_SCRIPT_DIR, "..", "..", "exp2_2"))
         args.output = os.path.join(fig_dir, "exp2_2_blinded.pdf")
 
-    # Load all four conditions
+    # Load all conditions — keyed by (exp, base_buyer, slug)
     all_records = {}
-    for _label, _color, _hatch, exp, base_buyer in bar_groups:
-        if (exp, base_buyer) in all_records:
+    for _label, _color, _hatch, exp, base_buyer, grp_slug in bar_groups:
+        key = (exp, base_buyer, grp_slug)
+        if key in all_records:
             continue
-        all_records[(exp, base_buyer)] = load_condition(
-            logs_dir, slug, exp, k, rep_vis, base_buyer)
+        all_records[key] = load_condition(logs_dir, grp_slug, exp, k, rep_vis, base_buyer)
         btype = "base" if base_buyer else "guardian"
-        n = len(all_records[(exp, base_buyer)])
-        print(f"  {exp} {btype}: {n} seeds loaded", flush=True)
+        n = len(all_records[key])
+        print(f"  {exp} {btype} [{grp_slug}]: {n} seeds loaded", flush=True)
 
     total = sum(len(v) for v in all_records.values())
     if total == 0:
         warnings.warn(f"No data found for llm='{args.llm}' (slug='{slug}'). Saving empty figure.")
 
     # ── Figure ────────────────────────────────────────────────────────────────
-    fig, axes = plt.subplots(1, 3, figsize=(6.75, 2.8), constrained_layout=True)
+    fig, axes = plt.subplots(1, 4, figsize=(6.75, 2.8), constrained_layout=True)
 
-    for ax, (metric_key, metric_name, direction, ylim) in zip(axes, METRICS):
+    for ax, (metric_key, metric_name, direction, ylim, hline) in zip(axes, METRICS):
         draw_metric_panel(ax, metric_key, all_records, bar_groups, ylim,
-                          ylabel=metric_name, subtitle=f"{metric_name}\n({direction})")
+                          ylabel=metric_name, subtitle=f"{metric_name}\n({direction})",
+                          hline=hline)
 
-    # Shared legend in first panel
+    # Shared legend below all panels
     from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor=COLOR_BASE,     edgecolor="white",
@@ -307,7 +347,14 @@ def main():
         Patch(facecolor=COLOR_GUARDIAN, edgecolor="white", hatch="//",
               label=f"Guardian, ID-blinded (exp2-2, k={k})"),
     ]
-    axes[0].legend(handles=legend_elements, loc="upper right", fontsize=7)
+    if slug2:
+        legend_elements.append(
+            Patch(facecolor=COLOR_QWEN, edgecolor="white", hatch="//",
+                  label=f"Qwen Guard., ID-blinded (exp2-2, k={k})")
+        )
+    fig.legend(handles=legend_elements, loc="lower center",
+               bbox_to_anchor=(0.5, -0.12), ncol=2, fontsize=7,
+               frameon=True, framealpha=0.9, edgecolor="0.8")
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)

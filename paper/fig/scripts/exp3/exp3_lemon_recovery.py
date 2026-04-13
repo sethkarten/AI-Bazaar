@@ -6,13 +6,11 @@ surplus (``lemon_market_avg_consumer_surplus`` from state files).  Recovery
 is declared when the smoothed surplus returns to within ±rel_threshold of
 the smoothed pre-shock baseline.
 
-Two-panel figure:
-  Left:  Smoothed consumer surplus time series, one line per run, colored
-         by k_initial.  Raw per-step values shown faintly underneath.
-         Vertical dashed line at shock_t.  Horizontal band ±10% of
-         pre-shock baseline.
-  Right: Bar chart of mean recovery time (steps after shock) by k_initial.
-         Error bars = std across seeds/reps.
+Single-panel figure:
+  For each k_initial group, runs are aligned by timestep and aggregated:
+    - Bright mean line: rolling_mean applied to the per-timestep mean across seeds.
+    - Shaded ±1 std band: rolling_mean applied to the per-timestep std across seeds.
+  Vertical dashed line at shock_t.  Horizontal band ±10% of pre-shock baseline.
 
 Usage
 -----
@@ -148,17 +146,45 @@ def collect_runs(
 # Figure
 # ---------------------------------------------------------------------------
 
+def _align_series(records_k: list[dict]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Align cs_smooth series from a group of runs onto a common timestep grid.
+
+    Returns (common_ts, mean_arr, std_arr) where mean and std are computed
+    across runs at each shared timestep.  Timesteps present in only some runs
+    are excluded (intersection).
+    """
+    # Build intersection of timesteps
+    ts_sets = [set(r["ts"].tolist()) for r in records_k]
+    common_ts_set = ts_sets[0]
+    for s in ts_sets[1:]:
+        common_ts_set = common_ts_set & s
+    common_ts = np.array(sorted(common_ts_set), dtype=float)
+
+    if len(common_ts) == 0:
+        return np.array([]), np.array([]), np.array([])
+
+    # Stack aligned series
+    matrix = np.full((len(records_k), len(common_ts)), np.nan)
+    for i, r in enumerate(records_k):
+        ts = r["ts"]
+        cs = r["cs_smooth"]
+        for j, t in enumerate(common_ts):
+            idx = np.where(ts == t)[0]
+            if len(idx) > 0:
+                matrix[i, j] = cs[idx[0]]
+
+    mean_arr = np.nanmean(matrix, axis=0)
+    std_arr  = np.nanstd(matrix, axis=0, ddof=0)
+    return common_ts, mean_arr, std_arr
+
+
 def make_figure(
     records: list[dict],
     window: int,
     rel_threshold: float,
     rolling_k: int,
 ) -> plt.Figure:
-    fig, (ax_ts, ax_bar) = plt.subplots(
-        1, 2,
-        figsize=(10, 4),
-        constrained_layout=True,
-    )
+    fig, ax = plt.subplots(1, 1, figsize=(6.75, 3.2), constrained_layout=True)
 
     # -------------------------------------------------------------------
     # Grouping: k_initial values
@@ -169,12 +195,19 @@ def make_figure(
     if not k_values:
         k_values = [None]
 
-    cmap = matplotlib.colormaps["viridis"].resampled(max(len(k_values), 1))
-    color_map = {v: cmap(i / max(len(k_values) - 1, 1)) for i, v in enumerate(k_values)}
+    # Okabe-Ito for ≤8 groups; fall back to viridis for more
+    OKABE = ["#0072B2", "#D55E00", "#009E73", "#E69F00", "#CC79A7", "#56B4E9", "#F0E442"]
+    if len(k_values) <= len(OKABE):
+        color_map = {v: OKABE[i] for i, v in enumerate(k_values)}
+    else:
+        cmap = matplotlib.colormaps["viridis"].resampled(len(k_values))
+        color_map = {v: cmap(i / max(len(k_values) - 1, 1)) for i, v in enumerate(k_values)}
 
     # -------------------------------------------------------------------
-    # Left panel: consumer surplus time series
+    # Pre-shock baseline (for reference band)
     # -------------------------------------------------------------------
+    shock_ts_present = [r["shock_t"] for r in records if r["shock_t"] is not None]
+    shock_t_ref = int(np.median(shock_ts_present)) if shock_ts_present else _DEFAULT_SHOCK_T
 
     all_baseline_vals = []
     for r in records:
@@ -183,88 +216,66 @@ def make_figure(
             pre_mask = (r["ts"] >= shock_t - window) & (r["ts"] < shock_t)
             if pre_mask.any():
                 all_baseline_vals.append(float(r["cs_smooth"][pre_mask].mean()))
-
     global_baseline = float(np.mean(all_baseline_vals)) if all_baseline_vals else None
 
+    # -------------------------------------------------------------------
+    # Plot mean ± 1 std per k_initial group
+    # -------------------------------------------------------------------
+    groups: dict = defaultdict(list)
     for r in records:
-        kv = r["k_initial"]
-        color = color_map.get(kv, color_map.get(None, "#555555"))
-        ax_ts.plot(
-            r["ts"], r["cs_raw"],
-            color=color, alpha=0.15, lw=0.7, zorder=1,
+        groups[r["k_initial"]].append(r)
+
+    for kv in k_values:
+        color = color_map.get(kv, "#555555")
+        label_str = f"k={kv}" if kv is not None else "runs"
+
+        recs_k = groups[kv]
+        common_ts, mean_arr, std_arr = _align_series(recs_k)
+        if len(common_ts) == 0:
+            continue
+
+        # Smooth mean and std independently
+        sm_mean = rolling_mean(mean_arr, rolling_k)
+        sm_std  = rolling_mean(std_arr,  rolling_k)
+
+        ax.fill_between(
+            common_ts,
+            sm_mean - sm_std,
+            sm_mean + sm_std,
+            color=color, alpha=0.18, zorder=1,
         )
-        ax_ts.plot(
-            r["ts"], r["cs_smooth"],
-            color=color, alpha=0.7, lw=1.2, zorder=2,
+        ax.plot(
+            common_ts, sm_mean,
+            color=color, lw=2.0, alpha=1.0, zorder=3,
+            label=label_str,
         )
 
-    shock_ts_present = [r["shock_t"] for r in records if r["shock_t"] is not None]
-    shock_t_ref = int(np.median(shock_ts_present)) if shock_ts_present else _DEFAULT_SHOCK_T
-    ax_ts.axvline(
-        shock_t_ref, color="#555555", linestyle="--", lw=1.2, alpha=0.7,
-        label="Shock", zorder=3,
+    # -------------------------------------------------------------------
+    # Shock line and baseline band
+    # -------------------------------------------------------------------
+    ax.axvline(
+        shock_t_ref, color="#555555", linestyle="--", lw=1.2, alpha=0.8,
+        label="Shock", zorder=4,
     )
 
     if global_baseline is not None:
         thr = max(rel_threshold * abs(global_baseline), 0.05)
-        band_lo = global_baseline - thr
-        band_hi = global_baseline + thr
-        ax_ts.axhspan(
-            band_lo, band_hi,
-            alpha=0.12, color="#0072B2", zorder=1,
-            label=f"Pre-shock \u00b1{int(rel_threshold*100)}%",
+        ax.axhspan(
+            global_baseline - thr, global_baseline + thr,
+            alpha=0.10, color="#0072B2", zorder=1,
+            label=f"Pre-shock baseline \u00b1{int(rel_threshold*100)}%",
         )
 
-    for kv in k_values:
-        label_str = f"k_initial={kv}" if kv is not None else "runs"
-        ax_ts.plot([], [], color=color_map[kv], lw=1.8, label=label_str)
-
-    ax_ts.set_xlabel("Timestep")
-    ax_ts.set_ylabel("Avg. consumer surplus")
-    ax_ts.set_title(f"Consumer surplus ({rolling_k}-step rolling mean)")
-    ax_ts.legend(loc="best")
-
-    # -------------------------------------------------------------------
-    # Right panel: bar chart of mean recovery time by k_initial
-    # -------------------------------------------------------------------
-    recovery_by_k: dict = defaultdict(list)
-    for r in records:
-        if r["recovery"] is not None:
-            key = r["k_initial"] if r["k_initial"] is not None else "?"
-            recovery_by_k[key].append(r["recovery"])
-
-    bar_keys = sorted(recovery_by_k.keys(), key=lambda x: (x is None, x))
-    bar_means = [np.mean(recovery_by_k[k]) for k in bar_keys]
-    bar_stds  = [np.std(recovery_by_k[k]) if len(recovery_by_k[k]) > 1 else 0.0
-                 for k in bar_keys]
-    bar_colors = [color_map.get(k, "#888888") for k in bar_keys]
-    x_pos = np.arange(len(bar_keys))
-
-    if bar_keys:
-        ax_bar.bar(
-            x_pos, bar_means, yerr=bar_stds,
-            color=bar_colors, edgecolor="white", linewidth=0.5,
-            capsize=3, error_kw={"elinewidth": 1.0},
-            zorder=2,
-        )
-        ax_bar.set_xticks(x_pos)
-        ax_bar.set_xticklabels(
-            [str(k) for k in bar_keys],
-            rotation=30, ha="right",
-        )
-        max_mean = max(bar_means) if bar_means else 1
-        for xi, (mean, std) in enumerate(zip(bar_means, bar_stds)):
-            ax_bar.text(
-                xi, mean + std + max_mean * 0.02,
-                f"{mean:.1f}", ha="center", va="bottom", fontsize=7,
-            )
-    else:
-        ax_bar.text(0.5, 0.5, "No recovery data", ha="center", va="center",
-                    transform=ax_bar.transAxes, fontsize=9)
-
-    ax_bar.set_xlabel("k_initial")
-    ax_bar.set_ylabel("Recovery time (steps)")
-    ax_bar.set_title("Mean recovery time by k_initial")
+    ax.set_xlabel("Timestep")
+    ax.set_ylabel("Avg. consumer surplus")
+    ax.set_title(
+        f"Consumer surplus recovery after sybil flood "
+        f"({rolling_k}-step rolling mean, \u00b11 std)",
+        fontsize=9,
+    )
+    ax.legend(loc="best", fontsize=8)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
     return fig
 

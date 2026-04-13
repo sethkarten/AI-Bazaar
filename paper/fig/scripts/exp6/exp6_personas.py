@@ -29,6 +29,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_SCRIPT_DIR, "..", "exp1"))
+from exp1_paths import resolve_run_dir as _exp1_resolve
 
 
 def llm_filesystem_slug(llm: str) -> str:
@@ -39,7 +41,7 @@ def llm_filesystem_slug(llm: str) -> str:
     s = s.replace(":", "_")
     return s or "model"
 
-K_VALUES  = [0, 1, 3, 5]
+K_VALUES  = [0, 3, 5]
 SEEDS     = [8, 16, 64]
 PERSONAS  = ["price_hawk", "loyal", "small_biz", "popular", "variety"]
 PERSONA_LABELS = {
@@ -110,19 +112,58 @@ def compute_br(run_dir):
     return 1.0 - last / first
 
 
+def _avg_price_per_step(states):
+    """Return list of mean prices across active firms for each timestep."""
+    series = []
+    for s in states:
+        prices = []
+        for firm in s.get("firms", []):
+            if firm.get("in_business"):
+                prices.extend(v for v in firm.get("prices", {}).values() if v is not None)
+        if prices:
+            series.append(float(np.mean(prices)))
+    return series
+
+
+def compute_price_volatility(run_dir):
+    """Std of per-timestep mean price across all timesteps."""
+    states = load_states(run_dir)
+    if not states:
+        return None
+    series = _avg_price_per_step(states)
+    return float(np.std(series)) if len(series) > 1 else None
+
+
+def compute_final_avg_price(run_dir):
+    """Mean price across active firms in the final timestep."""
+    states = load_states(run_dir)
+    if not states:
+        return None
+    for s in reversed(states):
+        prices = []
+        for firm in s.get("firms", []):
+            if firm.get("in_business"):
+                prices.extend(v for v in firm.get("prices", {}).values() if v is not None)
+        if prices:
+            return float(np.mean(prices))
+    return None
+
+
 def resolve_condition_dir(logs_dir, slug, condition, k, seed):
     """Resolve run dir for a given condition string and k level.
 
     Tries the condition-qualified name first, then falls back to the plain
-    name (no condition tag) for the homogeneous baseline condition.
+    name (no condition tag) for the mixed condition.  Plain-named runs are
+    the mixed-persona runs (consumers may not carry an explicit persona label
+    in the state files but were configured with mixed personas).
     """
     base = os.path.join(logs_dir, f"exp6_{slug}")
-    # Primary: condition-qualified name (future / mixed runs)
+    # Primary: condition-qualified name
     d = os.path.join(base, f"exp6_{slug}_{condition}_stab_{k}_dlc5_seed{seed}")
     if os.path.isdir(d):
         return d
-    # Fallback for homogeneous: plain name without condition tag
-    if condition == "homogeneous":
+    # Fallback for mixed: plain name without condition tag
+    if condition == "mixed":
         d = os.path.join(base, f"exp6_{slug}_stab_{k}_dlc5_seed{seed}")
         if os.path.isdir(d):
             return d
@@ -136,13 +177,26 @@ def resolve_persona_dir(logs_dir, slug, persona, seed):
     return d if os.path.isdir(d) else None
 
 
+def resolve_homogeneous_dir(logs_dir, slug, k, seed):
+    """Resolve homogeneous baseline from exp1 runs at dlc=5."""
+    model_logs = os.path.join(logs_dir, f"exp1_{slug}")
+    return _exp1_resolve(model_logs, dlc=5, n_stab=k, seed=seed, model=slug)
+
+
 def load_condition_sweep(logs_dir, slug, condition):
-    """Return {k: [br, ...]} for a condition across K_VALUES."""
+    """Return {k: [br, ...]} for a condition across K_VALUES.
+
+    Homogeneous baseline is loaded from exp1 runs at dlc=5.
+    Mixed condition is loaded from exp6 runs (plain-named fallback).
+    """
     result = {}
     for k in K_VALUES:
         brs = []
         for seed in SEEDS:
-            d = resolve_condition_dir(logs_dir, slug, condition, k, seed)
+            if condition == "homogeneous":
+                d = resolve_homogeneous_dir(logs_dir, slug, k, seed)
+            else:
+                d = resolve_condition_dir(logs_dir, slug, condition, k, seed)
             if d is None:
                 continue
             br = compute_br(d)
@@ -150,6 +204,26 @@ def load_condition_sweep(logs_dir, slug, condition):
                 brs.append(br)
         if brs:
             result[k] = brs
+    return result
+
+
+def load_price_sweep(logs_dir, slug, condition, metric_fn):
+    """Return {k: [metric, ...]} for a price metric across K_VALUES and seeds."""
+    result = {}
+    for k in K_VALUES:
+        vals = []
+        for seed in SEEDS:
+            if condition == "homogeneous":
+                d = resolve_homogeneous_dir(logs_dir, slug, k, seed)
+            else:
+                d = resolve_condition_dir(logs_dir, slug, condition, k, seed)
+            if d is None:
+                continue
+            v = metric_fn(d)
+            if v is not None:
+                vals.append(v)
+        if vals:
+            result[k] = vals
     return result
 
 
@@ -168,6 +242,38 @@ def load_persona_brs(logs_dir, slug, persona):
 
 # ── Plotting ──────────────────────────────────────────────────────────────────
 
+def _draw_line_panel(ax, homo_data, mixed_data, ylabel, title, legend_loc="best"):
+    """Generic line plot: homogeneous vs mixed for any per-seed metric dict {k: [vals]}."""
+    for data, label, ls, color in [
+        (homo_data,  "Homogeneous (PRICE_HAWK)", "-",  "#0072B2"),
+        (mixed_data, "Mixed personas",           "--", "#D55E00"),
+    ]:
+        xs, means, mins, maxs = [], [], [], []
+        for k in K_VALUES:
+            vals = data.get(k)
+            if not vals:
+                continue
+            xs.append(k)
+            means.append(float(np.mean(vals)))
+            mins.append(float(np.min(vals)))
+            maxs.append(float(np.max(vals)))
+        if not xs:
+            continue
+        xs = np.array(xs)
+        ax.plot(xs, means, ls=ls, color=color, marker="o", markersize=5,
+                label=label, zorder=4)
+        ax.fill_between(xs, mins, maxs, color=color, alpha=0.15, zorder=2)
+
+    ax.set_xticks(K_VALUES)
+    ax.set_xlim(-0.3, K_VALUES[-1] + 0.3)
+    ax.set_xlabel("Stabilizing Firms ($k$)")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, fontsize=10, fontweight="bold")
+    ax.legend(loc=legend_loc, fontsize=8)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+
 def draw_left_panel(ax, homo_data, mixed_data):
     """b_r vs k: homogeneous vs mixed."""
     for data, label, ls, color in [
@@ -179,10 +285,11 @@ def draw_left_panel(ax, homo_data, mixed_data):
             brs = data.get(k)
             if not brs:
                 continue
+            srs = [1.0 - b for b in brs]
             xs.append(k)
-            means.append(float(np.mean(brs)))
-            mins.append(float(np.min(brs)))
-            maxs.append(float(np.max(brs)))
+            means.append(float(np.mean(srs)))
+            mins.append(float(np.min(srs)))
+            maxs.append(float(np.max(srs)))
         if not xs:
             continue
         xs = np.array(xs)
@@ -190,19 +297,21 @@ def draw_left_panel(ax, homo_data, mixed_data):
                 label=label, zorder=4)
         ax.fill_between(xs, mins, maxs, color=color, alpha=0.15, zorder=2)
 
-    # Annotate gap at k=0 if data present
+    # Annotate gap at k=0 if data present (in success-rate terms)
     homo_k0  = homo_data.get(0)
     mixed_k0 = mixed_data.get(0)
     if homo_k0 and mixed_k0:
-        delta = float(np.mean(mixed_k0)) - float(np.mean(homo_k0))
+        homo_sr0  = 1.0 - float(np.mean(homo_k0))
+        mixed_sr0 = 1.0 - float(np.mean(mixed_k0))
+        delta = mixed_sr0 - homo_sr0
         if abs(delta) > 0.1:
-            ax.annotate(f"Persona effect: {delta:+.2f} $b_r$",
-                        xy=(0, float(np.mean(homo_k0))),
-                        xytext=(0.5, float(np.mean(homo_k0)) + 0.15 * np.sign(delta)),
+            ax.annotate(f"Persona effect: {delta:+.2f} $1-b_r$",
+                        xy=(0, homo_sr0),
+                        xytext=(0.5, homo_sr0 + 0.15 * np.sign(delta)),
                         fontsize=7.5, color="0.3",
                         arrowprops=dict(arrowstyle="->", color="0.5", lw=0.8))
         else:
-            ax.text(0, 0.05, "No persona effect at $dlc=5$",
+            ax.text(0, 0.95, "No persona effect at $dlc=5$",
                     fontsize=7.5, color="0.4", ha="left")
 
     ax.axhline(0.5, color="0.6", lw=0.8, ls=":", zorder=1)
@@ -210,9 +319,9 @@ def draw_left_panel(ax, homo_data, mixed_data):
     ax.set_xlim(-0.3, K_VALUES[-1] + 0.3)
     ax.set_ylim(-0.05, 1.1)
     ax.set_xlabel("Stabilizing Firms ($k$)")
-    ax.set_ylabel("Bankruptcy Rate $b_r$")
+    ax.set_ylabel("Success Rate $1 - b_r$")
     ax.set_title("Mixed vs. Homogeneous ($dlc=5$)", fontsize=10, fontweight="bold")
-    ax.legend(loc="upper right", fontsize=8)
+    ax.legend(loc="upper left", fontsize=8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -319,23 +428,38 @@ def main():
         fig_dir = os.path.abspath(os.path.join(_SCRIPT_DIR, "..", "..", "exp6"))
         args.output = os.path.join(fig_dir, "exp6_personas.pdf")
 
-    homo_data    = load_condition_sweep(logs_dir, slug, "homogeneous")
-    mixed_data   = load_condition_sweep(logs_dir, slug, "mixed")
-    persona_data = {p: load_persona_brs(logs_dir, slug, p) for p in PERSONAS}
+    homo_data  = load_condition_sweep(logs_dir, slug, "homogeneous")
+    mixed_data = load_condition_sweep(logs_dir, slug, "mixed")
 
-    total_cells = (sum(len(v) for v in homo_data.values()) +
-                   sum(len(v) for v in mixed_data.values()) +
-                   sum(len(v) for v in persona_data.values()))
+    n_homo  = sum(len(v) for v in homo_data.values())
+    n_mixed = sum(len(v) for v in mixed_data.values())
+    print(f"  homogeneous: {n_homo} seed-cells loaded", flush=True)
+    print(f"  mixed:       {n_mixed} seed-cells loaded", flush=True)
 
-    if total_cells == 0:
+    homo_vol   = load_price_sweep(logs_dir, slug, "homogeneous", compute_price_volatility)
+    mixed_vol  = load_price_sweep(logs_dir, slug, "mixed",       compute_price_volatility)
+    homo_price = load_price_sweep(logs_dir, slug, "homogeneous", compute_final_avg_price)
+    mixed_price = load_price_sweep(logs_dir, slug, "mixed",      compute_final_avg_price)
+
+    if n_homo + n_mixed == 0:
         warnings.warn(f"No data found for llm='{args.llm}' (slug='{slug}') in {logs_dir}. "
                       "Saving empty figure.")
 
     # ── Figure ────────────────────────────────────────────────────────────────
-    fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(6.75, 3.0),
-                                             constrained_layout=True)
-    draw_left_panel(ax_left, homo_data, mixed_data)
-    draw_right_panel(ax_right, persona_data)
+    fig, axes = plt.subplots(1, 3, figsize=(6.75, 3.0), constrained_layout=True)
+    draw_left_panel(axes[0], homo_data, mixed_data)
+    _draw_line_panel(axes[1], homo_vol, mixed_vol,
+                     ylabel="Price Volatility (std)",
+                     title="Price Volatility ($dlc=5$)",
+                     legend_loc="best")
+    _draw_line_panel(axes[2], homo_price, mixed_price,
+                     ylabel="Final Avg. Price",
+                     title="Final Avg. Price ($dlc=5$)",
+                     legend_loc="best")
+
+    # Remove duplicate legends from panels 2 and 3 — panel 1 has the legend
+    for ax in axes[1:]:
+        ax.get_legend().remove()
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     fig.savefig(args.output)
