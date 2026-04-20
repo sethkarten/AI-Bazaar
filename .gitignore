@@ -1,5 +1,7 @@
 __pycache__
 .claude/
+.claude.md
+.agents.md
 .env
 *.DS_store
 wandb
@@ -8,6 +10,27 @@ logs/
 logs-data.zip
 slurm_outputs
 *.log
+
+# Editor config
+.vscode/
+.cursor/
+
+# Paper (private)
+paper/
+
+# Dev scratch
+debug*.py
+debug*.log
+tmp_*.py
+gemini_list.py
+google_studio_test.py
+Modelfile
+Miniconda3-*.sh
+
+# Large local artifacts
+ai-bazaar-checkpoints/
+unsloth_compiled_cache/
+llm_economist/
 plot
 *.txt
 *.csv
