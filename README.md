@@ -1,13 +1,9 @@
 # AI-Bazaar
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-pytest-green.svg)](https://pytest.org/)
-[![arXiv](https://img.shields.io/badge/arXiv-2507.15815-b31b1b.svg)](https://arxiv.org/abs/2507.15815)
-
-<p align="center">
-  <img src="fig/teaser.svg" alt="AI-Bazaar teaser: failure modes and aligned interventions" width="900"/>
-</p>
+[Python 3.10+](https://www.python.org/downloads/)
+[License: MIT](https://opensource.org/licenses/MIT)
+[Tests](https://pytest.org/)
+[arXiv](https://arxiv.org/abs/2507.15815)
 
 > *Left: base LLM agents fail — firms crash prices into bankruptcy (B2C), and a Sybil principal floods the market with deceptive listings (C2C). Right: aligned agents restore equilibrium — Stabilizing Firms hold a price floor; Skeptical Guardians detect and reject the Sybil cluster. See the [simulation design diagram](fig/sim_design.pdf) for a full architectural overview.*
 
@@ -28,7 +24,7 @@ Built on [LLM Economist](https://github.com/sethkarten/LLM-Economist/), extendin
 ### 1. Create a conda environment
 
 ```bash
-conda create -n ai-bazaar python=3.11 -y
+conda create -n ai-bazaar python=3.12 -y
 conda activate ai-bazaar
 ```
 
@@ -73,6 +69,7 @@ export OPENROUTER_API_KEY="your_openrouter_key"
 [Ollama](https://ollama.com) runs models locally on your GPU without any API quota.
 
 **Install:**
+
 - Windows/macOS: download from [ollama.com](https://ollama.com)
 - Linux: `curl -fsSL https://ollama.com/install.sh | sh`
 
@@ -83,7 +80,7 @@ ollama pull llama3.1:8b
 ollama serve           # leave this terminal open
 ```
 
-To allow parallel requests (recommended for simulations):
+To allow parallel requests (recommended for simulations; ensure sufficient GPU memory to hold 4 instances of the model before setting):
 
 ```bash
 # Linux/macOS
@@ -92,16 +89,6 @@ export OLLAMA_NUM_PARALLEL=4 && ollama serve
 # Windows (PowerShell)
 $env:OLLAMA_NUM_PARALLEL = "4"; ollama serve
 ```
-
-**Recommended models by VRAM:**
-
-| Model | Size | 8 GB | 16 GB |
-|-------|------|------|-------|
-| `gemma2:2b` | 2B | Yes | Yes |
-| `llama3.2:3b` | 3B | Yes | Yes |
-| `mistral:7b` | 7B | Yes | Yes |
-| `llama3.1:8b` | 8B | Yes | Yes |
-| `gemma2:9b` | 9B | Tight | Yes |
 
 ### vLLM
 
@@ -225,108 +212,120 @@ python -m ai_bazaar.main [OPTIONS]
 
 ### Agent Configuration
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--firm-type` | `FIXED` | `LLM` or `FIXED` firm agents |
-| `--num-firms` | `5` | Number of firms (THE_CRASH) |
-| `--num-consumers` | `50` | Number of consumers |
-| `--num-sellers` | — | Alias for `--num-firms` in LEMON_MARKET |
-| `--num-buyers` | — | Alias for `--num-consumers` in LEMON_MARKET |
-| `--num-stabilizing-firms` | `0` | Number of Stabilizing Firms (THE_CRASH). First N LLM firms get the stabilizing prompt and enforce price ≥ unit cost |
-| `--seller-type` | `FIXED` | LEMON_MARKET: `LLM` generates descriptions; `FIXED` uses templates |
-| `--sybil-cluster-size` | `0` | LEMON_MARKET: number of Sybil identities (last K of `--num-sellers`). `0` = no Sybil |
-| `--firm-personas` | — | Comma-separated `persona:count` pairs for non-stabilizing firms (e.g. `competitive:3,volume_seeker:2`). Valid: `competitive`, `volume_seeker`, `reactive`, `cautious` |
-| `--seller-personas` | — | LEMON_MARKET: comma-separated `persona:count` for honest sellers. Valid: `standard`, `detailed`, `terse`, `optimistic` |
-| `--disable-firm-personas` | off | Strip behavioral archetypes from all firm prompts |
-| `--enable-consumer-personas` | off | THE_CRASH: assign behavioral personas to CES consumers round-robin (`LOYAL`, `SMALL_BIZ`, `REP_SEEKER`, `VARIETY`) |
-| `--unit-cost` | `2.0` | Unit cost of production |
-| `--max-supply-unit-cost` | `1.0` | Upper bound on randomly drawn per-firm unit costs |
-| `--firm-initial-cash` | `500.0` | Starting cash balance for each firm |
-| `--overhead-costs` | `14.0` | Fixed overhead cost per timestep per firm |
-| `--firm-markup` | `0.50` | FIXED firm: markup over unit cost |
-| `--firm-tax-rate` | `0.05` | Tax rate on firm cash each timestep |
-| `--use-cost-pref-gen` | off | Generate heterogeneous supply costs and CES preferences via the heterogeneity module |
-| `--use-gen-ces` | off | Generate CES parameters via LLM for consumers |
+
+| Argument                     | Default | Description                                                                                                                                                           |
+| ---------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--firm-type`                | `FIXED` | `LLM` or `FIXED` firm agents                                                                                                                                          |
+| `--num-firms`                | `5`     | Number of firms (THE_CRASH)                                                                                                                                           |
+| `--num-consumers`            | `50`    | Number of consumers                                                                                                                                                   |
+| `--num-sellers`              | —       | Alias for `--num-firms` in LEMON_MARKET                                                                                                                               |
+| `--num-buyers`               | —       | Alias for `--num-consumers` in LEMON_MARKET                                                                                                                           |
+| `--num-stabilizing-firms`    | `0`     | Number of Stabilizing Firms (THE_CRASH). First N LLM firms get the stabilizing prompt and enforce price ≥ unit cost                                                   |
+| `--seller-type`              | `FIXED` | LEMON_MARKET: `LLM` generates descriptions; `FIXED` uses templates                                                                                                    |
+| `--sybil-cluster-size`       | `0`     | LEMON_MARKET: number of Sybil identities (last K of `--num-sellers`). `0` = no Sybil                                                                                  |
+| `--firm-personas`            | —       | Comma-separated `persona:count` pairs for non-stabilizing firms (e.g. `competitive:3,volume_seeker:2`). Valid: `competitive`, `volume_seeker`, `reactive`, `cautious` |
+| `--seller-personas`          | —       | LEMON_MARKET: comma-separated `persona:count` for honest sellers. Valid: `standard`, `detailed`, `terse`, `optimistic`                                                |
+| `--disable-firm-personas`    | off     | Strip behavioral archetypes from all firm prompts                                                                                                                     |
+| `--enable-consumer-personas` | off     | THE_CRASH: assign behavioral personas to CES consumers round-robin (`LOYAL`, `SMALL_BIZ`, `REP_SEEKER`, `VARIETY`)                                                    |
+| `--unit-cost`                | `2.0`   | Unit cost of production                                                                                                                                               |
+| `--max-supply-unit-cost`     | `1.0`   | Upper bound on randomly drawn per-firm unit costs                                                                                                                     |
+| `--firm-initial-cash`        | `500.0` | Starting cash balance for each firm                                                                                                                                   |
+| `--overhead-costs`           | `14.0`  | Fixed overhead cost per timestep per firm                                                                                                                             |
+| `--firm-markup`              | `0.50`  | FIXED firm: markup over unit cost                                                                                                                                     |
+| `--firm-tax-rate`            | `0.05`  | Tax rate on firm cash each timestep                                                                                                                                   |
+| `--use-cost-pref-gen`        | off     | Generate heterogeneous supply costs and CES preferences via the heterogeneity module                                                                                  |
+| `--use-gen-ces`              | off     | Generate CES parameters via LLM for consumers                                                                                                                         |
+
 
 ### Simulation Parameters
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--consumer-scenario` | `RACE_TO_BOTTOM` | `RACE_TO_BOTTOM`, `EARLY_BIRD`, `PRICE_DISCRIMINATION`, `RATIONAL_BAZAAR`, `BOUNDED_BAZAAR`, `THE_CRASH`, `LEMON_MARKET` |
-| `--consumer-type` | `CES` | `CES` or `FIXED` consumer agents |
-| `--max-timesteps` | `100` | Simulation length |
-| `--discovery-limit-consumers` | `3` | Max firms a consumer polls before ordering (`0` = no limit) |
-| `--discovery-limit-firms` | `0` | Max competitors each firm observes (`0` = no limit) |
-| `--wtp-algo` | `none` | `none` (always order), `wtp` (CES willingness-to-pay), `ewtp` (expected WTP) |
-| `--poisson-demand-lambda` | — | Poisson arrival rate for consumer participation per step. Default: all consumers participate (THE_CRASH defaults to 0.6 × num_consumers) |
-| `--info-asymmetry` | off | Enable noisy competitor price observations for firms |
-| `--crash-rep-scoring` | off | THE_CRASH: score quotes by reputation/price instead of 1/price |
-| `--dynamic-labor` | off | Re-sample CES labor each timestep (vs. fixed at t=0) |
-| `--consumption-interval` | `1` | Run consumer inventory consumption every N timesteps |
-| `--num-goods` | `1` | Number of goods in the simulation |
-| `--fixed-consumer-quantity-per-good` | `10.0` | Quantity per good for FIXED consumers |
-| `--listing-corpus` | — | LEMON_MARKET: path to pre-compiled listing corpus (eliminates seller LLM calls). See `scripts/compile_listing_corpus.py` |
-| `--allow-listing-persistence` | off | LEMON_MARKET: carry unsold listings forward instead of discarding each step |
+
+| Argument                             | Default          | Description                                                                                                                              |
+| ------------------------------------ | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `--consumer-scenario`                | `RACE_TO_BOTTOM` | `RACE_TO_BOTTOM`, `EARLY_BIRD`, `PRICE_DISCRIMINATION`, `RATIONAL_BAZAAR`, `BOUNDED_BAZAAR`, `THE_CRASH`, `LEMON_MARKET`                 |
+| `--consumer-type`                    | `CES`            | `CES` or `FIXED` consumer agents                                                                                                         |
+| `--max-timesteps`                    | `100`            | Simulation length                                                                                                                        |
+| `--discovery-limit-consumers`        | `3`              | Max firms a consumer polls before ordering (`0` = no limit)                                                                              |
+| `--discovery-limit-firms`            | `0`              | Max competitors each firm observes (`0` = no limit)                                                                                      |
+| `--wtp-algo`                         | `none`           | `none` (always order), `wtp` (CES willingness-to-pay), `ewtp` (expected WTP)                                                             |
+| `--poisson-demand-lambda`            | —                | Poisson arrival rate for consumer participation per step. Default: all consumers participate (THE_CRASH defaults to 0.6 × num_consumers) |
+| `--info-asymmetry`                   | off              | Enable noisy competitor price observations for firms                                                                                     |
+| `--crash-rep-scoring`                | off              | THE_CRASH: score quotes by reputation/price instead of 1/price                                                                           |
+| `--dynamic-labor`                    | off              | Re-sample CES labor each timestep (vs. fixed at t=0)                                                                                     |
+| `--consumption-interval`             | `1`              | Run consumer inventory consumption every N timesteps                                                                                     |
+| `--num-goods`                        | `1`              | Number of goods in the simulation                                                                                                        |
+| `--fixed-consumer-quantity-per-good` | `10.0`           | Quantity per good for FIXED consumers                                                                                                    |
+| `--listing-corpus`                   | —                | LEMON_MARKET: path to pre-compiled listing corpus (eliminates seller LLM calls). See `scripts/compile_listing_corpus.py`                 |
+| `--allow-listing-persistence`        | off              | LEMON_MARKET: carry unsold listings forward instead of discarding each step                                                              |
+
 
 ### Lemon Market Parameters
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--reputation-initial` | `0.8` | Initial seller reputation R₀ (default `1.0` when no Sybil) |
-| `--reputation-pseudo-count` | `10` | Rolling vote-window size N. `reputation = upvotes in last N / N` |
-| `--sybil-rho-min` | `0.3` | Sybil rotation threshold: when R < rho_min, spawn new identity at `--reputation-initial` |
-| `--no-buyer-rep` | off | Withhold seller reputation from buyer observations (ablation) |
-| `--no-seller-ids` | off | Omit seller identifiers from buyer observations; listings get ephemeral per-round labels (ablation) |
-| `--lemon-base-buyer` | off | Minimal buyer prompt with no transaction history (ablation) |
+
+| Argument                    | Default | Description                                                                                         |
+| --------------------------- | ------- | --------------------------------------------------------------------------------------------------- |
+| `--reputation-initial`      | `0.8`   | Initial seller reputation R₀ (default `1.0` when no Sybil)                                          |
+| `--reputation-pseudo-count` | `10`    | Rolling vote-window size N. `reputation = upvotes in last N / N`                                    |
+| `--sybil-rho-min`           | `0.3`   | Sybil rotation threshold: when R < rho_min, spawn new identity at `--reputation-initial`            |
+| `--no-buyer-rep`            | off     | Withhold seller reputation from buyer observations (ablation)                                       |
+| `--no-seller-ids`           | off     | Omit seller identifiers from buyer observations; listings get ephemeral per-round labels (ablation) |
+| `--lemon-base-buyer`        | off     | Minimal buyer prompt with no transaction history (ablation)                                         |
+
 
 ### LLM Configuration
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--llm` | `llama3:8b` | Model name. Examples: `gemini-2.5-flash`, `gpt-4o`, `meta-llama/llama-3.1-8b-instruct` |
-| `--buyer-llm` | — | LEMON_MARKET: model for buyer agents (falls back to `--llm`) |
-| `--seller-llm` | — | LEMON_MARKET: model for honest sellers and Sybil principal (falls back to `--llm`) |
-| `--stab-llm` | — | THE_CRASH: model name for Stabilizing Firms (e.g. a vLLM LoRA adapter alias like `stab`) |
-| `--service` | `vllm` | `vllm` or `ollama` for local models |
-| `--buyer-service` | — | LEMON_MARKET: service for buyer agents (falls back to `--service`) |
-| `--seller-service` | — | LEMON_MARKET: service for seller agents (falls back to `--service`) |
-| `--port` | `8009` | Port for LLM service |
-| `--buyer-port` | — | LEMON_MARKET: port for buyer LLM (falls back to `--port`) |
-| `--seller-port` | — | LEMON_MARKET: port for seller LLM (falls back to `--port`) |
-| `--gemini-backend` | auto | `studio` (API key) or `vertex` (Vertex AI). Auto-detects from env vars |
-| `--openrouter-provider` | — | Preferred OpenRouter provider(s) (e.g. `anthropic`, `Together`) |
-| `--buyer-openrouter-provider` | — | LEMON_MARKET: OpenRouter provider for buyer agents |
-| `--seller-openrouter-provider` | — | LEMON_MARKET: OpenRouter provider for seller agents |
-| `--prompt-algo` | `io` | `io` (input-output) or `cot` (chain-of-thought) |
-| `--history-len` | `3` | Timesteps of history sent in each firm prompt |
-| `--best-n` | `3` | Best-N slab size for Stabilizing Firm prompts (`0` to disable) |
-| `--max-tokens` | `1000` | Maximum output tokens per LLM call |
-| `--timeout` | `30` | LLM call timeout in seconds |
-| `--use-parsing-agent` | off | Use a secondary LLM call to repair malformed JSON responses |
+
+| Argument                       | Default     | Description                                                                              |
+| ------------------------------ | ----------- | ---------------------------------------------------------------------------------------- |
+| `--llm`                        | `llama3:8b` | Model name. Examples: `gemini-2.5-flash`, `gpt-4o`, `meta-llama/llama-3.1-8b-instruct`   |
+| `--buyer-llm`                  | —           | LEMON_MARKET: model for buyer agents (falls back to `--llm`)                             |
+| `--seller-llm`                 | —           | LEMON_MARKET: model for honest sellers and Sybil principal (falls back to `--llm`)       |
+| `--stab-llm`                   | —           | THE_CRASH: model name for Stabilizing Firms (e.g. a vLLM LoRA adapter alias like `stab`) |
+| `--service`                    | `vllm`      | `vllm` or `ollama` for local models                                                      |
+| `--buyer-service`              | —           | LEMON_MARKET: service for buyer agents (falls back to `--service`)                       |
+| `--seller-service`             | —           | LEMON_MARKET: service for seller agents (falls back to `--service`)                      |
+| `--port`                       | `8009`      | Port for LLM service                                                                     |
+| `--buyer-port`                 | —           | LEMON_MARKET: port for buyer LLM (falls back to `--port`)                                |
+| `--seller-port`                | —           | LEMON_MARKET: port for seller LLM (falls back to `--port`)                               |
+| `--gemini-backend`             | auto        | `studio` (API key) or `vertex` (Vertex AI). Auto-detects from env vars                   |
+| `--openrouter-provider`        | —           | Preferred OpenRouter provider(s) (e.g. `anthropic`, `Together`)                          |
+| `--buyer-openrouter-provider`  | —           | LEMON_MARKET: OpenRouter provider for buyer agents                                       |
+| `--seller-openrouter-provider` | —           | LEMON_MARKET: OpenRouter provider for seller agents                                      |
+| `--prompt-algo`                | `io`        | `io` (input-output) or `cot` (chain-of-thought)                                          |
+| `--history-len`                | `3`         | Timesteps of history sent in each firm prompt                                            |
+| `--best-n`                     | `3`         | Best-N slab size for Stabilizing Firm prompts (`0` to disable)                           |
+| `--max-tokens`                 | `1000`      | Maximum output tokens per LLM call                                                       |
+| `--timeout`                    | `30`        | LLM call timeout in seconds                                                              |
+| `--use-parsing-agent`          | off         | Use a secondary LLM call to repair malformed JSON responses                              |
+
 
 ### Logging and Output
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--name` | `""` | Run name (used as log directory label) |
-| `--log-dir` | `logs` | Base directory for output files |
-| `--seed` | `42` | Random seed |
-| `--wandb` | off | Enable Weights & Biases logging |
-| `--no-diaries` | off | Disable strategic diary entries in agent prompts |
-| `--log-firm-prompts` | off | Log firm prompt/response pairs to file |
-| `--log-crash-firm-prompts` | off | THE_CRASH: append firm prompts to `crash_agent_prompts.jsonl` |
-| `--log-buyer-prompts` | off | LEMON_MARKET: append buyer prompts to `lemon_agent_prompts.jsonl` |
-| `--log-seller-prompts` | off | LEMON_MARKET: append seller/Sybil prompts to `lemon_agent_prompts.jsonl` |
-| `--log-alignment-traces` | off | Log `(state, prompt, response, outcome)` tuples for SFT data collection |
-| `--reward-type` | `PROFIT` | `PROFIT` or `REVENUE` reward signal |
+
+| Argument                   | Default  | Description                                                              |
+| -------------------------- | -------- | ------------------------------------------------------------------------ |
+| `--name`                   | `""`     | Run name (used as log directory label)                                   |
+| `--log-dir`                | `logs`   | Base directory for output files                                          |
+| `--seed`                   | `42`     | Random seed                                                              |
+| `--wandb`                  | off      | Enable Weights & Biases logging                                          |
+| `--no-diaries`             | off      | Disable strategic diary entries in agent prompts                         |
+| `--log-firm-prompts`       | off      | Log firm prompt/response pairs to file                                   |
+| `--log-crash-firm-prompts` | off      | THE_CRASH: append firm prompts to `crash_agent_prompts.jsonl`            |
+| `--log-buyer-prompts`      | off      | LEMON_MARKET: append buyer prompts to `lemon_agent_prompts.jsonl`        |
+| `--log-seller-prompts`     | off      | LEMON_MARKET: append seller/Sybil prompts to `lemon_agent_prompts.jsonl` |
+| `--log-alignment-traces`   | off      | Log `(state, prompt, response, outcome)` tuples for SFT data collection  |
+| `--reward-type`            | `PROFIT` | `PROFIT` or `REVENUE` reward signal                                      |
+
 
 ### Shock Parameters (Experiment 3)
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--shock-timestep` | — | Timestep at which to inject the shock |
-| `--post-shock-unit-cost` | — | New unit cost after supply shock (THE_CRASH) |
-| `--post-shock-sybil-cluster-size` | — | New Sybil cluster size after flood shock (LEMON_MARKET) |
+
+| Argument                          | Default | Description                                             |
+| --------------------------------- | ------- | ------------------------------------------------------- |
+| `--shock-timestep`                | —       | Timestep at which to inject the shock                   |
+| `--post-shock-unit-cost`          | —       | New unit cost after supply shock (THE_CRASH)            |
+| `--post-shock-sybil-cluster-size` | —       | New Sybil cluster size after flood shock (LEMON_MARKET) |
+
 
 ---
 
@@ -348,7 +347,7 @@ python scripts/exp1.py
 python scripts/exp1.py --workers 3
 
 # Use a different model
-python scripts/exp1.py --llm gemini-2.0-flash
+python scripts/exp1.py --llm gemini-2.5-flash
 
 # Local model via Ollama
 python scripts/exp1.py --llm gemma3:4b --service ollama --port 11434
@@ -362,7 +361,7 @@ python scripts/exp1.py --dlc 3 --n-stab 1 3 --seeds 8
 # Resume a partial run
 python scripts/exp1.py --skip-existing --workers 3
 
-# Preview matching runs without launching
+# Preview matching runs without launching (RECOMMENDED BEFORE LAUNCHING A JOB)
 python scripts/exp1.py --dlc 3 --n-stab 1 3 --list
 ```
 
@@ -442,10 +441,12 @@ python scripts/exp2_eas_sweep.py --seller-llm google/gemma-3-12b-it --workers 4 
 
 Applies mid-episode shocks to measure market resilience.
 
-| Sub-experiment | Scenario | Shock | Timing |
-|---|---|---|---|
-| **exp3a** | THE_CRASH | Unit cost $1 → $10 | t = 25 |
-| **exp3b** | LEMON_MARKET | Sybil cluster → 80% saturation | t = 15 |
+
+| Sub-experiment | Scenario     | Shock                          | Timing |
+| -------------- | ------------ | ------------------------------ | ------ |
+| **exp3a**      | THE_CRASH    | Unit cost $1 → $10             | t = 25 |
+| **exp3b**      | LEMON_MARKET | Sybil cluster → 80% saturation | t = 15 |
+
 
 **Full matrix (36 runs):** 18 crash (n_stab ∈ {1,3,5} × dlc ∈ {3,5} × seeds) + 18 lemon (k_initial ∈ {3,6,9} × rep_visible × seeds).
 
@@ -571,21 +572,38 @@ Most tests are self-contained. Tests that make live API calls (`test_models.py`,
 
 Any model accessible via the following backends is supported:
 
-| Backend | Flag | Examples |
-|---|---|---|
-| Google Gemini (AI Studio) | `--llm gemini-2.5-flash` | `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash-preview` |
-| Google Vertex AI | `--llm gemini-2.5-flash --gemini-backend vertex` | Same model IDs |
-| OpenAI | `--llm gpt-4o` | `gpt-4o`, `gpt-4o-mini`, `gpt-5.4` |
-| Anthropic (via OpenRouter) | `--llm anthropic/claude-sonnet-4-6` | Any Anthropic model slug |
-| OpenRouter | `--llm org/model-name` | Any model on [openrouter.ai](https://openrouter.ai/models) |
-| Ollama (local) | `--service ollama --llm llama3.1:8b` | Any model in `ollama list` |
-| vLLM (local) | `--service vllm --llm hf/model-id` | Any HF model or LoRA alias |
+
+| Backend                    | Flag                                             | Examples                                                       |
+| -------------------------- | ------------------------------------------------ | -------------------------------------------------------------- |
+| Google Gemini (AI Studio)  | `--llm gemini-2.5-flash`                         | `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash-preview` |
+| Google Vertex AI           | `--llm gemini-2.5-flash --gemini-backend vertex` | Same model IDs                                                 |
+| OpenAI                     | `--llm gpt-4o`                                   | `gpt-4o`, `gpt-4o-mini`, `gpt-5.4`                             |
+| Anthropic (via OpenRouter) | `--llm anthropic/claude-sonnet-4-6`              | Any Anthropic model slug                                       |
+| OpenRouter                 | `--llm org/model-name`                           | Any model on [openrouter.ai](https://openrouter.ai/models)     |
+| Ollama (local)             | `--service ollama --llm llama3.1:8b`             | Any model in `ollama list`                                     |
+| vLLM (local)               | `--service vllm --llm hf/model-id`               | Any HF model or LoRA alias                                     |
+
 
 See `OPEN_WEIGHTS_MODELS.md` for the full list of tested open-weight models and their OpenRouter IDs.
 
 ---
 
 ## Citation
+
+If you use AI-Bazaar in your research, please cite:
+
+```bibtex
+@thesis{crow2026agentbazaar,
+  title={Agent Bazaar: Enabling Economic Alignment in Multi-Agent Marketplaces},
+  author={Crow, Cameron},
+  year={2026},
+  school={Princeton University},
+  type={Bachelor's Thesis},
+  note={Department of Electrical and Computer Engineering. Advisor: Professor Chi Jin}
+}
+```
+
+This framework builds on the LLM Economist:
 
 ```bibtex
 @article{karten2025llm,
