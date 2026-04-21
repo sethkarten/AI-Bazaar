@@ -5,7 +5,17 @@
 [Tests](https://pytest.org/)
 [arXiv](https://arxiv.org/abs/2507.15815)
 
-> *Left: base LLM agents fail — firms crash prices into bankruptcy (B2C), and a Sybil principal floods the market with deceptive listings (C2C). Right: aligned agents restore equilibrium — Stabilizing Firms hold a price floor; Skeptical Guardians detect and reject the Sybil cluster. See the [simulation design diagram](fig/sim_design.pdf) for a full architectural overview.*
+<p align="center">
+  <img src="fig/teaser.svg" alt="Agent Bazaar teaser" width="90%">
+</p>
+
+> *Left: base LLM agents fail — firms crash prices into bankruptcy (B2C), and a Sybil principal floods the market with deceptive listings (C2C). Right: aligned agents restore equilibrium — Stabilizing Firms hold a price floor; Skeptical Guardians detect and reject the Sybil cluster.*
+
+<p align="center">
+  <img src="fig/sim_design.svg" alt="Agent Bazaar simulation design" width="90%">
+</p>
+
+> *Simulation architecture: B2C market (left) with Poisson consumer arrivals, firm pricing agents, and discovery limits; C2C market (right) with buyer/seller agents, Sybil principal, and reputation signals.*
 
 ## Research Overview
 
