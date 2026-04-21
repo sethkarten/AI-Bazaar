@@ -590,18 +590,7 @@ See `OPEN_WEIGHTS_MODELS.md` for the full list of tested open-weight models and 
 
 ## Citation
 
-If you use AI-Bazaar in your research, please cite:
-
-```bibtex
-@thesis{crow2026agentbazaar,
-  title={Agent Bazaar: Enabling Economic Alignment in Multi-Agent Marketplaces},
-  author={Crow, Cameron},
-  year={2026},
-  school={Princeton University},
-  type={Bachelor's Thesis},
-  note={Department of Electrical and Computer Engineering. Advisor: Professor Chi Jin}
-}
-```
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 This framework builds on the LLM Economist:
 
