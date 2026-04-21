@@ -1,18 +1,41 @@
 __pycache__
+.claude/
+.claude.md
+.agents.md
 .env
 *.DS_store
 wandb
 ~$*
-logs
+logs/
+logs-data.zip
 slurm_outputs
 *.log
-*.sh
+
+# Editor config
+.vscode/
+.cursor/
+
+# Paper (private)
+paper/
+
+# Dev scratch
+debug*.py
+debug*.log
+tmp_*.py
+gemini_list.py
+google_studio_test.py
+Modelfile
+Miniconda3-*.sh
+
+# Large local artifacts
+ai-bazaar-checkpoints/
+unsloth_compiled_cache/
+llm_economist/
 plot
 *.txt
 *.csv
 *.png
 *.bash
-*.sh
 *.slurm
 *.out
 
@@ -190,3 +213,39 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+logs-data/
+models/
+Qwen3.5-9B/
+checkpoints/
+documentation/SIMULATION.md
+scripts/run_overnight_1.py
+scripts/run_overnight_2.py
+scripts/run_overnight_eq_tests.ps1
+scripts/run_overnight_eq_tests.py
+tests/test_heterogeneity.py
+*.yml
+research/
+*.aux
+environment.yml
+.vscode/settings.json
+research/DrTrayaurus.md
+tmp_analysis_anomaly.py
+tmp_make_section.py
+tmp_inject.py
+tmp_check_incomplete.py
+tmp_check_firms.py
+tmp_analysis_survival.py
+.gitignore
+tmp_analysis_price_war.py
+tmp_analysis_seed_variance.py
+tmp_analysis_main.py
+tmp_analysis_final.py
+tmp_analysis_detailed.py
+tmp_analysis_args.py
+tmp_survey.py
+
+exp1_deepseek_deepseek-r1-distill-llama-70b/
+exp1_deepseek_deepseek-r1-distill-qwen-32b/
+Miniconda3-latest-Linux-x86_64.sh
+convert_guardian_gguf.sh

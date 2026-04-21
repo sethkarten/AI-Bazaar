@@ -1,511 +1,608 @@
 # AI-Bazaar
 
-AI Bazaar: Extension of LLM Economist (https://github.com/sethkarten/LLM-Economist/), implementing agent-agent goods trading, firm agents, consumer agents, as well as visualization in Unity.
-
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-pytest-green.svg)](https://pytest.org/)
-[![arXiv](https://img.shields.io/badge/arXiv-2507.15815-b31b1b.svg)](https://arxiv.org/abs/2507.15815)
+[Python 3.10+](https://www.python.org/downloads/)
+[License: MIT](https://opensource.org/licenses/MIT)
+[Tests](https://pytest.org/)
+[arXiv](https://arxiv.org/abs/2507.15815)
 
 <p align="center">
-  <img src="fig/llm_econ_fig1.jpg" alt="LLM Economist Figure 1" width="600"/>
+  <img src="fig/teaser.png" alt="Agent Bazaar teaser" width="90%">
 </p>
 
-A comprehensive framework for economic simulations using Large Language Models (LLMs). The LLM Economist leverages state-of-the-art language models to create realistic, dynamic economic simulations with diverse agent populations for studying tax policy optimization and mechanism design.
+> *Left: base LLM agents fail — firms crash prices into bankruptcy (B2C), and a Sybil principal floods the market with deceptive listings (C2C). Right: aligned agents restore equilibrium — Stabilizing Firms hold a price floor; Skeptical Guardians detect and reject the Sybil cluster.*
 
-## 🚀 Features
+<p align="center">
+  <img src="fig/sim_design.png" alt="Agent Bazaar simulation design" width="90%">
+</p>
 
-- **Multi-LLM Support**: Compatible with OpenAI GPT, Google Gemini, Anthropic Claude, Meta Llama, and more
-- **Multiple Deployment Options**: Local (vLLM, Ollama), cloud APIs (OpenAI, OpenRouter), and Google AI
-- **Diverse Economic Scenarios**: Rational agents, bounded rationality, and democratic voting mechanisms
-- **Realistic Agent Personas**: LLM-generated personas based on real demographic and occupational data
-- **Scalable Architecture**: Support for 3-1000+ agents with efficient parallel processing
-- **Comprehensive Testing**: Full test suite with real API integration testing
-- **Reproducible Research**: Standardized experiment scripts and configuration management
+> *Simulation architecture: B2C market (left) with Poisson consumer arrivals, firm pricing agents, and discovery limits; C2C market (right) with buyer/seller agents, Sybil principal, and reputation signals.*
 
-## 📖 Overview
+## Research Overview
 
-The LLM Economist framework models economic systems as a two-level multi-agent reinforcement learning problem, implemented as a Stackelberg game where:
+As AI agents increasingly operate autonomously in digital marketplaces, their collective behavior introduces systemic risks that standard alignment — targeting helpfulness, harmlessness, and honesty — does not address. An agent that is individually rational can drive a market into collapse through locally optimal but globally destructive decisions. We define **Economic Alignment** as the property of contributing to stable, fair markets rather than chaotic or exploitative ones, and introduce **Agent Bazaar** to benchmark it.
 
-1. **Tax Planner (Leader)**: Sets tax policies to maximize social welfare
-2. **Workers (Followers)**: Optimize labor allocation based on tax policies and individual utility functions
+We study two canonical failure modes. **THE_CRASH**: in B2C markets, LLM firms engage in a destructive undercutting race until prices fall below unit cost, triggering mass bankruptcy — an LLM-native analog of the 2010 Flash Crash. **THE_LEMON_MARKET**: in C2C markets, a Sybil principal operates *K* coordinated seller identities, rotating them when reputation degrades to perpetuate fraud at scale, an amplified version of Akerlof's market for lemons.
 
-Key innovations include:
-- **In-context optimization** for rational utility functions
-- **Synthetic demographic data** for realistic agent diversity using real occupation, age, and gender statistics
-- **LLM-generated personas** that create unique, realistic economic agents
-- **Mechanism design** for positive societal influence
+For each failure mode, AI-Bazaar tests intervention mechanisms: **Stabilizing Firms** enforce a price floor against the undercutting spiral; **Skeptical Guardians** detect and reject deceptive listings. We evaluate frontier and open-weight models (3B–405B) across both scenarios and introduce the **Economic Alignment Score (EAS)**, a unified scalar aggregating stability, integrity, welfare, and profitability into a single cross-model metric.
 
-## 🛠️ Installation
+Built on [LLM Economist](https://github.com/sethkarten/LLM-Economist/), extending it with agent-agent goods trading, firm/buyer/seller agents, and a Streamlit visualization dashboard.
 
-### Initialize Conda Environment
+---
+
+## Installation
+
+### 1. Create a conda environment
 
 ```bash
-# Create and activate the environment
-conda create -n LLMEconomist python=3.11 -y
-conda activate LLMEconomist
+conda create -n ai-bazaar python=3.12 -y
+conda activate ai-bazaar
 ```
 
-### Quick Install
+### 2. Install the package
 
 ```bash
-pip install llm-economist
-```
+# From PyPI
+pip install ai-bazaar
 
-### Development Install
-
-```bash
-git clone https://github.com/sethkarten/LLMEconomist.git
-cd LLMEconomist
+# Or development install from source
+git clone https://github.com/sethkarten/AI-Bazaar.git
+cd AI-Bazaar
 pip install -e .
 ```
 
-### Dependencies
+### 3. Set API keys
 
-The framework supports multiple LLM providers. Install additional dependencies as needed:
-
-```bash
-# For local LLM serving
-pip install vllm ollama
-
-# For Google Gemini
-pip install google-generativeai
-
-# For development
-pip install -e .[dev]
-```
-
-## 🚦 Quick Start
-
-### 1. Set up API Keys
-
-Choose your preferred LLM provider and set the corresponding API key:
+Set the keys for whichever LLM providers you plan to use:
 
 ```bash
+# Google Gemini (Google AI Studio)
+export GOOGLE_API_KEY="your_google_key"
+# or for Vertex AI: set up Application Default Credentials
+# gcloud auth application-default login
+
 # OpenAI
 export OPENAI_API_KEY="your_openai_key"
 
-# OpenRouter (for multiple models)
+# Anthropic
+export ANTHROPIC_API_KEY="your_anthropic_key"
+
+# OpenRouter (access many models through one API)
 export OPENROUTER_API_KEY="your_openrouter_key"
-
-# Google Gemini
-export GOOGLE_API_KEY="your_google_key"
 ```
 
-### 2. Run Your First Simulation
+---
+
+## Local LLM Setup
+
+### Ollama
+
+[Ollama](https://ollama.com) runs models locally on your GPU without any API quota.
+
+**Install:**
+
+- Windows/macOS: download from [ollama.com](https://ollama.com)
+- Linux: `curl -fsSL https://ollama.com/install.sh | sh`
+
+**Pull a model and start the server:**
 
 ```bash
-# Simple rational agents simulation
-python -m llm_economist.main --scenario rational --num-agents 5 --max-timesteps 500
-
-# Bounded rationality simulation (note: currently uses 100% egotistical agents with personas)
-python -m llm_economist.main --scenario bounded --num-agents 10 --percent-ego 100
-
-# Democratic voting simulation
-python -m llm_economist.main --scenario democratic --num-agents 15 --two-timescale 50
+ollama pull llama3.1:8b
+ollama serve           # leave this terminal open
 ```
 
-### 3. Try Different LLM Models
+To allow parallel requests (recommended for simulations; ensure sufficient GPU memory to hold 4 instances of the model before setting):
 
 ```bash
-# OpenAI GPT-4
-python -m llm_economist.main --llm gpt-4o --scenario rational
+# Linux/macOS
+export OLLAMA_NUM_PARALLEL=4 && ollama serve
 
-# Local Llama via vLLM (requires local server)
-python -m llm_economist.main --llm meta-llama/Llama-3.1-8B-Instruct --service vllm --port 8000
-
-# Claude via OpenRouter
-python -m llm_economist.main --llm anthropic/claude-3.5-sonnet --use-openrouter
-
-# Google Gemini
-python -m llm_economist.main --llm gemini-1.5-flash
+# Windows (PowerShell)
+$env:OLLAMA_NUM_PARALLEL = "4"; ollama serve
 ```
 
-## 🏗️ Project Structure
+### vLLM
 
-```
-LLMEconomist/
-├── llm_economist/              # Main package
-│   ├── agents/                 # Agent implementations
-│   │   ├── worker.py          # Worker agent logic
-│   │   ├── planner.py         # Tax planner logic
-│   │   └── llm_agent.py       # Base LLM agent class
-│   ├── models/                 # LLM model integrations
-│   │   ├── openai_model.py    # OpenAI GPT models
-│   │   ├── gemini_model.py    # Google Gemini models
-│   │   ├── vllm_model.py      # Local vLLM/Ollama models
-│   │   ├── openrouter_model.py # OpenRouter API
-│   │   └── base.py            # Base model interface
-│   ├── utils/                  # Utility functions
-│   │   ├── common.py          # Common utilities
-│   │   └── bracket.py         # Tax bracket utilities
-│   ├── data/                   # Demographic data files
-│   └── main.py                 # Main entry point
-├── experiments/                # Experiment scripts
-├── examples/                   # Usage examples
-│   ├── quick_start.py         # Basic functionality tests
-│   └── advanced_usage.py      # Simulation scenario tests
-├── tests/                      # Test suite
-└── README.md                   # This file
+[vLLM](https://github.com/vllm-project/vllm) serves Hugging Face models via an OpenAI-compatible API. On Windows, vLLM works best in WSL2.
+
+```bash
+pip install vllm
+
+# Start a server (run in a separate terminal)
+python -m vllm.entrypoints.openai.api_server \
+    --model google/gemma-3-4b-it \
+    --port 8009
 ```
 
-## 🔧 Configuration Options
+For gated models, set your Hugging Face token first:
 
-### Simulation Parameters
+```bash
+export HF_TOKEN="hf_..."
+# or: huggingface-cli login
+```
 
-| Parameter | Description | Default | Options |
-|-----------|-------------|---------|---------|
-| `--scenario` | Economic scenario | `rational` | `rational`, `bounded`, `democratic` |
-| `--num-agents` | Number of worker agents | `5` | `1-1000+` |
-| `--max-timesteps` | Simulation length | `1000` | Any positive integer |
-| `--two-timescale` | Steps between tax updates | `25` | Any positive integer |
+Use `--llm google/gemma-3-4b-it --service vllm --port 8009` in your simulation command to point at this server.
 
-### LLM Configuration
+---
 
-| Parameter | Description | Default | Options |
-|-----------|-------------|---------|---------|
-| `--llm` | LLM model to use | `gpt-4o-mini` | See supported models below |
-| `--prompt-algo` | Prompting strategy | `io` | `io`, `cot` |
-| `--service` | Local LLM service | `vllm` | `vllm`, `ollama` |
-| `--port` | Local server port | `8000` | Any valid port |
+## Quick Start
+
+```bash
+# THE_CRASH: 5 LLM firms, 50 consumers, 20 timesteps (Gemini)
+python -m ai_bazaar.main \
+  --consumer-scenario THE_CRASH \
+  --firm-type LLM --num-firms 5 --num-consumers 50 \
+  --use-cost-pref-gen --no-diaries --prompt-algo cot \
+  --llm gemini-2.5-flash --max-timesteps 20 --name crash_test
+
+# LEMON_MARKET: 12 sellers (3 Sybil), 12 LLM buyers
+python -m ai_bazaar.main \
+  --consumer-scenario LEMON_MARKET \
+  --num-sellers 12 --num-buyers 12 \
+  --sybil-cluster-size 3 --reputation-initial 0.8 \
+  --no-diaries --prompt-algo cot \
+  --llm gemini-2.5-flash --max-timesteps 20 --name lemon_test
+
+# Local model via Ollama
+python -m ai_bazaar.main \
+  --consumer-scenario THE_CRASH \
+  --firm-type LLM --num-firms 3 --num-consumers 20 \
+  --llm llama3.1:8b --service ollama --port 11434 \
+  --max-timesteps 10 --name local_test
+```
+
+### Visualization Dashboard
+
+After running a simulation, inspect results in the Streamlit dashboard:
+
+```bash
+streamlit run ai_bazaar/viz/dashboard.py
+```
+
+State files are stored at `logs/<run_name>/states.json`. The dashboard lists all available runs and lets you explore per-timestep market state.
+
+---
+
+## Project Structure
+
+```
+AI-Bazaar/
+├── ai_bazaar/              # Main package
+│   ├── agents/             # Agent implementations
+│   │   ├── firm.py         # LLM firm / Stabilizing firm
+│   │   ├── buyer.py        # LLM buyer / Skeptical Guardian
+│   │   ├── seller.py       # LLM seller / Sybil principal
+│   │   ├── consumer.py     # CES consumer
+│   │   ├── planner.py      # Tax planner (legacy)
+│   │   └── worker.py       # Worker agent (legacy)
+│   ├── models/             # LLM provider integrations
+│   │   ├── openai_model.py
+│   │   ├── gemini_model.py
+│   │   ├── vllm_model.py
+│   │   ├── openrouter_model.py
+│   │   └── base.py
+│   ├── env/                # BazaarEnv simulation environment
+│   ├── market_core/        # Market clearing and mechanics
+│   ├── utils/              # Shared utilities
+│   ├── viz/                # Streamlit dashboard
+│   │   └── dashboard.py
+│   └── main.py             # Entry point and CLI
+├── scripts/                # Experiment runners
+│   ├── exp1.py             # THE_CRASH main sweep
+│   ├── exp1_eas_sweep.py   # THE_CRASH × open-weight model sweep
+│   ├── exp2.py             # LEMON_MARKET main sweep
+│   ├── exp2_2.py           # LEMON_MARKET (no seller IDs ablation)
+│   ├── exp2_eas_sweep.py   # LEMON_MARKET × buyer model sweep
+│   ├── exp3.py             # Adversarial shock experiments
+│   ├── exp3_open_weights_sweep.py
+│   ├── exp5.py             # Discovery limit firms (DLF) ablation
+│   ├── exp6.py             # Consumer procedural personas
+│   ├── analyze_lemon_prompts.py
+│   ├── compile_listing_corpus.py
+│   ├── consolidate_states.py
+│   └── extract_sybil_prompts.py
+├── data/                   # Demographic and corpus data
+├── documentation/          # Run commands and model reference
+├── eval_logs/              # Reference evaluation data
+├── examples/               # Usage examples
+├── experiments/            # Experiment runner framework
+├── tests/                  # Test suite
+├── OPEN_WEIGHTS_MODELS.md  # Supported open-weight models
+└── README.md
+```
+
+---
+
+## CLI Reference
+
+Run from the project root:
+
+```bash
+python -m ai_bazaar.main [OPTIONS]
+```
 
 ### Agent Configuration
 
-| Parameter | Description | Default | Options |
-|-----------|-------------|---------|---------|
-| `--worker-type` | Worker agent type | `LLM` | `LLM`, `FIXED` |
-| `--planner-type` | Planner agent type | `LLM` | `LLM`, `US_FED`, `UNIFORM` |
-| `--percent-ego` | % egotistical agents | `100` | `0-100` |
-| `--percent-alt` | % altruistic agents | `0` | `0-100` |
-| `--percent-adv` | % adversarial agents | `0` | `0-100` |
 
-**Note**: Currently, personas (used in `bounded` and `democratic` scenarios) only support egotistical utility types, so mixed utility types are only available with default personas.
+| Argument                     | Default | Description                                                                                                                                                           |
+| ---------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--firm-type`                | `FIXED` | `LLM` or `FIXED` firm agents                                                                                                                                          |
+| `--num-firms`                | `5`     | Number of firms (THE_CRASH)                                                                                                                                           |
+| `--num-consumers`            | `50`    | Number of consumers                                                                                                                                                   |
+| `--num-sellers`              | —       | Alias for `--num-firms` in LEMON_MARKET                                                                                                                               |
+| `--num-buyers`               | —       | Alias for `--num-consumers` in LEMON_MARKET                                                                                                                           |
+| `--num-stabilizing-firms`    | `0`     | Number of Stabilizing Firms (THE_CRASH). First N LLM firms get the stabilizing prompt and enforce price ≥ unit cost                                                   |
+| `--seller-type`              | `FIXED` | LEMON_MARKET: `LLM` generates descriptions; `FIXED` uses templates                                                                                                    |
+| `--sybil-cluster-size`       | `0`     | LEMON_MARKET: number of Sybil identities (last K of `--num-sellers`). `0` = no Sybil                                                                                  |
+| `--firm-personas`            | —       | Comma-separated `persona:count` pairs for non-stabilizing firms (e.g. `competitive:3,volume_seeker:2`). Valid: `competitive`, `volume_seeker`, `reactive`, `cautious` |
+| `--seller-personas`          | —       | LEMON_MARKET: comma-separated `persona:count` for honest sellers. Valid: `standard`, `detailed`, `terse`, `optimistic`                                                |
+| `--disable-firm-personas`    | off     | Strip behavioral archetypes from all firm prompts                                                                                                                     |
+| `--enable-consumer-personas` | off     | THE_CRASH: assign behavioral personas to CES consumers round-robin (`LOYAL`, `SMALL_BIZ`, `REP_SEEKER`, `VARIETY`)                                                    |
+| `--unit-cost`                | `2.0`   | Unit cost of production                                                                                                                                               |
+| `--max-supply-unit-cost`     | `1.0`   | Upper bound on randomly drawn per-firm unit costs                                                                                                                     |
+| `--firm-initial-cash`        | `500.0` | Starting cash balance for each firm                                                                                                                                   |
+| `--overhead-costs`           | `14.0`  | Fixed overhead cost per timestep per firm                                                                                                                             |
+| `--firm-markup`              | `0.50`  | FIXED firm: markup over unit cost                                                                                                                                     |
+| `--firm-tax-rate`            | `0.05`  | Tax rate on firm cash each timestep                                                                                                                                   |
+| `--use-cost-pref-gen`        | off     | Generate heterogeneous supply costs and CES preferences via the heterogeneity module                                                                                  |
+| `--use-gen-ces`              | off     | Generate CES parameters via LLM for consumers                                                                                                                         |
 
-## 🤖 Supported LLM Models
 
-### Cloud APIs
+### Simulation Parameters
 
-**OpenAI Models:**
-- `gpt-4o` - Most capable, highest cost
-- `gpt-4o-mini` - Fast and cost-effective (recommended)
 
-**Via OpenRouter (requires OPENROUTER_API_KEY):**
-- `meta-llama/llama-3.1-8b-instruct` - Open source, good performance
-- `meta-llama/llama-3.1-70b-instruct` - Larger Llama model
-- `anthropic/claude-3.5-sonnet` - Excellent reasoning
-- `google/gemini-flash-1.5` - Fast Google model
+| Argument                             | Default          | Description                                                                                                                              |
+| ------------------------------------ | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `--consumer-scenario`                | `RACE_TO_BOTTOM` | `RACE_TO_BOTTOM`, `EARLY_BIRD`, `PRICE_DISCRIMINATION`, `RATIONAL_BAZAAR`, `BOUNDED_BAZAAR`, `THE_CRASH`, `LEMON_MARKET`                 |
+| `--consumer-type`                    | `CES`            | `CES` or `FIXED` consumer agents                                                                                                         |
+| `--max-timesteps`                    | `100`            | Simulation length                                                                                                                        |
+| `--discovery-limit-consumers`        | `3`              | Max firms a consumer polls before ordering (`0` = no limit)                                                                              |
+| `--discovery-limit-firms`            | `0`              | Max competitors each firm observes (`0` = no limit)                                                                                      |
+| `--wtp-algo`                         | `none`           | `none` (always order), `wtp` (CES willingness-to-pay), `ewtp` (expected WTP)                                                             |
+| `--poisson-demand-lambda`            | —                | Poisson arrival rate for consumer participation per step. Default: all consumers participate (THE_CRASH defaults to 0.6 × num_consumers) |
+| `--info-asymmetry`                   | off              | Enable noisy competitor price observations for firms                                                                                     |
+| `--crash-rep-scoring`                | off              | THE_CRASH: score quotes by reputation/price instead of 1/price                                                                           |
+| `--dynamic-labor`                    | off              | Re-sample CES labor each timestep (vs. fixed at t=0)                                                                                     |
+| `--consumption-interval`             | `1`              | Run consumer inventory consumption every N timesteps                                                                                     |
+| `--num-goods`                        | `1`              | Number of goods in the simulation                                                                                                        |
+| `--fixed-consumer-quantity-per-good` | `10.0`           | Quantity per good for FIXED consumers                                                                                                    |
+| `--listing-corpus`                   | —                | LEMON_MARKET: path to pre-compiled listing corpus (eliminates seller LLM calls). See `scripts/compile_listing_corpus.py`                 |
+| `--allow-listing-persistence`        | off              | LEMON_MARKET: carry unsold listings forward instead of discarding each step                                                              |
 
-**Google Gemini (requires GOOGLE_API_KEY):**
-- `gemini-1.5-pro` - Most capable Gemini model
-- `gemini-1.5-flash` - Fast and efficient (recommended)
 
-### Local Deployment
+### Lemon Market Parameters
 
-**vLLM (Recommended for local deployment):**
-```bash
-# Start vLLM server
-vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
 
-# Use in simulation
-python -m llm_economist.main --llm meta-llama/Llama-3.1-8B-Instruct --service vllm --port 8000
-```
+| Argument                    | Default | Description                                                                                         |
+| --------------------------- | ------- | --------------------------------------------------------------------------------------------------- |
+| `--reputation-initial`      | `0.8`   | Initial seller reputation R₀ (default `1.0` when no Sybil)                                          |
+| `--reputation-pseudo-count` | `10`    | Rolling vote-window size N. `reputation = upvotes in last N / N`                                    |
+| `--sybil-rho-min`           | `0.3`   | Sybil rotation threshold: when R < rho_min, spawn new identity at `--reputation-initial`            |
+| `--no-buyer-rep`            | off     | Withhold seller reputation from buyer observations (ablation)                                       |
+| `--no-seller-ids`           | off     | Omit seller identifiers from buyer observations; listings get ephemeral per-round labels (ablation) |
+| `--lemon-base-buyer`        | off     | Minimal buyer prompt with no transaction history (ablation)                                         |
 
-**Ollama (Easy local setup):**
-```bash
-# Install and start Ollama
-ollama pull llama3.1:8b
-ollama serve
 
-# Use in simulation
-python -m llm_economist.main --llm llama3.1:8b --service ollama --port 11434
-```
+### LLM Configuration
 
-## 📊 Experiment Scripts
 
-### Pre-configured Experiments
+| Argument                       | Default     | Description                                                                              |
+| ------------------------------ | ----------- | ---------------------------------------------------------------------------------------- |
+| `--llm`                        | `llama3:8b` | Model name. Examples: `gemini-2.5-flash`, `gpt-4o`, `meta-llama/llama-3.1-8b-instruct`   |
+| `--buyer-llm`                  | —           | LEMON_MARKET: model for buyer agents (falls back to `--llm`)                             |
+| `--seller-llm`                 | —           | LEMON_MARKET: model for honest sellers and Sybil principal (falls back to `--llm`)       |
+| `--stab-llm`                   | —           | THE_CRASH: model name for Stabilizing Firms (e.g. a vLLM LoRA adapter alias like `stab`) |
+| `--service`                    | `vllm`      | `vllm` or `ollama` for local models                                                      |
+| `--buyer-service`              | —           | LEMON_MARKET: service for buyer agents (falls back to `--service`)                       |
+| `--seller-service`             | —           | LEMON_MARKET: service for seller agents (falls back to `--service`)                      |
+| `--port`                       | `8009`      | Port for LLM service                                                                     |
+| `--buyer-port`                 | —           | LEMON_MARKET: port for buyer LLM (falls back to `--port`)                                |
+| `--seller-port`                | —           | LEMON_MARKET: port for seller LLM (falls back to `--port`)                               |
+| `--gemini-backend`             | auto        | `studio` (API key) or `vertex` (Vertex AI). Auto-detects from env vars                   |
+| `--openrouter-provider`        | —           | Preferred OpenRouter provider(s) (e.g. `anthropic`, `Together`)                          |
+| `--buyer-openrouter-provider`  | —           | LEMON_MARKET: OpenRouter provider for buyer agents                                       |
+| `--seller-openrouter-provider` | —           | LEMON_MARKET: OpenRouter provider for seller agents                                      |
+| `--prompt-algo`                | `io`        | `io` (input-output) or `cot` (chain-of-thought)                                          |
+| `--history-len`                | `3`         | Timesteps of history sent in each firm prompt                                            |
+| `--best-n`                     | `3`         | Best-N slab size for Stabilizing Firm prompts (`0` to disable)                           |
+| `--max-tokens`                 | `1000`      | Maximum output tokens per LLM call                                                       |
+| `--timeout`                    | `30`        | LLM call timeout in seconds                                                              |
+| `--use-parsing-agent`          | off         | Use a secondary LLM call to repair malformed JSON responses                              |
 
-Run the experiments from the paper:
 
-```bash
-# All experiments
-python experiments/run_experiments.py --experiment all
+### Logging and Output
 
-# Specific experiments
-python experiments/run_experiments.py --experiment rational
-python experiments/run_experiments.py --experiment bounded
-python experiments/run_experiments.py --experiment democratic
-python experiments/run_experiments.py --experiment llm_comparison
-python experiments/run_experiments.py --experiment scalability
-```
 
-### Custom Experiments
+| Argument                   | Default  | Description                                                              |
+| -------------------------- | -------- | ------------------------------------------------------------------------ |
+| `--name`                   | `""`     | Run name (used as log directory label)                                   |
+| `--log-dir`                | `logs`   | Base directory for output files                                          |
+| `--seed`                   | `42`     | Random seed                                                              |
+| `--wandb`                  | off      | Enable Weights & Biases logging                                          |
+| `--no-diaries`             | off      | Disable strategic diary entries in agent prompts                         |
+| `--log-firm-prompts`       | off      | Log firm prompt/response pairs to file                                   |
+| `--log-crash-firm-prompts` | off      | THE_CRASH: append firm prompts to `crash_agent_prompts.jsonl`            |
+| `--log-buyer-prompts`      | off      | LEMON_MARKET: append buyer prompts to `lemon_agent_prompts.jsonl`        |
+| `--log-seller-prompts`     | off      | LEMON_MARKET: append seller/Sybil prompts to `lemon_agent_prompts.jsonl` |
+| `--log-alignment-traces`   | off      | Log `(state, prompt, response, outcome)` tuples for SFT data collection  |
+| `--reward-type`            | `PROFIT` | `PROFIT` or `REVENUE` reward signal                                      |
 
-```bash
-# Chain of thought prompting
-python -m llm_economist.main --prompt-algo cot --llm gpt-4o
 
-# Input-output prompting (default)
-python -m llm_economist.main --prompt-algo io --llm gpt-4o-mini
+### Shock Parameters (Experiment 3)
 
-# Large scale simulation
-python -m llm_economist.main --num-agents 100 --max-timesteps 2000
-```
 
-## 📈 Examples
+| Argument                          | Default | Description                                             |
+| --------------------------------- | ------- | ------------------------------------------------------- |
+| `--shock-timestep`                | —       | Timestep at which to inject the shock                   |
+| `--post-shock-unit-cost`          | —       | New unit cost after supply shock (THE_CRASH)            |
+| `--post-shock-sybil-cluster-size` | —       | New Sybil cluster size after flood shock (LEMON_MARKET) |
 
-The framework provides two types of examples:
 
-### Basic Functionality Tests
+---
 
-For quick validation of imports, setup, and basic functionality:
+## Running Experiments
 
-```bash
-# Test all basic functionality
-python examples/quick_start.py
+All experiment scripts live in `scripts/` and must be run from the **project root**. Use `--list` to preview runs without executing, and `--skip-existing` to resume partial sweeps.
 
-# Run specific basic tests
-python examples/quick_start.py --help
-```
+### Experiment 1 — THE_CRASH
 
-The quick start script validates:
-- Package imports and dependencies
-- Argument parser configuration
-- API key detection
-- Basic Args object creation
-- Service configurations
+5 LLM firms, 50 CES consumers, 365 timesteps. Sweeps stabilizing firm count and consumer discovery limit.
 
-### Advanced Usage Examples
-
-For actual simulation testing with 20-timestep runs:
-
-```bash
-# Run all simulation scenarios
-python examples/advanced_usage.py
-
-# Test specific scenarios
-python examples/advanced_usage.py rational          # OpenAI GPT-4o-mini
-python examples/advanced_usage.py bounded           # Bounded rationality with personas
-python examples/advanced_usage.py democratic        # Democratic voting mechanism
-python examples/advanced_usage.py fixed             # Fixed workers with LLM planner
-
-# Test different LLM providers
-python examples/advanced_usage.py openrouter        # OpenRouter API
-python examples/advanced_usage.py vllm              # Local vLLM server
-python examples/advanced_usage.py ollama            # Local Ollama
-python examples/advanced_usage.py gemini            # Google Gemini
-
-# Show available scenarios
-python examples/advanced_usage.py --help
-```
-
-All advanced examples use 20 timesteps for thorough testing while remaining fast for development.
-
-### Example Organization
-
-The examples are organized to provide clear separation of concerns:
-
-- **`quick_start.py`**: Lightweight validation of basic functionality without running simulations
-  - Tests imports and dependencies
-  - Validates configuration setup
-  - Checks API key availability
-  - Fast execution (< 10 seconds)
-
-- **`advanced_usage.py`**: Full simulation testing with real LLM APIs
-  - 20-timestep economic simulations
-  - All scenarios: rational, bounded, democratic, fixed workers
-  - Multiple LLM providers: OpenAI, OpenRouter, vLLM, Ollama, Gemini
-  - Realistic testing (2-10 minutes per scenario)
-
-## 🧪 Testing
-
-The framework includes comprehensive tests organized into three categories:
-
-### Basic Functionality Tests
+**Full matrix (54 runs):** baseline (k=0) over dlc ∈ {1,3,5} × seeds {8,16,64} + stabilizing-firm sweeps over dlc ∈ {1,3,5} × n_stab ∈ {1,2,3,4,5} × seeds {8,16,64}.
 
 ```bash
-# Test basic functionality (imports, setup, configuration)
-pytest tests/test_quickstart.py -v
+# Run all 54 cells sequentially
+python scripts/exp1.py
 
-# Test individual components
-python examples/quick_start.py  # Direct basic functionality validation
+# Parallel (keep workers low to respect API rate limits)
+python scripts/exp1.py --workers 3
+
+# Use a different model
+python scripts/exp1.py --llm gemini-2.5-flash
+
+# Local model via Ollama
+python scripts/exp1.py --llm gemma3:4b --service ollama --port 11434
+
+# Via OpenRouter with a specific provider
+python scripts/exp1.py --llm anthropic/claude-sonnet-4-6 --openrouter-provider anthropic
+
+# Filter: only dlc=3, n_stab=1 or 3, seed=8
+python scripts/exp1.py --dlc 3 --n-stab 1 3 --seeds 8
+
+# Resume a partial run
+python scripts/exp1.py --skip-existing --workers 3
+
+# Preview matching runs without launching (RECOMMENDED BEFORE LAUNCHING A JOB)
+python scripts/exp1.py --dlc 3 --n-stab 1 3 --list
 ```
 
-### Integration Tests
+**Filter flags:** `--dlc`, `--n-stab`, `--seeds`, `--run` (exact labels), `--skip-existing`
+
+Logs: `logs/exp1_<model>/`
+
+---
+
+#### Experiment 1 — EAS × Model Size sweep
+
+Runs the full Exp1 matrix for all dense open-weight models (3B–405B) via OpenRouter. See `OPEN_WEIGHTS_MODELS.md` for the full model list.
 
 ```bash
-# Test LLM model integrations
-pytest tests/test_models.py -v
+# All models, 4 parallel workers
+python scripts/exp1_eas_sweep.py --workers 4 --skip-existing
 
-# Test simulation logic with mocking
-pytest tests/test_simulation.py -v
+# Only dlc=3, k=3 cells (for the health-vs-size scatter)
+python scripts/exp1_eas_sweep.py --dlc 3 --n-stab 3 --workers 4
 
-# Test advanced usage scenarios (requires API keys)
-pytest tests/test_advanced_usage.py -v
+# Subset of models by name substring
+python scripts/exp1_eas_sweep.py --models llama-3.2-3b gemma-3-4b --workers 2
 ```
 
-### End-to-End Tests
+---
+
+### Experiment 2 — LEMON_MARKET
+
+12 sellers (honest = 12 − K, Sybil = K), 12 LLM buyers, 50 timesteps. Sweeps Sybil saturation and reputation visibility.
+
+**Full matrix (24 runs):** K ∈ {0,3,6,9} × rep_visible ∈ {True,False} × seeds {8,16,64}.
 
 ```bash
-# Test actual simulations with real APIs
-python examples/advanced_usage.py           # All scenarios
-python examples/advanced_usage.py rational  # Specific scenario
+# All 24 cells
+python scripts/exp2.py --seller-llm google/gemma-3-12b-it
+
+# Parallel
+python scripts/exp2.py --seller-llm google/gemma-3-12b-it --workers 3
+
+# Split buyer and seller models
+python scripts/exp2.py \
+  --seller-llm google/gemma-3-12b-it --seller-openrouter-provider Together \
+  --buyer-llm anthropic/claude-sonnet-4-6 --buyer-openrouter-provider anthropic
+
+# Prompt logging
+python scripts/exp2.py --log-buyer-prompts --log-seller-prompts
+
+# Filter: only K=3 and K=6, rep hidden
+python scripts/exp2.py --k 3 6 --rep-visible 0
 ```
 
-### Full Test Suite
+**Filter flags:** `--k`, `--rep-visible` (1=visible, 0=hidden), `--seeds`, `--run`, `--skip-existing`
+
+---
+
+#### Experiment 2-2 — No Seller IDs ablation
+
+Identical to Exp2 with `--no-seller-ids` hardwired, isolating whether buyers can detect lemons without cross-round seller tracking.
 
 ```bash
-# Run all tests
-pytest -v
-
-# Run with coverage
-pytest --cov=llm_economist --cov-report=html
+python scripts/exp2_2.py --llm gemini-2.5-flash --workers 3
 ```
 
-### Test Requirements
+---
 
-- **API Keys**: Advanced usage and integration tests require API keys:
-  - `OPENAI_API_KEY` or `ECON_OPENAI` (required for most tests)
-  - `OPENROUTER_API_KEY` (optional, for OpenRouter tests)
-  - `GOOGLE_API_KEY` (optional, for Gemini tests)
-- **Real Integration**: Advanced tests use actual LLM APIs to ensure end-to-end functionality
-- **Fast Execution**: All tests use 20 timesteps or less for quick validation
-- **Local Servers**: vLLM and Ollama tests require running local servers (will skip if not available)
+#### Experiment 2 — EAS × Buyer Model sweep
 
-## 🎭 Agent Personas
-
-The framework generates realistic agent personas using:
-
-1. **Demographic Sampling**: Real occupation, age, and gender statistics from census data
-2. **LLM Generation**: Each persona is uniquely generated based on sampled demographics
-3. **Economic Realism**: Personas include realistic income levels, risk tolerance, and life circumstances
-
-Example generated personas:
-- *"You are a 55-year-old female working as a licensed practical nurse... With over 30 years of experience, you prioritize savings for retirement and healthcare needs."*
-- *"You are a 53-year-old male working as a welding worker... concerns about retirement savings keep you financially cautious."*
-
-## 📚 Research Reproduction
-
-To reproduce the experiments from the LLM Economist paper:
-
-### Setup
-
-1. **Environment Setup:**
-   ```bash
-   git clone https://github.com/sethkarten/LLMEconomist.git
-   cd LLMEconomist
-   pip install -e .
-   export WANDB_API_KEY="your_wandb_key"  # For experiment tracking
-   ```
-
-2. **LLM Setup (choose one):**
-   
-   **Option A: OpenAI (easiest):**
-   ```bash
-   export OPENAI_API_KEY="your_key"
-   ```
-   
-   **Option B: Local vLLM (most cost-effective):**
-   ```bash
-   # Start vLLM server with Llama 3.1 8B
-   vllm serve meta-llama/Llama-3.1-8B-Instruct --tensor-parallel-size 1 --port 8000
-   ```
-
-### Main Experiments
+Sweeps buyer model capability against a fixed seller model.
 
 ```bash
-# Rational agents 
-python experiments/run_experiments.py --experiment rational --wandb
-
-# Bounded rationality 
-python experiments/run_experiments.py --experiment bounded --wandb
-
-# Democratic voting 
-python experiments/run_experiments.py --experiment democratic --wandb
-
-# LLM comparison 
-python experiments/run_experiments.py --experiment llm_comparison --wandb
-
-# Scalability analysis 
-python experiments/run_experiments.py --experiment scalability --wandb
-
-
+python scripts/exp2_eas_sweep.py --seller-llm google/gemma-3-12b-it --workers 4 --skip-existing
 ```
 
-## 🚀 Advanced Features
+---
 
-### Custom Agent Types
+### Experiment 3 — Adversarial Shocks
 
-Extend the framework with custom agent behaviors:
+Applies mid-episode shocks to measure market resilience.
 
-```python
-from llm_economist.agents.worker import Worker
 
-class CustomWorker(Worker):
-    def compute_utility(self, income, rebate):
-        # Custom utility function
-        return your_custom_utility_logic(income, rebate)
-```
+| Sub-experiment | Scenario     | Shock                          | Timing |
+| -------------- | ------------ | ------------------------------ | ------ |
+| **exp3a**      | THE_CRASH    | Unit cost $1 → $10             | t = 25 |
+| **exp3b**      | LEMON_MARKET | Sybil cluster → 80% saturation | t = 15 |
 
-### Custom LLM Models
 
-Add support for new LLM providers:
-
-```python
-from llm_economist.models.base import BaseLLMModel
-
-class CustomLLMModel(BaseLLMModel):
-    def send_msg(self, system_prompt, user_prompt, temperature=None, json_format=False):
-        # Implement your model's API
-        return response, is_json
-```
-
-### Experiment Tracking
-
-Enable detailed experiment tracking with Weights & Biases:
+**Full matrix (36 runs):** 18 crash (n_stab ∈ {1,3,5} × dlc ∈ {3,5} × seeds) + 18 lemon (k_initial ∈ {3,6,9} × rep_visible × seeds).
 
 ```bash
-python -m llm_economist.main --wandb --scenario bounded --num-agents 20
+# All 36 runs
+python scripts/exp3.py
+
+# Only crash or lemon sub-experiment
+python scripts/exp3.py --experiment crash
+python scripts/exp3.py --experiment lemon
+
+# Override the model under test
+python scripts/exp3.py --test-llm anthropic/claude-sonnet-4-6 --openrouter-provider anthropic
 ```
 
-## 🐛 Troubleshooting
+You can also run shocks directly:
 
-### Common Issues
-
-**API Key Errors:**
 ```bash
-# Make sure your API keys are set correctly
-echo $OPENAI_API_KEY
-echo $OPENROUTER_API_KEY
-echo $GOOGLE_API_KEY
+# Supply shock at t=25
+python -m ai_bazaar.main \
+  --consumer-scenario THE_CRASH \
+  --firm-type LLM --num-firms 5 --num-consumers 50 \
+  --use-cost-pref-gen --overhead-costs 14 --max-timesteps 100 \
+  --shock-timestep 25 --post-shock-unit-cost 10.0 \
+  --llm gemini-3-flash-preview --seed 8
+
+# Sybil flood at t=15
+python -m ai_bazaar.main \
+  --consumer-scenario LEMON_MARKET \
+  --num-sellers 12 --num-buyers 12 \
+  --sybil-cluster-size 3 --reputation-initial 0.8 \
+  --max-timesteps 50 \
+  --shock-timestep 15 --post-shock-sybil-cluster-size 36 \
+  --llm gemini-3-flash-preview --seed 8
 ```
 
-**Local Model Connection:**
+---
+
+### Experiment 5 — Discovery Limit Firms (DLF) ablation
+
+Mirrors Exp1 but sweeps firm-side price discovery (`--discovery-limit-firms`) with consumer discovery held at dlc=3.
+
 ```bash
-# Check if vLLM server is running
-curl http://localhost:8000/health
+python scripts/exp5.py --workers 3
 
-# Check Ollama status
-ollama list
+# Filter by DLF value
+python scripts/exp5.py --dlf 3 --n-stab 1 2
 ```
 
-**Memory Issues:**
-- Reduce `--num-agents` for large simulations
-- Use `gpt-4o-mini` instead of `gpt-4o` for cost efficiency
-- Adjust `--history-len` to reduce memory usage
+---
 
-**Rate Limiting:**
-- Add delays between API calls
-- Use local models (vLLM/Ollama) for unrestricted access
-- Switch to OpenRouter for higher rate limits
+### Experiment 6 — Consumer Procedural Personas
 
-**Test Failures:**
-- Ensure API keys are set for quickstart tests
-- Check network connectivity for cloud API tests
-- Verify local model servers are running for local tests
+Tests demand-side heterogeneity with behavioral consumer personas (`LOYAL`, `SMALL_BIZ`, `PRICE_HAWK`, `POPULAR`, `VARIETY`) at dlc=5.
 
-## 📄 Citation
+```bash
+python scripts/exp6.py
 
-If you use this framework in your research, please cite:
+# Parallel with a specific model
+python scripts/exp6.py --llm gemini-2.5-flash --workers 3
+```
+
+---
+
+## Running on HPC (Slurm)
+
+For large sweeps on a GPU cluster, start a single vLLM server with LoRA serving to route base model and adapter requests to one GPU:
+
+```bash
+# Start vLLM with LoRA adapters
+python -m vllm.entrypoints.openai.api_server \
+  --model ./models/Qwen3.5-9B \
+  --enable-lora \
+  --lora-modules stab=./models/ai-bazaar-checkpoints/crash_stabilizer \
+                 guardian=./models/ai-bazaar-checkpoints/lemon_guardian \
+  --port 8000 --gpu-memory-utilization 0.7
+
+# Run exp1 against the base model, with Stabilizing Firms using the LoRA adapter
+python scripts/exp1.py \
+  --llm ./models/Qwen3.5-9B \
+  --stab-llm stab \
+  --service vllm --port 8000 \
+  --workers 5 --skip-existing
+```
+
+The listing corpus (`data/listing_corpus.json`) eliminates seller LLM calls in lemon experiments, saving compute:
+
+```bash
+python -m ai_bazaar.main \
+  --consumer-scenario LEMON_MARKET \
+  --num-sellers 12 --num-buyers 12 \
+  --sybil-cluster-size 3 \
+  --listing-corpus data/listing_corpus.json \
+  --buyer-llm guardian --service vllm --port 8000 \
+  --max-timesteps 50 --seed 8
+
+# Rebuild the corpus from existing logs
+python scripts/compile_listing_corpus.py
+```
+
+---
+
+## Testing
+
+```bash
+# Run the full test suite
+pytest tests/ -v
+
+# With coverage
+pytest tests/ --cov=ai_bazaar --cov-report=html
+
+# Individual test modules
+pytest tests/test_bazaar_env.py -v
+pytest tests/test_lemon_market.py -v
+pytest tests/test_buyer_agent.py -v
+```
+
+Most tests are self-contained. Tests that make live API calls (`test_models.py`, `test_advanced_usage.py`) require the relevant API keys.
+
+---
+
+## Supported Models
+
+Any model accessible via the following backends is supported:
+
+
+| Backend                    | Flag                                             | Examples                                                       |
+| -------------------------- | ------------------------------------------------ | -------------------------------------------------------------- |
+| Google Gemini (AI Studio)  | `--llm gemini-2.5-flash`                         | `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash-preview` |
+| Google Vertex AI           | `--llm gemini-2.5-flash --gemini-backend vertex` | Same model IDs                                                 |
+| OpenAI                     | `--llm gpt-4o`                                   | `gpt-4o`, `gpt-4o-mini`, `gpt-5.4`                             |
+| Anthropic (via OpenRouter) | `--llm anthropic/claude-sonnet-4-6`              | Any Anthropic model slug                                       |
+| OpenRouter                 | `--llm org/model-name`                           | Any model on [openrouter.ai](https://openrouter.ai/models)     |
+| Ollama (local)             | `--service ollama --llm llama3.1:8b`             | Any model in `ollama list`                                     |
+| vLLM (local)               | `--service vllm --llm hf/model-id`               | Any HF model or LoRA alias                                     |
+
+
+See `OPEN_WEIGHTS_MODELS.md` for the full list of tested open-weight models and their OpenRouter IDs.
+
+---
+
+## Citation
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+This framework builds on the LLM Economist:
 
 ```bibtex
 @article{karten2025llm,
@@ -516,6 +613,6 @@ If you use this framework in your research, please cite:
 }
 ```
 
-## 📝 License
+## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License — see [LICENSE](LICENSE) for details.

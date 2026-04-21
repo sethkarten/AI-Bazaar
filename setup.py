@@ -11,7 +11,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
     requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
 
 setup(
-    name="llm-economist",
+    name="ai-bazaar",
     version="1.0.0",
     author="Seth Karten, Wenzhe Li, Zihan Ding, Samuel Kleiner, Yu Bai, Chi Jin",
     author_email="sethkarten@princeton.edu",
@@ -47,12 +47,12 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "llm-economist=llm_economist.main:main",
+            "ai-bazaar=ai_bazaar.main:main",
         ],
     },
     include_package_data=True,
     package_data={
-        "llm_economist": ["data/*.csv"],
+        "ai_bazaar": ["data/*.csv"],
     },
     zip_safe=False,
 ) 
